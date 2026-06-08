@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(curl -s http://localhost:5173/src/main.tsx)",
+      "Bash(curl -s -o /dev/null -w \"intake page: HTTP %{http_code}\\\\n\" http://localhost:5173/intake)",
+      "Bash(curl -s -o /dev/null -w \"home: HTTP %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(curl -s -o /dev/null -w \"journey: HTTP %{http_code}\\\\n\" http://localhost:5173/journey)",
+      "Bash(curl -s -o /dev/null -w \"home:%{http_code} journey:\" http://localhost:5173/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/journey)",
+      "Bash(curl -s -o /dev/null -w \"documents: HTTP %{http_code}\\\\n\" http://localhost:5173/documents)",
+      "Bash(curl -s -o /dev/null -w \"messages: HTTP %{http_code}\\\\n\" http://localhost:5173/messages)",
+      "Bash(perl -0pi -e 's/font-bold text-blume-dark/font-semibold text-blume-dark/g; s/text-2xl font-extrabold tracking-tight text-blume-dark/text-[26px] font-semibold tracking-tight text-blume-dark/g; s/text-sm font-bold transition/text-sm font-semibold transition/g; s/text-\\(sm|base\\) font-bold text-white/text-$1 font-semibold text-white/g; s/text-\\\\[11px\\\\] font-bold text-white/text-[11px] font-semibold text-white/g; s/text-\\\\[11px\\\\] font-bold uppercase tracking-wide/text-[11px] font-semibold uppercase tracking-[0.06em]/g' src/pages/Messages.tsx)",
+      "Bash(perl -0pi -e 's/font-bold text-blume-dark/font-semibold text-blume-dark/g; s/text-xs font-bold uppercase tracking-wide text-slate-400/text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400/g; s/text-sm font-bold uppercase text-white/text-[11px] font-semibold uppercase text-white/g; s/text-\\\\[11px\\\\] font-bold text-emerald-700/text-[11px] font-medium text-emerald-700/g; s/text-\\\\[11px\\\\] font-bold text-amber-700/text-[11px] font-medium text-amber-700/g; s/text-sm font-bold text-white shadow-soft transition hover:bg-blume-dark/text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blume-dark hover:shadow-soft/g; s/text-sm font-bold text-red-500/text-sm font-semibold text-red-500/g' src/pages/Settings.tsx)",
+      "Bash(brew install *)",
+      "Bash(pdfinfo \"/Users/shivankkancharla/Downloads/Logo - Google Slides.pdf\")",
+      "Bash(pdftoppm -png -r 200 \"/Users/shivankkancharla/Downloads/Logo - Google Slides.pdf\" /tmp/blume_logo)",
+      "Read(//private/tmp/**)",
+      "Bash(pdfimages -list \"/Users/shivankkancharla/Downloads/Logo - Google Slides.pdf\")",
+      "Bash(cat)",
+      "Bash(qlmanage -t -s 500 /tmp/logo_test.svg -o /tmp)",
+      "Bash(rm -f /tmp/logo_test.svg.png)"
+    ]
+  }
+}
