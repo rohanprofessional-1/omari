@@ -1,0 +1,267 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Omari design tokens — "clinical instrument, but humane" — BLUE system.
+   Defined once; reused everywhere via Tailwind utilities. No stray hex.
+   ───────────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-bg: #f5f7fa; /* app background — cool warm-neutral */
+  --color-canvas: #fcfdff; /* canvas / surfaces */
+  --color-ink: #16202e; /* primary text — deep blue-black */
+  --color-muted: #64748b; /* muted text — slate */
+  --color-line: #e2e8f0; /* hairline borders */
+  --color-accent: #2563eb; /* PRIMARY BLUE — core accent */
+  --color-accent-strong: #1e3a8a; /* deep blue — hovers / gradient end */
+  --color-bright: #3b82f6; /* bright blue — highlights / gradient start */
+  --color-sky: #eff5ff; /* sky tint — subtle fills / selected rows */
+  --color-danger: #b0413a; /* destructive (text/icon only) */
+  --color-nodevar: #2563eb; /* variable node — primary blue */
+  --color-nodespec: #4b9cd3; /* specialist node — UNC Carolina / Tar Heel blue */
+  --color-nodeesc: #d08a2c; /* escalation node — warm amber (intentional contrast) */
+  --color-carolina: #4b9cd3; /* UNC Carolina / Tar Heel blue — primary button */
+  --color-carolina-deep: #3d87be; /* button hover */
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* The signature gradient — defined once, reused with restraint. */
+:root {
+  --grad-blue: linear-gradient(135deg, #3b82f6 0%, #2563eb 52%, #1e3a8a 100%);
+  --grad-blue-bright: linear-gradient(135deg, #4f93ff 0%, #2f6dee 52%, #244aa3 100%);
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Gradient helpers ────────────────────────────────────────────────────── */
+.omari-grad {
+  background-image: var(--grad-blue);
+}
+.omari-grad-hover:hover {
+  background-image: var(--grad-blue-bright);
+}
+.omari-grad-text {
+  background-image: var(--grad-blue);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Visible keyboard focus on interactive elements. */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ── Entrance / motion keyframes ─────────────────────────────────────────── */
+@keyframes omari-fade-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes omari-fade-right {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes omari-node-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes omari-node-out {
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+@keyframes omari-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes omari-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.omari-enter-bar {
+  animation: omari-fade-down 340ms ease both;
+}
+.omari-enter-side {
+  animation: omari-fade-right 380ms ease both;
+}
+.omari-panel {
+  animation: omari-panel-in 220ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.omari-panel-content {
+  animation: omari-content-in 260ms ease 90ms both;
+}
+/* Chat message-in (fade + slight rise) — reuses the content-in motion. */
+.omari-msg {
+  animation: omari-content-in 240ms ease both;
+}
+/* Result-card reveal (fade + scale) — reuses the node-in motion. */
+.omari-reveal {
+  animation: omari-node-in 320ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+/* ── React Flow chrome → blue token system ───────────────────────────────── */
+.react-flow__attribution {
+  display: none;
+}
+
+.react-flow__controls {
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(22, 32, 46, 0.06);
+  margin: 14px;
+}
+.react-flow__controls-button {
+  background: var(--color-canvas);
+  border-bottom: 1px solid var(--color-line);
+  width: 30px;
+  height: 30px;
+}
+.react-flow__controls-button:hover {
+  background: var(--color-sky);
+}
+.react-flow__controls-button svg {
+  fill: var(--color-accent);
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(22, 32, 46, 0.06);
+  margin: 14px;
+}
+
+/* Connection handles: visible, grabbable; grow + brighten on hover. */
+.react-flow__handle {
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--color-canvas);
+  box-shadow: 0 0 0 1px var(--color-line);
+  transition:
+    transform 130ms ease,
+    box-shadow 130ms ease,
+    background-color 130ms ease;
+}
+.react-flow__handle:hover,
+.react-flow__handle.connecting,
+.react-flow__handle.connectingfrom {
+  transform: scale(1.35);
+  background-color: var(--color-bright) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35);
+}
+
+/* Edge label pill: white fill + hairline border + ink text. */
+.react-flow__edge-text {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  fill: var(--color-ink);
+}
+.react-flow__edge-textbg {
+  fill: var(--color-canvas);
+  stroke: var(--color-line);
+  stroke-width: 1px;
+}
+
+/* Subtle animated flow on the SELECTED edge only (not all edges). */
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 6 4;
+  animation: omari-dashflow 0.6s linear infinite;
+}
+@keyframes omari-dashflow {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* Node entrance + exit (also covers "add node" fade-scale-in).
+   IMPORTANT: animate the INNER card, never `.react-flow__node` itself —
+   React Flow uses that element's `transform` for positioning, so animating
+   its transform would clobber node placement. The inner card has no
+   positioning transform, and CSS transforms don't affect layout/measurement. */
+.react-flow__node > * {
+  animation: omari-node-in 300ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.react-flow__node:nth-child(1) > * { animation-delay: 0ms; }
+.react-flow__node:nth-child(2) > * { animation-delay: 22ms; }
+.react-flow__node:nth-child(3) > * { animation-delay: 44ms; }
+.react-flow__node:nth-child(4) > * { animation-delay: 66ms; }
+.react-flow__node:nth-child(5) > * { animation-delay: 88ms; }
+.react-flow__node:nth-child(6) > * { animation-delay: 110ms; }
+.react-flow__node:nth-child(7) > * { animation-delay: 132ms; }
+.react-flow__node:nth-child(8) > * { animation-delay: 154ms; }
+.react-flow__node:nth-child(9) > * { animation-delay: 176ms; }
+.react-flow__node:nth-child(10) > * { animation-delay: 198ms; }
+.react-flow__node:nth-child(11) > * { animation-delay: 220ms; }
+.react-flow__node:nth-child(12) > * { animation-delay: 242ms; }
+.react-flow__node.omari-leaving > * {
+  animation: omari-node-out 150ms ease forwards;
+}
+
+/* ── Respect reduced motion ──────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+  .react-flow__handle {
+    transition: none;
+  }
+}

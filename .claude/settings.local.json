@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT: $?  \\(typecheck clean if no errors above\\)\")",
+      "Bash(npm run *)",
+      "Bash(grep -q \"Local:\" /private/tmp/claude-501/-Users-shivankkancharla-Project-Omari/7533c6fa-48c7-4bb7-84d9-f1bc6b29b52b/tasks/b33fbsjb3.output)",
+      "Bash(break)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(curl -s http://localhost:5173/src/main.tsx -o /dev/null -w \"main.tsx: HTTP %{http_code}\\\\n\")",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(echo \"TSC EXIT: $?\")",
+      "Bash(npm test *)",
+      "Bash(echo \"exit code on all-pass: $?\")",
+      "Bash(curl -s -o /dev/null -w \"root: HTTP %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(tail -n 15 /private/tmp/claude-501/-Users-shivankkancharla-Project-Omari/7533c6fa-48c7-4bb7-84d9-f1bc6b29b52b/tasks/b33fbsjb3.output)",
+      "Skill(claude-api)",
+      "Bash(node --check server/index.mjs)",
+      "Bash(node --check scripts/test-extract.mjs)",
+      "Bash(node --check scripts/test-phrase.mjs)",
+      "Bash(echo \"TSC:$?\")",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(echo \"TSC_EXIT:$?\")",
+      "Bash(echo \"TEST_EXIT:$?\")",
+      "Bash(echo \"BUILD_EXIT:$?\")",
+      "Bash(curl -s -o /dev/null -w \"5173 HTTP %{http_code}\\\\n\" http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \"8787 HTTP %{http_code}\\\\n\" http://localhost:8787/api/extract -X POST)",
+      "Bash(grep -rn \"lib/extraction'\" src scripts)",
+      "Bash(grep -rn \"from '\\\\.\\\\./lib/extraction'\\\\|from '\\\\./extraction'\\\\|from '\\\\.\\\\./\\\\.\\\\./src/lib/extraction'\" src scripts)",
+      "Bash(git rev-parse *)",
+      "Bash(git check-ignore *)",
+      "Bash(cat /tmp/omari-server.log)",
+      "Bash(lsof -nP -iTCP:8787 -sTCP:LISTEN)",
+      "Bash(awk '/^function ReferralSentCard/,/^}/' src/pages/Runner.tsx)",
+      "Bash(npx esbuild *)",
+      "Bash(pkill -f \"server/index.mjs\")",
+      "Bash(node server/index.mjs)"
+    ]
+  }
+}
