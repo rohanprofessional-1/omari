@@ -1,0 +1,60 @@
+.sidebar {
+  width: 192px;
+  flex-shrink: 0;
+  border-right: 0.5px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.section { padding: 0 6px 6px; }
+
+.sectionLabel {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-tertiary);
+  padding: 10px 4px 5px;
+}
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.paletteNode {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: var(--radius-md);
+  border: 0.5px solid transparent;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: grab;
+  user-select: none;
+  transition: filter 0.12s;
+}
+
+.paletteNode:hover  { filter: brightness(0.95); }
+.paletteNode:active { cursor: grabbing; }
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.hint {
+  margin-top: auto;
+  padding: 8px 10px;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  border-top: 0.5px solid var(--border-tertiary);
+  text-align: center;
+}

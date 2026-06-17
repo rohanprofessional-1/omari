@@ -1,0 +1,116 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 14px;
+  background: #FCEBEB;
+  border-bottom: 0.5px solid #F7C1C1;
+  flex-shrink: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .bar { background: #501313; border-color: #791F1F; }
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #A32D2D;
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  .label { color: #F7C1C1; }
+}
+
+.flags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+  align-items: center;
+}
+
+.flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 0.5px solid #F09595;
+  background: #ffffff;
+  color: #A32D2D;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.flag:hover { background: #fde8e8; }
+
+.flag.active {
+  background: #E24B4A;
+  border-color: #A32D2D;
+  color: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .flag { background: #791F1F; border-color: #A32D2D; color: #F7C1C1; }
+  .flag.active { background: #E24B4A; color: #ffffff; }
+}
+
+.addBtn {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 0.5px solid var(--border-secondary);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.addBtn:hover { background: var(--bg-secondary); }
+
+.addForm {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.addInput {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 7px;
+  border-radius: var(--radius-md);
+  border: 0.5px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  outline: none;
+  width: 140px;
+}
+
+.addConfirm {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  border: 0.5px solid #A32D2D;
+  background: #E24B4A;
+  color: #fff;
+  cursor: pointer;
+}
+
+.addCancel {
+  font-size: 11px;
+  font-family: inherit;
+  padding: 3px 6px;
+  border-radius: var(--radius-md);
+  border: 0.5px solid var(--border-secondary);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}

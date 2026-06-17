@@ -1,0 +1,91 @@
+/* ─── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ─── Design tokens ─────────────────────────────────────────────────────────── */
+:root {
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", "Fira Code", monospace;
+
+  --bg-primary:   #ffffff;
+  --bg-secondary: #f8f8f8;
+  --bg-tertiary:  #f0f0f0;
+
+  --text-primary:   #111111;
+  --text-secondary: #555555;
+  --text-tertiary:  #888888;
+  --text-danger:    #b91c1c;
+  --text-info:      #1d6fb8;
+
+  --border-primary:   #cccccc;
+  --border-secondary: #e0e0e0;
+  --border-tertiary:  #eeeeee;
+  --border-danger:    #fca5a5;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.06);
+  --shadow-md: 0 2px 8px rgba(0,0,0,.08);
+  --shadow-ring: 0 0 0 2px #378ADD;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary:   #1a1a1a;
+    --bg-secondary: #222222;
+    --bg-tertiary:  #2a2a2a;
+
+    --text-primary:   #e8e8e8;
+    --text-secondary: #aaaaaa;
+    --text-tertiary:  #666666;
+    --text-danger:    #f87171;
+    --text-info:      #60a5fa;
+
+    --border-primary:   #444444;
+    --border-secondary: #333333;
+    --border-tertiary:  #2c2c2c;
+    --border-danger:    #7f1d1d;
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  line-height: 1.5;
+}
+
+/* ─── Node color classes ──────────────────────────────────────────────────────
+   Each node type gets a semantic color. Add new types here when extending
+   the registry — that's the only CSS change needed for a new node type.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.n-condition    { background: #E6F1FB; border-color: #B5D4F4; color: #0C447C; }
+.n-routing      { background: #E1F5EE; border-color: #9FE1CB; color: #085041; }
+.n-workup       { background: #FAEEDA; border-color: #FAC775; color: #633806; }
+.n-redirect     { background: #EEEDFE; border-color: #CECBF6; color: #26215C; }
+.n-escalation   { background: #FCEBEB; border-color: #F7C1C1; color: #501313; }
+.n-prior-tx     { background: #EAF3DE; border-color: #C0DD97; color: #173404; }
+.n-laterality   { background: #FBEAF0; border-color: #F4C0D1; color: #4B1528; }
+.n-imaging-gate { background: #F1EFE8; border-color: #D3D1C7; color: #2C2C2A; }
+.n-patient-attr { background: #E6F1FB; border-color: #85B7EB; color: #042C53; }
+
+@media (prefers-color-scheme: dark) {
+  .n-condition    { background: #042C53; border-color: #0C447C; color: #B5D4F4; }
+  .n-routing      { background: #04342C; border-color: #085041; color: #9FE1CB; }
+  .n-workup       { background: #412402; border-color: #633806; color: #FAC775; }
+  .n-redirect     { background: #26215C; border-color: #3C3489; color: #CECBF6; }
+  .n-escalation   { background: #501313; border-color: #791F1F; color: #F7C1C1; }
+  .n-prior-tx     { background: #173404; border-color: #27500A; color: #C0DD97; }
+  .n-laterality   { background: #4B1528; border-color: #72243E; color: #F4C0D1; }
+  .n-imaging-gate { background: #2C2C2A; border-color: #444441; color: #D3D1C7; }
+  .n-patient-attr { background: #042C53; border-color: #185FA5; color: #85B7EB; }
+}
+
+/* ─── Utility classes ───────────────────────────────────────────────────────── */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+}
