@@ -1,6 +1,69 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────
+   Galaxie Copernicus (Village) — the app typeface, used for ALL text.
+   It's a licensed font (not on any CDN), so each weight loads from a
+   LOCALLY-INSTALLED copy first; for the web, drop the licensed .woff2 files
+   into /public/fonts with the names below and they'll be served from /fonts.
+   If neither is available it falls back to a system serif (see --font-sans).
+   ───────────────────────────────────────────────────────────────────────── */
+@font-face {
+  font-family: "Galaxie Copernicus";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src:
+    local("Galaxie Copernicus Book"), local("GalaxieCopernicus-Book"),
+    local("Galaxie Copernicus"),
+    url("/fonts/GalaxieCopernicus-Book.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Galaxie Copernicus";
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src:
+    local("Galaxie Copernicus Medium"), local("GalaxieCopernicus-Medium"),
+    url("/fonts/GalaxieCopernicus-Medium.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Galaxie Copernicus";
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src:
+    local("Galaxie Copernicus Semibold"), local("GalaxieCopernicus-Semibold"),
+    url("/fonts/GalaxieCopernicus-Semibold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Galaxie Copernicus";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src:
+    local("Galaxie Copernicus Bold"), local("GalaxieCopernicus-Bold"),
+    url("/fonts/GalaxieCopernicus-Bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Galaxie Copernicus";
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+  src:
+    local("Galaxie Copernicus Book Italic"), local("GalaxieCopernicus-BookItalic"),
+    url("/fonts/GalaxieCopernicus-BookItalic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Galaxie Copernicus";
+  font-weight: 600;
+  font-style: italic;
+  font-display: swap;
+  src:
+    local("Galaxie Copernicus Semibold Italic"), local("GalaxieCopernicus-SemiboldItalic"),
+    url("/fonts/GalaxieCopernicus-SemiboldItalic.woff2") format("woff2");
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
    Omari design tokens — "clinical instrument, but humane" — BLUE system.
    Defined once; reused everywhere via Tailwind utilities. No stray hex.
    ───────────────────────────────────────────────────────────────────────── */
@@ -20,9 +83,19 @@
   --color-nodeesc: #d08a2c; /* escalation node — warm amber (intentional contrast) */
   --color-carolina: #4b9cd3; /* UNC Carolina / Tar Heel blue — primary button */
   --color-carolina-deep: #3d87be; /* button hover */
+  /* Success greens — friendly iMessage-style light primary (#88E788) paired with
+     a deeper companion. --color-success is the DEEPER companion on purpose: it
+     drives the timeline's bg/text/border-success utilities, which must stay
+     legible on the near-white background (light mint fails contrast there).
+     --color-success-light is the friendly #88E788 for the orb + soft fills. */
+  --color-success: #2e9e5b; /* deeper companion — legible indicators/text on white */
+  --color-success-light: #88e788; /* primary friendly light green — orb highlight, fills */
+  --color-success-deep: #1f7a47; /* deepest green — for depth/harmony */
+  --color-success-soft: #eaf9ee; /* soft mint tint (parallels --color-sky) */
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Inter Tight", "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* Galaxie Copernicus everywhere (body + display), with serif system fallbacks. */
+  --font-sans: "Galaxie Copernicus", Georgia, Cambria, "Times New Roman", serif;
+  --font-display: "Galaxie Copernicus", Georgia, Cambria, "Times New Roman", serif;
 }
 
 /* The signature gradient — defined once, reused with restraint. */
@@ -151,6 +224,169 @@ textarea:focus-visible {
 .omari-reveal {
   animation: omari-node-in 320ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
+/* Tree mini-map: smoothly light up nodes/edges as state changes. The global
+   prefers-reduced-motion rule below collapses these to instant. */
+.omari-mini-node rect,
+.omari-mini-node text,
+.omari-mini-edge {
+  transition:
+    fill-opacity 300ms ease,
+    stroke-opacity 300ms ease,
+    stroke-width 300ms ease,
+    stroke 300ms ease,
+    fill 300ms ease;
+}
+
+/* ── Presentation-mode ORB (Omari's presence) ────────────────────────────────
+   Reuses the blue gradient token system. Pure CSS — a glow layer, a gradient
+   core that "breathes", a slow conic swirl, and a soft sheen. Distinct states
+   (asking / listening / thinking / reacting) only retune durations + intensity;
+   all keyframes rest at scale(1)/rotate(0) so prefers-reduced-motion (which
+   collapses animation below) leaves a calm, correct near-static orb. */
+@keyframes omari-orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.045); }
+}
+@keyframes omari-orb-rotate {
+  to { transform: rotate(360deg); }
+}
+@keyframes omari-orb-glow {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.12); }
+}
+@keyframes omari-orb-bloom {
+  0% { opacity: 0.5; transform: scale(1); }
+  35% { opacity: 0.9; transform: scale(1.2); }
+  100% { opacity: 0.5; transform: scale(1); }
+}
+/* One-step cross-fade for each presentation "moment". */
+@keyframes omari-orb-step {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.omari-orb {
+  position: relative;
+  width: clamp(170px, 32vw, 290px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.omari-orb-glow {
+  position: absolute;
+  inset: -16%;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle at 50% 45%,
+    rgba(79, 147, 255, 0.55),
+    rgba(37, 109, 238, 0.28) 45%,
+    rgba(37, 99, 235, 0) 70%
+  );
+  filter: blur(22px);
+  animation: omari-orb-glow 4.4s ease-in-out infinite;
+}
+.omari-orb-core {
+  position: relative;
+  width: 76%;
+  aspect-ratio: 1;
+  border-radius: 9999px;
+  overflow: hidden;
+  background-image: var(--grad-blue);
+  box-shadow:
+    inset 0 -18px 42px rgba(18, 28, 64, 0.55),
+    inset 0 14px 32px rgba(255, 255, 255, 0.28),
+    0 18px 54px rgba(37, 99, 235, 0.34);
+  animation: omari-orb-breathe 4.4s ease-in-out infinite;
+}
+.omari-orb-swirl {
+  position: absolute;
+  inset: -28%;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from 0deg,
+    rgba(79, 147, 255, 0),
+    rgba(130, 175, 255, 0.5),
+    rgba(30, 58, 138, 0),
+    rgba(79, 147, 255, 0.42),
+    rgba(79, 147, 255, 0)
+  );
+  mix-blend-mode: screen;
+  filter: blur(7px);
+  animation: omari-orb-rotate 17s linear infinite;
+}
+.omari-orb-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle at 36% 30%,
+    rgba(255, 255, 255, 0.62),
+    rgba(255, 255, 255, 0) 44%
+  );
+}
+/* LISTENING — a touch more responsive while the patient answers. */
+.omari-orb[data-state='listening'] .omari-orb-core { animation-duration: 3s; }
+.omari-orb[data-state='listening'] .omari-orb-glow { animation-duration: 3s; opacity: 0.6; }
+.omari-orb[data-state='listening'] .omari-orb-swirl { animation-duration: 12s; }
+/* THINKING — a more active swirl while extraction + engine run. */
+.omari-orb[data-state='thinking'] .omari-orb-core { animation-duration: 2.1s; }
+.omari-orb[data-state='thinking'] .omari-orb-glow { animation-duration: 2.1s; }
+.omari-orb[data-state='thinking'] .omari-orb-swirl { animation-duration: 5.5s; }
+/* REACTING — a warm brief bloom while Omari speaks / a step arrives. */
+.omari-orb[data-state='reacting'] .omari-orb-glow { animation: omari-orb-bloom 1.25s ease-in-out infinite; }
+.omari-orb[data-state='reacting'] .omari-orb-core { animation-duration: 2.6s; }
+.omari-orb[data-state='reacting'] .omari-orb-swirl { animation-duration: 9s; }
+
+.omari-orb-step {
+  animation: omari-orb-step 420ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+/* Quiet focus for the presentation input — NO bright blue ring. A soft border
+   tint + faint, barely-there halo (overrides the global focus-visible outline). */
+.omari-quiet-focus:focus,
+.omari-quiet-focus:focus-visible {
+  outline: none;
+  border-color: rgba(37, 99, 235, 0.35);
+  box-shadow:
+    0 1px 2px rgba(22, 32, 46, 0.06),
+    0 0 0 3px rgba(37, 99, 235, 0.07);
+}
+
+/* Wordless thinking pulse (replaces the "One moment…" text). */
+@keyframes omari-think {
+  0%, 100% {
+    opacity: 0.3;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.omari-think-dot {
+  animation: omari-think 1.3s ease-in-out infinite;
+}
+
+/* Presentation success beat (referral-sent only) — a soft, ambient green edge
+   glow that gently FRAMES the screen (a diffuse vignette, not a hard border).
+   Fades in once and stays steady; it never pulses, and prefers-reduced-motion
+   collapses the fade to instant via the global rule below. */
+@keyframes omari-success-glow-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.omari-success-glow {
+  /* Based on the deeper companion (#2e9e5b → rgb 46,158,91) so it actually reads
+     on the near-white screen — pure #88E788 would vanish here. Still soft/diffuse. */
+  box-shadow: inset 0 0 150px 46px rgba(46, 158, 91, 0.2);
+  background: radial-gradient(
+    125% 95% at 50% 50%,
+    rgba(46, 158, 91, 0) 56%,
+    rgba(46, 158, 91, 0.14) 100%
+  );
+  animation: omari-success-glow-in 900ms ease both;
+}
 
 /* ── React Flow chrome → blue token system ───────────────────────────────── */
 .react-flow__attribution {
@@ -199,9 +435,55 @@ textarea:focus-visible {
 .react-flow__handle:hover,
 .react-flow__handle.connecting,
 .react-flow__handle.connectingfrom {
-  transform: scale(1.35);
-  background-color: var(--color-bright) !important;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35);
+  /* Grow + glow on hover but KEEP the handle's own colour (per-bucket dots stay
+     colour-matched to their line instead of all flashing one blue). */
+  transform: scale(1.5);
+  box-shadow: 0 0 0 4px rgba(31, 36, 33, 0.12);
+}
+
+/* ── Builder edge captions + path isolation ──────────────────────────────── */
+/* Short answer caption, centered ON the edge (solid pill so it reads over the
+   line). The destination cue is a smaller chip at the arrow end. */
+.omari-edge-pill {
+  position: absolute;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--color-line);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  box-shadow: 0 1px 2px rgba(22, 32, 46, 0.06);
+  transition:
+    opacity 140ms ease,
+    color 140ms ease,
+    border-color 140ms ease;
+}
+.omari-edge-dest {
+  position: absolute;
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--color-line);
+  background: var(--color-canvas);
+  color: var(--color-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  transition: opacity 140ms ease;
+}
+/* Nodes not on the isolated path fade back so one thread stands out. */
+.omari-node-dim {
+  opacity: 0.32;
+  transition: opacity 150ms ease;
 }
 
 /* Edge label pill: white fill + hairline border + ink text. */

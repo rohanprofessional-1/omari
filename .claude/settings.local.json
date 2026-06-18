@@ -36,7 +36,31 @@
       "Bash(awk '/^function ReferralSentCard/,/^}/' src/pages/Runner.tsx)",
       "Bash(npx esbuild *)",
       "Bash(pkill -f \"server/index.mjs\")",
-      "Bash(node server/index.mjs)"
+      "Bash(node server/index.mjs)",
+      "Bash(echo \"  branch lines: $\\(grep -cE \"^\\\\s*\\\\{ label: \" src/data/dukeNerveTree.ts\\)\")",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5175/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8787/)",
+      "Bash(curl -s -X POST http://localhost:8787/api/extract -H 'content-type: application/json' -d '{\"text\":\"numb hand\",\"specs\":[],\"tree\":{}}' -o /dev/null -w \"%{http_code}\\\\n\")",
+      "Bash(node -e \"console.log\\('react', require\\('react/package.json'\\).version\\)\")",
+      "Bash(echo \"=== tsc exit: $? \\(clean if no errors above\\) ===\")",
+      "Bash(pkill -f \"vite\")",
+      "Bash(pkill -f \"concurrently\")",
+      "Bash(rm -rf node_modules/.vite)",
+      "Bash(curl -s -o /dev/null -w \"web 5173: %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(curl -s -o /dev/null -w \"api 8787: %{http_code}\\\\n\" http://localhost:8787/)",
+      "Bash(curl -s -o /dev/null -w \"5173: %{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(curl -s -o /dev/null -w \"5174: %{http_code}\\\\n\" http://localhost:5174/)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/components/OrbExperience.tsx)",
+      "Bash(echo \"OrbExperience -> $\\(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/components/OrbExperience.tsx\\)\")",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/components/TopNav.tsx)",
+      "Bash(echo \"TopNav -> $\\(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/components/TopNav.tsx\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/pages/Builder.tsx)",
+      "Bash(echo \"Builder -> $\\(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/pages/Builder.tsx\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('deps:', JSON.stringify\\({...p.dependencies, ...p.devDependencies}, null, 0\\)\\)\")",
+      "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/components/BubbleBackground.tsx)",
+      "Bash(echo \"BubbleBackground -> $\\(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/components/BubbleBackground.tsx\\)\")"
     ]
   }
 }

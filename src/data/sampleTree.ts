@@ -37,21 +37,25 @@ const SAMPLE_TREE_RAW: Tree = {
       branches: [
         {
           label: 'A lump or mass they can feel',
+          patientLabel: 'A lump or mass I can feel',
           condition: { op: 'equals', value: 'mass_lump' },
           nextNodeId: 'node_esc_mass',
         },
         {
           label: 'A recent injury or trauma',
+          patientLabel: 'A recent injury or accident',
           condition: { op: 'equals', value: 'acute_trauma' },
           nextNodeId: 'node_spec_acute_trauma',
         },
         {
           label: 'Typical ongoing nerve symptoms',
+          patientLabel: 'Numbness, tingling, or shooting pain',
           condition: { op: 'equals', value: 'typical_nerve_symptoms' },
           nextNodeId: 'node_dominant_symptom',
         },
         {
           label: 'Unclear / cannot be classified',
+          patientLabel: "I'm not sure",
           condition: { op: 'equals', value: 'unsure' },
           nextNodeId: 'node_esc_ambiguous',
         },
@@ -70,21 +74,25 @@ const SAMPLE_TREE_RAW: Tree = {
       branches: [
         {
           label: 'Mainly pain',
+          patientLabel: 'Mainly pain',
           condition: { op: 'equals', value: 'pain' },
           nextNodeId: 'node_location',
         },
         {
           label: 'Mainly numbness or tingling',
+          patientLabel: 'Mainly numbness or tingling',
           condition: { op: 'equals', value: 'numbness_tingling' },
           nextNodeId: 'node_location',
         },
         {
           label: 'Mainly weakness',
+          patientLabel: 'Mainly weakness',
           condition: { op: 'equals', value: 'weakness' },
           nextNodeId: 'node_location',
         },
         {
           label: 'A mix of symptoms',
+          patientLabel: 'A mix of things',
           condition: { op: 'equals', value: 'mixed' },
           nextNodeId: 'node_location',
         },
@@ -103,16 +111,19 @@ const SAMPLE_TREE_RAW: Tree = {
       branches: [
         {
           label: 'Arm or hand',
+          patientLabel: 'My arm or hand',
           condition: { op: 'equals', value: 'arm_hand' },
           nextNodeId: 'node_emg_upper',
         },
         {
           label: 'Leg or foot',
+          patientLabel: 'My leg or foot',
           condition: { op: 'equals', value: 'leg_foot' },
           nextNodeId: 'node_duration_lower',
         },
         {
           label: 'Neck, radiating down the arm',
+          patientLabel: 'My neck, and it shoots down my arm',
           condition: { op: 'equals', value: 'neck_radiating' },
           nextNodeId: 'node_spec_reyes',
         },
@@ -131,16 +142,19 @@ const SAMPLE_TREE_RAW: Tree = {
       branches: [
         {
           label: 'Nerve test done and abnormal',
+          patientLabel: 'Yes, and it showed something',
           condition: { op: 'equals', value: 'done_abnormal' },
           nextNodeId: 'node_spec_chen',
         },
         {
           label: 'Nerve test done and normal',
+          patientLabel: 'Yes, and it was normal',
           condition: { op: 'equals', value: 'done_normal' },
           nextNodeId: 'node_spec_patel',
         },
         {
           label: 'Nerve test not done yet',
+          patientLabel: "No, I haven't had one",
           condition: { op: 'equals', value: 'not_done' },
           nextNodeId: 'node_duration_upper',
         },
@@ -159,16 +173,19 @@ const SAMPLE_TREE_RAW: Tree = {
       branches: [
         {
           label: 'Chronic (months or longer)',
+          patientLabel: 'Months or longer',
           condition: { op: 'equals', value: 'chronic' },
           nextNodeId: 'node_spec_chen',
         },
         {
           label: 'Subacute (weeks)',
+          patientLabel: 'A few weeks',
           condition: { op: 'equals', value: 'subacute' },
           nextNodeId: 'node_spec_patel',
         },
         {
           label: 'Acute (days)',
+          patientLabel: 'Just a few days',
           condition: { op: 'equals', value: 'acute' },
           nextNodeId: 'node_esc_ambiguous',
         },
@@ -187,16 +204,19 @@ const SAMPLE_TREE_RAW: Tree = {
       branches: [
         {
           label: 'Chronic (months or longer)',
+          patientLabel: 'Months or longer',
           condition: { op: 'equals', value: 'chronic' },
           nextNodeId: 'node_spec_okafor',
         },
         {
           label: 'Subacute (weeks)',
+          patientLabel: 'A few weeks',
           condition: { op: 'equals', value: 'subacute' },
           nextNodeId: 'node_spec_okafor',
         },
         {
           label: 'Acute (days) — possible red flag',
+          patientLabel: 'Just a few days',
           condition: { op: 'equals', value: 'acute' },
           nextNodeId: 'node_esc_ambiguous',
         },

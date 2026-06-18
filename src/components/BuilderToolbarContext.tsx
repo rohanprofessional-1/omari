@@ -10,6 +10,10 @@ export interface ToolbarActions {
   onSave: () => void
   onAutoLayout: () => void
   onClear: () => void
+  /** Load the simple sample tree (safe fallback) onto the canvas + into the Runner. */
+  onLoadSimple: () => void
+  /** Load the deep Duke Nerve Center tree onto the canvas + into the Runner. */
+  onLoadDuke: () => void
   treeId: string
 }
 

@@ -20,15 +20,76 @@ export type NodeKind = TreeNode['type']
 /** Fixed card width (kept in sync with the cards' Tailwind width). */
 export const NODE_WIDTH = 300
 
-/** Estimated render height per node type — used only to space the layout. */
+/**
+ * Estimated render height per node type — used only to space the layout. These
+ * reflect the COMPACT (collapsed) cards: specialist Basis/Workup and variable
+ * prompt are hidden behind expanders, so heights no longer scale with workup
+ * length. Approximate is fine — dagre only needs it to reserve vertical room.
+ */
 function estimateHeight(node: TreeNode): number {
   switch (node.type) {
     case 'variable':
-      return 130 + node.branches.length * 30
+      // header + name + Details row + Buckets (visible — they carry the handles).
+      return 104 + node.branches.length * 32
     case 'specialist':
-      return 170 + node.workup.length * 56
+      // header + name + specialty + optional confirm flag + collapsed Basis/Workup
+      // expander rows (the workup LIST is hidden until expanded).
+      return 96 + (node.confirmWithDrLi ? 22 : 0) + (node.clinicalBasis ? 30 : 0) + 30
     case 'escalation':
-      return 130
+      return 96
+  }
+}
+
+// Routing arrows of various flavours (mirrors patientLabel.ts) — used to strip
+// the "→ destination/routing" tail off a branch label for a clean edge caption.
+const ROUTING_ARROW = /\s*(?:→|⟶|➜|»|->|=>)\s*/
+
+/**
+ * The SHORT answer term for an edge caption: the branch label up to any routing
+ * arrow ("EMG normal → diagnostics" → "EMG normal"; "Multifocal → systemic
+ * workup" → "Multifocal"). Never includes the "→ destination" — the edge already
+ * visually goes there. Falls back to the authored patientLabel, then the raw label.
+ */
+export function shortBranchLabel(branch: { label: string; patientLabel?: string }): string {
+  const head = branch.label.split(ROUTING_ARROW)[0].trim()
+  return head || branch.patientLabel?.trim() || branch.label
+}
+
+/**
+ * Calm, harmonious COOL palette (blues / greens / teals / indigos — never a loud
+ * rainbow). A variable node's bucket `i` and its outgoing edge both use
+ * `edgeColor(i)`, so the start dot and its line share one colour and a single
+ * thread can be followed from answer → destination.
+ */
+export const EDGE_PALETTE = [
+  '#2563eb', // blue (accent)
+  '#0d9488', // teal
+  '#4b9cd3', // carolina blue
+  '#1f9d63', // green
+  '#6366f1', // indigo
+  '#0891b2', // cyan
+  '#3b82f6', // bright blue
+  '#2e9e5b', // deeper green
+  '#5b7fde', // periwinkle
+  '#14b8a6', // teal (light)
+] as const
+
+export function edgeColor(index: number): string {
+  return EDGE_PALETTE[index % EDGE_PALETTE.length]
+}
+
+/** Short destination name for the edge's end-cue chip (where the line lands). */
+export function nodeShortName(node: TreeNode): string {
+  switch (node.type) {
+    case 'variable':
+      return node.variableKey
+    case 'specialist': {
+      // Last name reads best on a tiny chip ("Dr. Lisa Hobson-Webb" → "Hobson-Webb").
+      const parts = node.specialistName.replace(/^Dr\.?\s+/i, '').trim().split(/\s+/)
+      return parts[parts.length - 1] || node.specialistName
+    }
+    case 'escalation':
+      return 'Review'
   }
 }
 
@@ -64,39 +125,56 @@ export function nodeDisplayName(node: TreeNode): string {
   }
 }
 
-/** Data we stash on each edge so a selected edge can be traced to its branch. */
-export type BuilderEdgeData = { sourceNodeId: string; branchIndex: number }
+/**
+ * Data the custom `bucket` edge renders from: the branch it traces, its per-bucket
+ * colour, the short answer caption, the destination's short name (end cue), and
+ * the current highlight/dim state (for hover/select path isolation).
+ */
+export type BuilderEdgeData = {
+  sourceNodeId: string
+  branchIndex: number
+  color: string
+  label: string
+  targetName: string
+  highlighted: boolean
+  dimmed: boolean
+}
 
 /**
- * Build a styled React Flow edge for ONE branch of a variable node. The edge
- * originates from that branch's OWN handle (`sourceHandle`), so the connection
- * is permanently tied to a specific answer/bucket.
+ * Build ONE branch edge of a variable node. The edge originates from that
+ * branch's OWN handle (`sourceHandle`) and is coloured to match the bucket's
+ * start dot. Visual styling lives in the custom `bucket` edge component; here we
+ * only set the per-edge data + a colour-matched, state-aware arrowhead.
  */
 function makeEdge(
   sourceId: string,
   index: number,
   label: string,
   target: string,
-  selected: boolean,
+  targetName: string,
+  state: { selected: boolean; highlighted: boolean; dimmed: boolean },
 ): Edge {
-  // Solid blue flow; bright blue when selected, with a subtle animated dash.
-  const stroke = selected ? '#3B82F6' : '#2563EB'
+  const color = edgeColor(index)
+  const active = state.highlighted || state.selected
+  const markerColor = state.dimmed ? 'rgba(100,116,139,0.22)' : color
+  const markerSize = active ? 22 : 18
   return {
     id: `${sourceId}__b${index}__${target}`,
     source: sourceId,
     sourceHandle: branchHandleId(index),
     target,
-    label,
-    type: 'smoothstep',
-    selected,
-    animated: selected,
-    data: { sourceNodeId: sourceId, branchIndex: index } satisfies BuilderEdgeData,
-    markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: selected ? '#3B82F6' : '#2563EB' },
-    style: { stroke, strokeWidth: selected ? 2.5 : 1.6 },
-    labelStyle: { fontSize: 11, fill: '#4A4F47', fontWeight: selected ? 600 : 400 },
-    labelBgStyle: { fill: '#FFFFFF', fillOpacity: 0.92 },
-    labelBgPadding: [5, 3] as [number, number],
-    labelBgBorderRadius: 5,
+    type: 'bucket',
+    selected: state.selected,
+    data: {
+      sourceNodeId: sourceId,
+      branchIndex: index,
+      color,
+      label,
+      targetName,
+      highlighted: active,
+      dimmed: state.dimmed,
+    } satisfies BuilderEdgeData,
+    markerEnd: { type: MarkerType.ArrowClosed, width: markerSize, height: markerSize, color: markerColor },
   }
 }
 
@@ -117,8 +195,12 @@ export function treeToFlowNodes(tree: Tree): BuilderFlowNode[] {
  */
 export function deriveEdges(
   nodes: BuilderFlowNode[],
-  selectedEdgeId?: string,
+  opts?: { selectedEdgeId?: string; activeEdgeIds?: Set<string> | null },
 ): Edge[] {
+  const selectedEdgeId = opts?.selectedEdgeId
+  // When an active set is provided (a path is being isolated), edges IN it are
+  // highlighted and all others dimmed. When null, everything renders calmly.
+  const activeEdgeIds = opts?.activeEdgeIds ?? null
   const byId = new Map(nodes.map((n) => [n.id, n.data.treeNode]))
   const edges: Edge[] = []
   for (const flowNode of nodes) {
@@ -128,25 +210,49 @@ export function deriveEdges(
       const targetNode = byId.get(branch.nextNodeId)
       if (!branch.nextNodeId || !targetNode) return
       const id = `${treeNode.id}__b${i}__${branch.nextNodeId}`
-      const label = `${branch.label} → ${nodeDisplayName(targetNode)}`
-      edges.push(makeEdge(treeNode.id, i, label, branch.nextNodeId, id === selectedEdgeId))
+      // Caption shows ONLY the answer term — the edge already goes to the target.
+      const label = shortBranchLabel(branch)
+      const targetName = nodeShortName(targetNode)
+      const selected = id === selectedEdgeId
+      const highlighted = activeEdgeIds ? activeEdgeIds.has(id) : false
+      const dimmed = activeEdgeIds ? !activeEdgeIds.has(id) : false
+      edges.push(
+        makeEdge(treeNode.id, i, label, branch.nextNodeId, targetName, {
+          selected,
+          highlighted,
+          dimmed,
+        }),
+      )
     })
   }
   return edges
 }
 
 /**
- * Run dagre to produce a tidy top-down arrangement and return the nodes with
- * updated positions. Pure: does not mutate the inputs.
+ * Run dagre to produce a tidy LEFT-TO-RIGHT layered arrangement and return the
+ * nodes with updated positions. Pure: does not mutate the inputs.
+ *
+ * Defaults to 'LR' so the tree reads as a horizontal flowchart — root on the
+ * left, each depth in its own vertical column. `ranksep` is the horizontal gap
+ * between columns (generous, to leave room for the on-edge captions); `nodesep`
+ * is the vertical gap within a column. dagre's default ranker already orders
+ * nodes within each rank to minimise edge crossings.
  */
 export function layoutWithDagre(
   nodes: BuilderFlowNode[],
   edges: Edge[],
-  direction: 'TB' | 'LR' = 'TB',
+  direction: 'TB' | 'LR' = 'LR',
 ): BuilderFlowNode[] {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
-  g.setGraph({ rankdir: direction, nodesep: 70, ranksep: 90, marginx: 20, marginy: 20 })
+  g.setGraph({
+    rankdir: direction,
+    nodesep: 55,
+    ranksep: 170,
+    edgesep: 24,
+    marginx: 28,
+    marginy: 28,
+  })
 
   for (const node of nodes) {
     g.setNode(node.id, {

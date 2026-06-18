@@ -1,6 +1,13 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { branchHandleId, describeCondition, type BuilderFlowNode } from '../../lib/treeToFlow'
-import { DeleteNodeButton } from '../BuilderActionsContext'
+import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react'
+import {
+  branchHandleId,
+  describeCondition,
+  edgeColor,
+  shortBranchLabel,
+  type BuilderFlowNode,
+} from '../../lib/treeToFlow'
+import { DeleteNodeButton, useBuilderActions } from '../BuilderActionsContext'
+import { CardExpander } from './CardExpander'
 
 /**
  * Variable (decision) node — periwinkle accent. Shows the variable key, the
@@ -9,6 +16,8 @@ import { DeleteNodeButton } from '../BuilderActionsContext'
  * leads to a specific node.
  */
 function VariableNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
+  const updateNodeInternals = useUpdateNodeInternals()
+  const { onBucketHover } = useBuilderActions()
   const node = data.treeNode
   if (node.type !== 'variable') return null
 
@@ -18,8 +27,9 @@ function VariableNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
         selected ? 'ring-2 ring-bright' : ''
       }`}
     >
-      {/* Single input handle (top). */}
-      <Handle type="target" position={Position.Top} className="!bg-nodevar" />
+      {/* Single input handle on the LEFT (incoming) for left-to-right flow. The
+          per-bucket OUTPUT handles stay on the right — unchanged. */}
+      <Handle type="target" position={Position.Left} className="!bg-nodevar" />
 
       <div className="flex items-center gap-2 rounded-t-[10px] bg-nodevar px-3 py-1.5 text-white">
         <span className="font-display text-[10px] font-semibold uppercase tracking-[0.08em]">
@@ -32,36 +42,63 @@ function VariableNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
       </div>
 
       <div className="px-3 pb-3 pt-2.5">
+        {/* Always visible: the variable name. */}
         <p className="truncate font-display text-[13px] font-semibold leading-tight text-ink">
           {node.variableKey}
         </p>
-        <p className="mt-1 text-[11px] leading-snug text-muted">{node.prompt}</p>
 
+        {/* Longer prompt hidden behind Details (keeps the card compact). Toggling
+            it changes the card height, which moves the bucket handles below — so
+            re-measure node internals to keep their edges anchored correctly. */}
+        <CardExpander label="Details" onToggle={() => updateNodeInternals(node.id)}>
+          <p className="text-[11px] leading-snug text-muted">{node.prompt}</p>
+        </CardExpander>
+
+        {/* Buckets stay fully visible — they ARE the branching logic and carry
+            the output connection handles. Do not collapse these. */}
         <p className="mb-1.5 mt-3 font-display text-[9px] font-semibold uppercase tracking-[0.08em] text-muted">
           Buckets
         </p>
         <ul className="space-y-1">
-          {node.branches.map((branch, i) => (
-            <li
-              key={i}
-              className={`relative flex items-center justify-between gap-2 rounded-md border border-line/70 px-2 py-1.5 pr-3 ${
-                i % 2 === 0 ? 'bg-bg' : 'bg-sky/60'
-              }`}
-            >
-              <span className="truncate text-[11px] font-medium text-ink">{branch.label}</span>
-              <span className="shrink-0 rounded bg-nodevar/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-nodevar">
-                {describeCondition(branch.condition)}
-              </span>
-              {/* One output handle PER bucket, anchored to this row's right edge. */}
-              <Handle
-                type="source"
-                position={Position.Right}
-                id={branchHandleId(i)}
-                className="!bg-nodevar"
-                style={{ right: -7 }}
-              />
-            </li>
-          ))}
+          {node.branches.map((branch, i) => {
+            // Bucket + its outgoing edge share one colour (see edgeColor) so a
+            // start dot can be matched to its line.
+            const color = edgeColor(i)
+            return (
+              <li
+                key={i}
+                onMouseEnter={() => onBucketHover?.({ nodeId: node.id, branchIndex: i })}
+                onMouseLeave={() => onBucketHover?.(null)}
+                className={`relative flex items-center justify-between gap-2 rounded-md border border-line/70 px-2 py-1.5 pr-3 ${
+                  i % 2 === 0 ? 'bg-bg' : 'bg-sky/60'
+                }`}
+              >
+                {/* Short answer only (no "→ destination"). */}
+                <span className="truncate text-[11px] font-medium text-ink">
+                  {shortBranchLabel(branch)}
+                </span>
+                <span className="shrink-0 rounded bg-nodevar/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-nodevar">
+                  {describeCondition(branch.condition)}
+                </span>
+                {/* One output handle PER bucket — a clear, colour-matched START DOT
+                    anchored to this row's right edge (grows/glows on hover). */}
+                <Handle
+                  type="source"
+                  position={Position.Right}
+                  id={branchHandleId(i)}
+                  className="omari-bucket-handle"
+                  style={{
+                    right: -8,
+                    width: 13,
+                    height: 13,
+                    backgroundColor: color,
+                    border: '2px solid var(--color-canvas)',
+                    boxShadow: `0 0 0 1px ${color}`,
+                  }}
+                />
+              </li>
+            )
+          })}
         </ul>
       </div>
     </div>

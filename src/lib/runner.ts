@@ -4,6 +4,7 @@ import type {
   VariableNode,
   VariableSpec,
 } from '../types/tree'
+import { choicePatientText } from './patientLabel'
 
 /**
  * Blume — Runner helpers (deterministic, no AI).
@@ -14,7 +15,10 @@ import type {
  */
 
 export interface Choice {
+  /** INTERNAL label (engine/Builder/clinician). May contain routing hints. */
   label: string
+  /** Plain-English, arrow-free phrasing shown to the patient (chips + confirms). */
+  patientLabel: string
   value: string | number | boolean
 }
 
@@ -51,13 +55,15 @@ export function deriveQuestion(
 
   for (const branch of node.branches) {
     const c = branch.condition
+    const patient = choicePatientText(branch)
     if (c.op === 'equals') {
-      choices.push({ label: branch.label, value: c.value })
+      choices.push({ label: branch.label, patientLabel: patient, value: c.value })
     } else if (c.op === 'in') {
       if (c.values.length === 1) {
-        choices.push({ label: branch.label, value: c.values[0] })
+        choices.push({ label: branch.label, patientLabel: patient, value: c.values[0] })
       } else {
-        for (const v of c.values) choices.push({ label: `${branch.label}: ${v}`, value: v })
+        for (const v of c.values)
+          choices.push({ label: `${branch.label}: ${v}`, patientLabel: `${patient}: ${v}`, value: v })
       }
     } else {
       hasRange = true

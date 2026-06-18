@@ -13,6 +13,19 @@ const links: { id: Page; label: string }[] = [
   { id: 'runner', label: 'Runner' },
 ]
 
+/**
+ * One unified toolbar-button style (the former "Load Duke" button's treatment):
+ * same shape, size, padding, radius, border, and typography for EVERY action.
+ * Only the colour varies by purpose — blue = load/utility, green = save (positive),
+ * red = clear (destructive).
+ */
+const TOOLBAR_BTN =
+  'rounded-md border px-2.5 py-1.5 text-[13px] font-medium transition-colors'
+const TOOLBAR_BLUE = 'border-accent/40 bg-sky text-accent hover:bg-accent/10'
+const TOOLBAR_GREEN =
+  'border-success/40 bg-success-light/25 text-success hover:bg-success-light/40'
+const TOOLBAR_RED = 'border-danger/40 bg-danger/8 text-danger hover:bg-danger/15'
+
 function TopAppBar({ page, onNavigate, actions }: TopAppBarProps) {
   return (
     <header className="omari-enter-bar relative z-10 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-canvas px-4">
@@ -47,25 +60,47 @@ function TopAppBar({ page, onNavigate, actions }: TopAppBarProps) {
       <div className="ml-auto flex items-center gap-2">
         {actions && (
           <>
+            {/* Two-tree loader: simple sample (fallback) vs deep Duke tree — BLUE */}
+            <button
+              onClick={actions.onLoadSimple}
+              title="Load the simple seeded sample tree"
+              className={`${TOOLBAR_BTN} ${TOOLBAR_BLUE}`}
+            >
+              Load sample tree (simple)
+            </button>
+            <button
+              onClick={actions.onLoadDuke}
+              title="Load the deep Duke Nerve Center tree"
+              className={`${TOOLBAR_BTN} ${TOOLBAR_BLUE}`}
+            >
+              Load Duke Nerve Center tree (complex)
+            </button>
+            {/* Save — GREEN (positive/primary) */}
             <button
               onClick={actions.onSave}
-              className="rounded-md bg-carolina px-3 py-1.5 text-sm font-semibold text-white shadow-[0_1px_2px_rgba(75,156,211,0.35)] transition-all hover:bg-carolina-deep hover:shadow-[0_2px_8px_rgba(75,156,211,0.35)] active:translate-y-px"
+              title="Save this tree"
+              className={`${TOOLBAR_BTN} ${TOOLBAR_GREEN}`}
             >
               Save tree
             </button>
+            {/* Auto-layout — BLUE (utility) */}
             <button
               onClick={actions.onAutoLayout}
-              className="rounded-md border border-line bg-canvas px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-bg"
+              title="Auto-layout the tree"
+              className={`${TOOLBAR_BTN} ${TOOLBAR_BLUE}`}
             >
               Auto-layout
             </button>
+            {/* Clear — RED (destructive) */}
             <button
               onClick={actions.onClear}
-              className="rounded-md border border-transparent px-3 py-1.5 text-sm font-medium text-danger transition-colors hover:bg-danger/8"
+              title="Clear and start over"
+              className={`${TOOLBAR_BTN} ${TOOLBAR_RED}`}
             >
               Clear / Start over
             </button>
-            <span className="ml-1 hidden rounded-md border border-line bg-bg px-2 py-1 font-mono text-[11px] text-muted lg:inline">
+            {/* Status tag (not a button) — small muted monospace label */}
+            <span className="hidden rounded-md border border-line bg-bg px-2 py-1 font-mono text-[11px] text-muted lg:inline">
               {actions.treeId}
             </span>
           </>

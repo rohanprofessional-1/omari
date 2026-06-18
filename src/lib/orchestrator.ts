@@ -178,6 +178,14 @@ export interface PlanState {
   coreKeys: string[]
   clarifiedKeys: Set<string>
   gatheredKeys: Set<string>
+  /**
+   * Per-turn confirm gate: the variable keys whose value was extracted/answered
+   * on THIS turn. A `confirm` step may ONLY reference one of these — a medium
+   * candidate left over from an earlier turn must never resurface as a stale
+   * "did I get that right?" about a question the patient didn't just answer.
+   * When omitted (other callers / tests), no gate is applied.
+   */
+  updatedKeys?: Set<string>
 }
 
 type CoreStatus = 'satisfied' | 'confirm' | 'clarify' | 'ask'
@@ -206,7 +214,11 @@ function coreStatus(
   // Already asked during intake but nothing usable came back → move on (flagged).
   if (plan.gatheredKeys.has(key)) return 'satisfied'
   const c = candidates[key]
-  if (c && confidenceBand(c.confidence, high, medium) === 'medium') return 'confirm'
+  if (c && confidenceBand(c.confidence, high, medium) === 'medium') {
+    // Confirm ONLY a value updated this turn. A stale medium candidate from an
+    // earlier turn is asked fresh instead of surfacing a one-behind confirmation.
+    if (!plan.updatedKeys || plan.updatedKeys.has(key)) return 'confirm'
+  }
   return 'ask'
 }
 

@@ -6,10 +6,13 @@ import { VARIABLE_SPECS } from '../data/variableSpecs'
 import { nodeDisplayName } from '../lib/treeToFlow'
 import { confidenceBand, planConversationStep, type Extraction, type OrchestratorStep } from '../lib/orchestrator'
 import { coreIntakeKeys, escalationCategoryLabel, type EscalationAnalysis } from '../lib/escalation'
+import TreeMiniViz from '../components/TreeMiniViz'
 import { extract, type ExtractionMode } from '../lib/extraction'
 import { voiceTurn, resetDemoVoice } from '../lib/voice'
 import { triageTurn, type TriageSituation } from '../lib/triage'
 import { deriveQuestion, fillTemplate, type Choice } from '../lib/runner'
+import { composeConfirmation } from '../lib/confirmation'
+import OrbExperience from '../components/OrbExperience'
 import type { FilledVariables, Tree, Urgency, VariableNode, VariableSpec } from '../types/tree'
 
 // NOTE: presentation-only file. The deterministic engine makes ALL routing
@@ -32,9 +35,13 @@ const naturalPause = (): Promise<void> =>
   new Promise((r) => setTimeout(r, prefersReducedMotion() ? 0 : THINK_MS))
 
 /** Engine-derived answer-option labels (for the voice layer's natural mention only). */
+// Patient-facing option text for the voice layer — the PLAIN labels only, never
+// the internal label / routing hint.
 function optionLabels(node: VariableNode | undefined, spec: VariableSpec | undefined): string[] {
   if (!node) return []
-  return deriveQuestion(node, spec ?? VARIABLE_SPECS[node.variableKey]).choices.map((c) => c.label)
+  return deriveQuestion(node, spec ?? VARIABLE_SPECS[node.variableKey]).choices.map(
+    (c) => c.patientLabel,
+  )
 }
 
 type Specialist = Extract<Tree['nodes'][number], { type: 'specialist' }>
@@ -93,8 +100,8 @@ const SAMPLE_CASES: { label: string; hint: string; text: string }[] = [
   },
 ]
 
-type Phase = 'intro' | 'thinking' | 'awaiting' | 'done' | 'error'
-interface ChatMessage {
+export type Phase = 'intro' | 'thinking' | 'awaiting' | 'done' | 'error'
+export interface ChatMessage {
   id: number
   from: 'bot' | 'patient'
   text: string
@@ -211,6 +218,9 @@ function RunnerSession({
   const advance = async (
     nextFilled: FilledVariables,
     nextCandidates: Record<string, Extraction>,
+    // The variable key(s) whose value was extracted/answered on THIS turn. A
+    // confirmation may ONLY reference one of these (no stale one-behind confirms).
+    updatedKeys: Set<string>,
   ) => {
     // Escalation-aware planning: the engine still decides, but an ambiguity
     // escalation triggers clarify-then-gather before we honour it (emergencies
@@ -219,6 +229,7 @@ function RunnerSession({
       coreKeys,
       clarifiedKeys: clarifiedRef.current,
       gatheredKeys: gatheredRef.current,
+      updatedKeys,
     })
     setStep(s)
 
@@ -260,8 +271,17 @@ function RunnerSession({
         break
       }
       case 'confirm': {
-        const label = labelForValue(s.node, s.candidate.value)
-        pushMessage('bot', `Just to make sure I’ve got this right — it sounds like ${label}. Did I get that right?`)
+        // GUARD: a confirmation may only reference a variable updated THIS turn.
+        // The gate in planConversationStep enforces this; assert it here too so a
+        // regression surfaces loudly instead of silently confirming a stale value.
+        if (import.meta.env.DEV && !updatedKeys.has(s.key)) {
+          console.error(
+            `[Omari] confirmation referenced "${s.key}", which was not updated this turn — stale/one-behind confirm.`,
+          )
+        }
+        // Restate the MEANING (question intent + patient-facing answer) in one
+        // plain sentence — never a bare token, never an internal/raw value.
+        pushMessage('bot', composeConfirmation(s.node, s.candidate.value, s.spec))
         setPhase('awaiting')
         break
       }
@@ -299,7 +319,8 @@ function RunnerSession({
       }
       setFilled(nextFilled)
       setCandidates(nextCandidates)
-      await advance(nextFilled, nextCandidates)
+      // Only what we just extracted this turn is confirm-eligible.
+      await advance(nextFilled, nextCandidates, new Set(Object.keys(extracted)))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Extraction failed.')
       setPhase('error')
@@ -365,8 +386,9 @@ function RunnerSession({
   }
 
   const answer = (current: OrchestratorStep & { kind: 'ask' }, choice: Choice) => {
-    pushMessage('patient', choice.label)
-    lastPatientRef.current = choice.label
+    // The patient's own chat bubble shows the PLAIN label, never the internal one.
+    pushMessage('patient', choice.patientLabel)
+    lastPatientRef.current = choice.patientLabel
     const newFilled: FilledVariables = {
       ...filled,
       [current.key]: { value: choice.value, confidence: 1 },
@@ -375,7 +397,8 @@ function RunnerSession({
     delete newCandidates[current.key]
     setFilled(newFilled)
     setCandidates(newCandidates)
-    void advance(newFilled, newCandidates)
+    // Explicit tap → high-confidence, so this key is never re-confirmed.
+    void advance(newFilled, newCandidates, new Set([current.key]))
   }
 
   const confirmYes = (current: OrchestratorStep & { kind: 'confirm' }) => {
@@ -392,7 +415,7 @@ function RunnerSession({
     delete newCandidates[current.key]
     setFilled(newFilled)
     setCandidates(newCandidates)
-    void advance(newFilled, newCandidates)
+    void advance(newFilled, newCandidates, new Set([current.key]))
   }
 
   const confirmNo = (current: OrchestratorStep & { kind: 'confirm' }) => {
@@ -401,7 +424,35 @@ function RunnerSession({
     const newCandidates = { ...candidates }
     delete newCandidates[current.key] // now absent → next step asks fresh
     setCandidates(newCandidates)
-    void advance(filled, newCandidates)
+    void advance(filled, newCandidates, new Set([current.key]))
+  }
+
+  // Shared retry (used by the normal error card AND the orb error step).
+  const retryInDemo = () => {
+    setMode('demo')
+    void runExtraction(lastTextRef.current, 'demo')
+  }
+
+  // ── Presentation mode ON → the immersive ORB experience (same engine state &
+  // handlers, just a one-step-at-a-time speaking-orb VIEW). Presentation mode OFF
+  // falls through to the unchanged normal Runner below. Nothing else differs.
+  if (presentation) {
+    return (
+      <OrbExperience
+        messages={messages}
+        phase={phase}
+        step={step}
+        draft={draft}
+        error={error}
+        onDraft={setDraft}
+        onSubmitInitial={submitInitial}
+        onAnswer={answer}
+        onText={submitText}
+        onConfirmYes={confirmYes}
+        onConfirmNo={confirmNo}
+        onRetry={retryInDemo}
+      />
+    )
   }
 
   return (
@@ -569,7 +620,7 @@ function ExitPresentation({ onExit }: { onExit: () => void }) {
   return (
     <button
       onClick={onExit}
-      className="omari-msg fixed bottom-4 right-4 z-20 inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas/90 px-3 py-1.5 text-xs font-medium text-muted shadow-[0_2px_10px_rgba(22,32,46,0.12)] backdrop-blur transition-colors hover:text-ink"
+      className="omari-msg fixed bottom-4 right-4 z-50 inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas/90 px-3 py-1.5 text-xs font-medium text-muted shadow-[0_2px_10px_rgba(22,32,46,0.12)] backdrop-blur transition-colors hover:text-ink"
       title="Leave Presentation mode and show the demo + clinician panels again"
     >
       <span aria-hidden>✕</span> Exit presentation
@@ -763,7 +814,7 @@ function AskInput({
     } else {
       const value = q.kind === 'number' ? Number(trimmed) : trimmed
       if (q.kind === 'number' && Number.isNaN(value as number)) return
-      onAnswer({ label: trimmed, value })
+      onAnswer({ label: trimmed, patientLabel: trimmed, value })
     }
     setText('')
   }
@@ -778,7 +829,7 @@ function AskInput({
               onClick={() => onAnswer(choice)}
               className="rounded-full border border-line bg-canvas px-4 py-2 text-sm text-ink transition-all hover:-translate-y-px hover:border-accent hover:bg-sky hover:text-accent"
             >
-              {choice.label}
+              {choice.patientLabel}
             </button>
           ))}
         </div>
@@ -787,13 +838,13 @@ function AskInput({
       {q.kind === 'boolean' && (
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={() => onAnswer({ label: 'Yes', value: true })}
+            onClick={() => onAnswer({ label: 'Yes', patientLabel: 'Yes', value: true })}
             className="rounded-full border border-line bg-canvas px-5 py-2 text-sm text-ink transition-all hover:-translate-y-px hover:border-accent hover:bg-sky hover:text-accent"
           >
             Yes
           </button>
           <button
-            onClick={() => onAnswer({ label: 'No', value: false })}
+            onClick={() => onAnswer({ label: 'No', patientLabel: 'No', value: false })}
             className="rounded-full border border-line bg-canvas px-5 py-2 text-sm text-ink transition-all hover:-translate-y-px hover:border-accent hover:bg-sky hover:text-accent"
           >
             No
@@ -900,12 +951,12 @@ function ReferralSentCard({ specialist }: { specialist: Specialist }) {
  * Scheduled. The current state is "In review" — a REAL workflow step (a human
  * confirms on the doctor dashboard), shown with later stages greyed/upcoming.
  */
-function StatusStepper({
+export function StatusStepper({
   reviewerLabel,
   tone = 'accent',
 }: {
   reviewerLabel: string
-  tone?: 'accent' | 'amber'
+  tone?: 'accent' | 'amber' | 'green'
 }) {
   const stages = [
     { label: 'Submitted', state: 'done' as const },
@@ -921,11 +972,17 @@ function StatusStepper({
           dotCurrent: 'bg-canvas border-nodeesc text-nodeesc ring-4 ring-nodeesc/15',
           connector: 'bg-nodeesc',
         }
-      : {
-          dotDone: 'bg-accent border-accent text-white',
-          dotCurrent: 'bg-canvas border-accent text-accent ring-4 ring-accent/15',
-          connector: 'bg-accent',
-        }
+      : tone === 'green'
+        ? {
+            dotDone: 'bg-success border-success text-white',
+            dotCurrent: 'bg-canvas border-success text-success ring-4 ring-success/15',
+            connector: 'bg-success',
+          }
+        : {
+            dotDone: 'bg-accent border-accent text-white',
+            dotCurrent: 'bg-canvas border-accent text-accent ring-4 ring-accent/15',
+            connector: 'bg-accent',
+          }
 
   const dotClass = (state: 'done' | 'current' | 'upcoming') => {
     const base =
@@ -1006,13 +1063,26 @@ function ReferralPacket({
       </div>
       <div className="space-y-2.5 px-3 py-2.5">
         <div>
-          <p className="text-sm font-semibold text-ink">{specialist.specialistName}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="text-sm font-semibold text-ink">{specialist.specialistName}</p>
+            {specialist.confirmWithDrLi && (
+              <span className="rounded bg-nodeesc/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-nodeesc">
+                ✓ Confirm with Dr. Li
+              </span>
+            )}
+          </div>
           <p className="text-[11px] text-muted">{specialist.specialty}</p>
         </div>
 
         <p className="rounded-md bg-sky px-2.5 py-1.5 text-[11px] italic leading-snug text-ink">
           {reasoning}
         </p>
+
+        {specialist.clinicalBasis && (
+          <p className="rounded-md border border-line bg-canvas px-2.5 py-1.5 text-[11px] leading-snug text-muted">
+            <span className="font-medium text-ink">Clinical basis:</span> {specialist.clinicalBasis}
+          </p>
+        )}
 
         <div>
           <p className="mb-1 font-display text-[9px] font-semibold uppercase tracking-[0.08em] text-muted">
@@ -1111,6 +1181,13 @@ function BehindScenes({
           What the engine extracted and the path it’s taking — the patient never sees this.
         </p>
       </div>
+
+      {/* Live decision-tree mini-viz — shown for BOTH real-API and simulated
+          runs. Gated ONLY on Presentation mode: it lives in this clinician panel,
+          which is already hidden in Presentation mode, so the patient never sees
+          it. It reads the same orchestrator state either way (collected variables
+          + result), so it works identically with real LLM extraction. */}
+      <TreeMiniViz tree={tree} filled={filled} candidates={candidates} step={step} />
 
       {/* Extracted variables + confidence */}
       <div>
@@ -1340,21 +1417,13 @@ function ModeToggle({
       title="Demo mode uses a simulated extractor; Live calls the real AI through the backend."
     >
       <span
-        className={`inline-block h-2.5 w-2.5 rounded-full ${demo ? 'bg-accent' : 'bg-muted/40'}`}
+        className={`inline-block h-2.5 w-2.5 rounded-full ${demo ? 'bg-accent' : 'bg-success'}`}
       />
       <span className="font-medium text-ink">
         {demo ? 'Demo mode (simulated AI)' : 'Live AI mode'}
       </span>
     </button>
   )
-}
-
-/** The branch label that a value maps to at a variable node (for confirmations). */
-function labelForValue(node: VariableNode | undefined, value: unknown): string {
-  if (!node) return `“${String(value)}”`
-  const q = deriveQuestion(node, VARIABLE_SPECS[node.variableKey])
-  const match = q.choices.find((c) => c.value === value)
-  return `“${match?.label ?? String(value)}”`
 }
 
 export default Runner

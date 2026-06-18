@@ -57,7 +57,19 @@ export type Condition = z.infer<typeof ConditionSchema>
 
 /** A single edge out of a VariableNode: if `condition` holds, go to `nextNodeId`. */
 export const BranchSchema = z.object({
+  /**
+   * INTERNAL label — written for the engine, Builder, and clinician view. May
+   * encode a routing hint (e.g. "Both sides → systemic workup"). The patient
+   * must NEVER see this.
+   */
   label: z.string(),
+  /**
+   * OPTIONAL patient-facing phrasing of JUST the answer — plain English, no
+   * jargon, no routing arrows. This is what the patient sees as a tappable
+   * option and what confirmations reference. When absent, the patient side
+   * falls back to a deterministic cleanup of `label` (never the raw label).
+   */
+  patientLabel: z.string().optional(),
   condition: ConditionSchema,
   nextNodeId: z.string(),
 })
@@ -106,6 +118,14 @@ export const SpecialistNodeSchema = z.object({
   urgency: UrgencySchema,
   reasoningTemplate: z.string(),
   workup: z.array(WorkupItemSchema),
+  /**
+   * OPTIONAL, additive (the engine never reads these). The sourced clinical
+   * basis for routing here, and a flag that the exact internal referral
+   * convention should be confirmed with Dr. Li. Present on the Duke Nerve Center
+   * tree; absent on the simple sample tree (which still validates unchanged).
+   */
+  clinicalBasis: z.string().optional(),
+  confirmWithDrLi: z.boolean().optional(),
 })
 export type SpecialistNode = z.infer<typeof SpecialistNodeSchema>
 

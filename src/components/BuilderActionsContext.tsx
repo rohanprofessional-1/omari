@@ -6,10 +6,13 @@ import { createContext, useContext } from 'react'
  */
 export interface BuilderActions {
   deleteNode: (id: string) => void
+  /** Signal which bucket row is hovered (for per-path edge highlighting), or null. */
+  onBucketHover?: (key: { nodeId: string; branchIndex: number } | null) => void
 }
 
 const BuilderActionsContext = createContext<BuilderActions>({
   deleteNode: () => {},
+  onBucketHover: () => {},
 })
 
 export function useBuilderActions(): BuilderActions {

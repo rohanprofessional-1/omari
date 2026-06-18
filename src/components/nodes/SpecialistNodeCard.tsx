@@ -2,6 +2,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { Urgency } from '../../types/tree'
 import type { BuilderFlowNode } from '../../lib/treeToFlow'
 import { DeleteNodeButton } from '../BuilderActionsContext'
+import { CardExpander } from './CardExpander'
 
 // Urgency badge sits on the Carolina-blue header (light → dark text for routine).
 const URGENCY_STYLES: Record<Urgency, string> = {
@@ -24,7 +25,8 @@ function SpecialistNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
         selected ? 'ring-2 ring-bright' : ''
       }`}
     >
-      <Handle type="target" position={Position.Top} className="!bg-nodespec" />
+      {/* Incoming edges enter on the LEFT for the left-to-right flow layout. */}
+      <Handle type="target" position={Position.Left} className="!bg-nodespec" />
 
       <div className="flex items-center gap-2 rounded-t-[10px] bg-nodespec px-3 py-1.5 text-white">
         <span className="font-display text-[10px] font-semibold uppercase tracking-[0.08em]">
@@ -38,23 +40,44 @@ function SpecialistNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
         <DeleteNodeButton id={node.id} />
       </div>
 
-      <div className="px-3 pb-3 pt-2.5">
+      <div className="px-3 pb-2.5 pt-2.5">
+        {/* Always visible: who + what + the important confirm flag. */}
         <p className="font-display text-sm font-semibold leading-tight text-ink">
           {node.specialistName}
         </p>
         <p className="mt-0.5 text-[11px] text-muted">{node.specialty}</p>
 
-        <p className="mb-1.5 mt-3 font-display text-[9px] font-semibold uppercase tracking-[0.08em] text-muted">
-          Workup
-        </p>
-        <ul className="space-y-1.5">
-          {node.workup.map((item, i) => (
-            <li key={i} className="rounded-md border border-line/70 bg-bg px-2 py-1.5">
-              <p className="text-[11px] font-medium text-ink">{item.name}</p>
-              <p className="mt-0.5 text-[10.5px] leading-snug text-muted">{item.rationale}</p>
-            </li>
-          ))}
-        </ul>
+        {node.confirmWithDrLi && (
+          <span className="mt-1.5 inline-block rounded bg-nodeesc/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-nodeesc">
+            ✓ Confirm with Dr. Li
+          </span>
+        )}
+
+        {/* Detail on demand — each expander is independent. Basis is Duke-only
+            (absent on the simple sample). Nothing is removed, only collapsed. */}
+        {node.clinicalBasis && (
+          <CardExpander label="Basis">
+            <p className="rounded-md border border-line/70 bg-sky/60 px-2 py-1.5 text-[10px] leading-snug text-muted">
+              {node.clinicalBasis}
+            </p>
+          </CardExpander>
+        )}
+
+        <CardExpander label={`Workup · ${node.workup.length}`}>
+          <ul className="space-y-1.5">
+            {node.workup.map((item, i) => (
+              <li key={i} className="rounded-md border border-line/70 bg-bg px-2 py-1.5">
+                <p className="text-[11px] font-medium text-ink">{item.name}</p>
+                <p className="mt-0.5 text-[10px] leading-snug text-muted">
+                  <span className="font-medium text-ink">Protocol:</span> {item.protocol}
+                </p>
+                <p className="mt-0.5 text-[10px] leading-snug text-muted">
+                  <span className="font-medium text-ink">Why:</span> {item.rationale}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </CardExpander>
       </div>
     </div>
   )
