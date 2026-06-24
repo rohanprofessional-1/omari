@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     // Forward /api/* to the backend so the browser never holds the API key.
     proxy: {
-      '/api': 'http://localhost:8787',
+      '/api': 'http://localhost:8000',
     },
   },
 })
