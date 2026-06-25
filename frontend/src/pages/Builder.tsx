@@ -26,6 +26,7 @@ import '@xyflow/react/dist/style.css'
 
 import { sampleTree } from '../data/sampleTree'
 import { dukeNerveTree } from '../data/dukeNerveTree'
+import { fetchTrees, fetchTree } from '../lib/api'
 import {
   createTreeNode,
   deriveEdges,
@@ -161,6 +162,12 @@ function BuilderCanvas() {
   const { fitView, screenToFlowPosition } = useReactFlow()
   const { saveTree } = useTreeStore()
   const { register } = useBuilderToolbar()
+  
+  const [dbTrees, setDbTrees] = useState<{ id: string; name: string }[]>([])
+
+  useEffect(() => {
+    fetchTrees().then(setDbTrees).catch(console.error)
+  }, [])
 
   // Keep a ref to the latest nodes for event handlers (keydown) that must read
   // current state without being re-bound on every change.
@@ -560,8 +567,30 @@ function BuilderCanvas() {
     },
     [setNodes, saveTree, fitView],
   )
-  const onLoadSimple = useCallback(() => loadTree(sampleTree), [loadTree])
-  const onLoadDuke = useCallback(() => loadTree(dukeNerveTree), [loadTree])
+  const loadTreeFromDb = useCallback(
+    async (treeId: string) => {
+      try {
+        const tree = await fetchTree(treeId)
+        loadTree(tree)
+      } catch (err) {
+        console.error('Failed to load tree:', err)
+        alert('Failed to load tree from database')
+      }
+    },
+    [loadTree],
+  )
+
+  const onLoadSimple = useCallback(() => {
+    const t = dbTrees.find(t => t.name === 'Sample Tree')
+    if (t) loadTreeFromDb(t.id)
+    else loadTree(sampleTree)
+  }, [dbTrees, loadTreeFromDb, loadTree])
+  
+  const onLoadDuke = useCallback(() => {
+    const t = dbTrees.find(t => t.name === 'Duke Nerve Tree')
+    if (t) loadTreeFromDb(t.id)
+    else loadTree(dukeNerveTree)
+  }, [dbTrees, loadTreeFromDb, loadTree])
 
   // Convert the canvas back into a Tree, validate with Zod + soft graph checks,
   // log the serialized schema, and store it for the Runner.

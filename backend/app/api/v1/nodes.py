@@ -44,8 +44,15 @@ async def create_node(
         node.workup_items.append(workup)
         
     await db.commit()
-    await db.refresh(node)
-    return node
+    
+    # Reload with relationships
+    from sqlalchemy.orm import selectinload
+    query = select(Node).where(Node.id == node.id).options(
+        selectinload(Node.branches).selectinload(Branch.condition),
+        selectinload(Node.workup_items)
+    )
+    result = await db.execute(query)
+    return result.scalars().first()
 
 
 @router.patch("/{node_id}", response_model=NodeRead)

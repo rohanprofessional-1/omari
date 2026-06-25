@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useTreeStore } from '../store/treeStore'
 import { setDemoMode } from '../lib/extractionProvider'
 import { sampleTree } from '../data/sampleTree'
+import { fetchTrees, fetchTree } from '../lib/api'
 import { VARIABLE_SPECS } from '../data/variableSpecs'
 import { nodeDisplayName } from '../lib/treeToFlow'
 import { confidenceBand, planConversationStep, type Extraction, type OrchestratorStep } from '../lib/orchestrator'
@@ -133,14 +134,31 @@ function usePresentationMode(): [boolean, (next: boolean) => void] {
 }
 
 function Runner() {
-  const { savedTree, savedAt } = useTreeStore()
-  const tree = savedTree ?? sampleTree
+  const { savedTree, savedAt, saveTree } = useTreeStore()
   const [presentation, setPresentation] = usePresentationMode()
+  const [dbTree, setDbTree] = useState<Tree | null>(null)
+
+  useEffect(() => {
+    if (!savedTree && !dbTree) {
+      fetchTrees()
+        .then(async trees => {
+          if (trees.length > 0) {
+            const fetched = await fetchTree(trees[0].id)
+            setDbTree(fetched)
+            saveTree(fetched)
+          }
+        })
+        .catch(console.error)
+    }
+  }, [savedTree, dbTree, saveTree])
+
+  const tree = savedTree ?? dbTree ?? sampleTree
+  
   // Re-key on each save so the Runner always starts fresh on the LATEST tree.
   return (
     <>
       <RunnerSession
-        key={savedTree ? `saved-${savedAt}` : 'sample'}
+        key={tree.treeId + (savedAt || 0)}
         tree={tree}
         usingFallback={!savedTree}
         presentation={presentation}

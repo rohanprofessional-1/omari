@@ -1,20 +1,76 @@
-"""
-API Client for Blume.
-This module abstracts all HTTP calls to the FastAPI backend.
-"""
+import type { Tree, Condition } from '../types/tree'
+import { TreeSchema } from '../types/tree'
 
-const API_BASE = '/api/v1'
+const API_BASE = import.meta.env.VITE_API_URL + '/api/v1'
 
-export async function fetchTrees() {
+function mapCondition(c: any): Condition {
+  if (c.condition_type === 'equals') {
+    let val: string | number | boolean = c.value_string
+    if (val === 'true') val = true
+    else if (val === 'false') val = false
+    else if (!isNaN(Number(val))) val = Number(val)
+    return { op: 'equals', value: val }
+  } else if (c.condition_type === 'range') {
+    return { op: 'range', min: c.min_value ?? undefined, max: c.max_value ?? undefined }
+  } else if (c.condition_type === 'in') {
+    return { op: 'in', values: c.values_list ? JSON.parse(c.values_list) : [] }
+  }
+  throw new Error(`Unknown condition type: ${c.condition_type}`)
+}
+
+export async function fetchTrees(): Promise<{ id: string; name: string }[]> {
   const res = await fetch(`${API_BASE}/trees`)
   if (!res.ok) throw new Error('Failed to fetch trees')
   return res.json()
 }
 
-export async function fetchTree(id: string) {
+export async function fetchTree(id: string): Promise<Tree> {
   const res = await fetch(`${API_BASE}/trees/${id}`)
   if (!res.ok) throw new Error('Failed to fetch tree')
-  return res.json()
+  const data = await res.json()
+
+  // Map backend snake_case format to frontend camelCase Schema
+  const tree: any = {
+    treeId: data.id,
+    rootNodeId: data.root_node_id,
+    nodes: data.nodes.map((n: any) => {
+      const base: any = {
+        id: n.id,
+        type: n.node_type,
+      }
+
+      if (n.node_type === 'variable') {
+        base.variableKey = n.variable_key
+        base.prompt = n.prompt
+        base.dataSource = n.data_source
+        base.branches = n.branches.map((b: any) => ({
+          label: b.label,
+          patientLabel: b.patient_label || undefined,
+          nextNodeId: b.next_node_id || '',
+          condition: b.condition ? mapCondition(b.condition) : undefined
+        }))
+      } else if (n.node_type === 'specialist') {
+        base.specialistName = n.specialist_name
+        base.specialty = n.specialty
+        base.urgency = n.urgency
+        base.reasoningTemplate = n.reasoning_template
+        base.clinicalBasis = n.clinical_basis || undefined
+        base.confirmWithDrLi = n.confirm_with_dr_li || undefined
+        base.workup = (n.workup_items || []).map((w: any) => ({
+          name: w.name,
+          protocol: w.protocol,
+          rationale: w.rationale
+        }))
+      } else if (n.node_type === 'escalation') {
+        base.reason = n.escalation_reason
+      }
+
+      return base
+    })
+  }
+
+  // Validate to ensure engine compatibility
+  return TreeSchema.parse(tree)
 }
 
 export async function fetchVariables() {
