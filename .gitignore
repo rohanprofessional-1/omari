@@ -32,7 +32,7 @@ backend/venv/
 backend/.venv/
 *.egg-info/
 .pytest_cache/
-
+.vite
 # Docker
 pgdata/
 
