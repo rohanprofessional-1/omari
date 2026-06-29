@@ -687,9 +687,7 @@ function PatientApp({
     <div className="omari-msg overflow-hidden rounded-2xl border border-line bg-canvas shadow-[0_1px_3px_rgba(22,32,46,0.07)]">
       {/* Product header — reads like a real clinic intake widget */}
       <div className="flex items-center gap-2.5 border-b border-line px-5 py-3">
-        <span className="omari-grad grid h-7 w-7 place-items-center rounded-full text-[12px] font-semibold text-white">
-          O
-        </span>
+        <img src="/omari-logo.png" alt="" aria-hidden className="h-8 w-8 shrink-0 object-contain" />
         <div className="min-w-0">
           <p className="font-display text-[13px] font-semibold leading-tight text-ink">
             Omari

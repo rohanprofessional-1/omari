@@ -6,6 +6,7 @@ import {
   useState,
   type DragEvent,
   type MouseEvent,
+  type ReactNode,
 } from 'react'
 import {
   Background,
@@ -30,6 +31,7 @@ import { fetchTrees, fetchTree } from '../lib/api'
 import {
   createTreeNode,
   deriveEdges,
+  layoutGraph,
   layoutWithDagre,
   nodeDisplayName,
   NODE_WIDTH,
@@ -41,7 +43,6 @@ import {
 import { TreeSchema, type Node as TreeNode, type Tree } from '../types/tree'
 import { flowNodesToTree, validateTreeGraph, type TreeWarning } from '../lib/buildTree'
 import { useTreeStore } from '../store/treeStore'
-import { useBuilderToolbar } from '../components/BuilderToolbarContext'
 import VariableNodeCard from '../components/nodes/VariableNodeCard'
 import SpecialistNodeCard from '../components/nodes/SpecialistNodeCard'
 import EscalationNodeCard from '../components/nodes/EscalationNodeCard'
@@ -63,7 +64,7 @@ const edgeTypes = {
 const MINIMAP_COLORS: Record<string, string> = {
   variable: '#2563EB',
   specialist: '#4B9CD3',
-  escalation: '#D08A2C',
+  escalation: '#6CB4EE',
 }
 
 function prefersReducedMotion(): boolean {
@@ -120,6 +121,144 @@ function labelOf(nodes: BuilderFlowNode[], id: string): string {
   return n ? nodeDisplayName(n.data.treeNode) : id
 }
 
+/** Adjacency (node id → existing branch-target ids) for the current wiring. */
+function buildAdjacency(nodes: BuilderFlowNode[]): Map<string, string[]> {
+  const ids = new Set(nodes.map((n) => n.id))
+  const adj = new Map<string, string[]>()
+  for (const n of nodes) {
+    const tn = n.data.treeNode
+    const outs =
+      tn.type === 'variable'
+        ? tn.branches.map((b) => b.nextNodeId).filter((t) => t && ids.has(t))
+        : []
+    adj.set(n.id, outs)
+  }
+  return adj
+}
+
+/**
+ * VIEW-ONLY visibility for expand/collapse. A node is hidden iff it is a
+ * descendant cut off by a collapsed node — i.e. reachable from the root in the
+ * FULL graph but NOT reachable once we stop descending into collapsed nodes.
+ * Shared destinations (our DAG) stay visible if any open path still reaches them,
+ * and disconnected / freshly-added nodes (not under the root) are always visible.
+ * Never touches tree data — purely decides what the canvas draws.
+ */
+interface Visibility {
+  visibleIds: Set<string>
+  hiddenCountByNode: Map<string, number>
+  childCount: Map<string, number>
+}
+
+function computeVisibility(
+  nodes: BuilderFlowNode[],
+  rootId: string,
+  collapsed: Set<string>,
+): Visibility {
+  const ids = new Set(nodes.map((n) => n.id))
+  const adj = buildAdjacency(nodes)
+
+  const childCount = new Map<string, number>()
+  for (const [k, v] of adj) childCount.set(k, new Set(v).size)
+
+  const walk = (stopAtCollapsed: boolean): Set<string> => {
+    const seen = new Set<string>()
+    if (!ids.has(rootId)) return seen
+    const stack = [rootId]
+    seen.add(rootId)
+    while (stack.length) {
+      const cur = stack.pop()!
+      if (stopAtCollapsed && collapsed.has(cur)) continue // visible, children hidden
+      for (const nx of adj.get(cur) ?? []) if (!seen.has(nx)) { seen.add(nx); stack.push(nx) }
+    }
+    return seen
+  }
+
+  const visibleFromRoot = walk(true)
+  const fullReachable = walk(false)
+
+  const hidden = new Set<string>()
+  for (const id of fullReachable) if (!visibleFromRoot.has(id)) hidden.add(id)
+
+  const visibleIds = new Set<string>()
+  for (const n of nodes) if (!hidden.has(n.id)) visibleIds.add(n.id)
+
+  // How many descendants each collapsed node is currently hiding (for its badge).
+  const hiddenCountByNode = new Map<string, number>()
+  for (const c of collapsed) {
+    if (!visibleIds.has(c)) continue
+    const sub = new Set<string>()
+    const stack = [...(adj.get(c) ?? [])]
+    while (stack.length) {
+      const cur = stack.pop()!
+      if (sub.has(cur)) continue
+      sub.add(cur)
+      for (const nx of adj.get(cur) ?? []) if (!sub.has(nx)) stack.push(nx)
+    }
+    let count = 0
+    for (const s of sub) if (hidden.has(s)) count++
+    hiddenCountByNode.set(c, count)
+  }
+
+  return { visibleIds, hiddenCountByNode, childCount }
+}
+
+/** Nodes on ANY route root → dest (reachable from root AND can reach dest). */
+function nodesOnPath(nodes: BuilderFlowNode[], rootId: string, destId: string): Set<string> {
+  const ids = new Set(nodes.map((n) => n.id))
+  const fwd = buildAdjacency(nodes)
+  const rev = new Map<string, string[]>()
+  for (const [src, outs] of fwd) for (const t of outs) {
+    const arr = rev.get(t)
+    if (arr) arr.push(src)
+    else rev.set(t, [src])
+  }
+  const reach = (adj: Map<string, string[]>, start: string): Set<string> => {
+    const seen = new Set<string>()
+    if (!ids.has(start)) return seen
+    const stack = [start]
+    seen.add(start)
+    while (stack.length) {
+      const cur = stack.pop()!
+      for (const nx of adj.get(cur) ?? []) if (!seen.has(nx)) { seen.add(nx); stack.push(nx) }
+    }
+    return seen
+  }
+  const fromRoot = reach(fwd, rootId)
+  const toDest = reach(rev, destId)
+  const out = new Set<string>()
+  for (const id of fromRoot) if (toDest.has(id)) out.add(id)
+  return out
+}
+
+/**
+ * Default collapse for a freshly loaded tree. Large trees (the Duke tree) open
+ * CALM — root + first level visible, every deeper branch collapsed — so the user
+ * drills in. Small trees (the simple sample) open fully expanded. Returns the set
+ * of node ids to collapse (depth ≥ 1 nodes that have children).
+ */
+function defaultCollapsedFor(nodes: BuilderFlowNode[], rootId: string): Set<string> {
+  const collapsed = new Set<string>()
+  if (nodes.length <= 14) return collapsed // small tree → fully expanded
+  const adj = buildAdjacency(nodes)
+  const ids = new Set(nodes.map((n) => n.id))
+  if (!ids.has(rootId)) return collapsed
+  // BFS depth from root; collapse any node at depth ≥ 1 that has children.
+  const depth = new Map<string, number>([[rootId, 0]])
+  const queue = [rootId]
+  while (queue.length) {
+    const cur = queue.shift()!
+    const d = depth.get(cur)!
+    for (const nx of adj.get(cur) ?? []) {
+      if (!depth.has(nx)) { depth.set(nx, d + 1); queue.push(nx) }
+    }
+  }
+  for (const [id, d] of depth) {
+    if (d >= 1 && (adj.get(id)?.length ?? 0) > 0) collapsed.add(id)
+  }
+  return collapsed
+}
+
 interface SelectedEdge {
   id: string
   source: string
@@ -155,13 +294,16 @@ function BuilderCanvas() {
   // Path Explorer: a pinned destination whose ALL routes-from-root are traced.
   // View-only — never edits the tree or opens the editor.
   const [tracedDestId, setTracedDestId] = useState<string | null>(null)
+  // VIEW-ONLY expand/collapse: ids whose downstream subtree is hidden on the
+  // canvas. Never persisted, never read by the engine/Runner — the saved tree is
+  // always the full tree regardless of what's collapsed here.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [saveResult, setSaveResult] = useState<{
     ok: boolean
     warnings: TreeWarning[]
   } | null>(null)
   const { fitView, screenToFlowPosition } = useReactFlow()
   const { saveTree } = useTreeStore()
-  const { register } = useBuilderToolbar()
   
   const [dbTrees, setDbTrees] = useState<{ id: string; name: string }[]>([])
 
@@ -175,6 +317,12 @@ function BuilderCanvas() {
   useEffect(() => {
     nodesRef.current = nodes
   }, [nodes])
+
+  // Latest collapse set for async layout / event handlers without re-binding.
+  const collapsedRef = useRef(collapsed)
+  useEffect(() => {
+    collapsedRef.current = collapsed
+  }, [collapsed])
 
   // Which tree is currently loaded on the canvas (drives save id/root + the
   // top-bar tag). Starts as the simple sample; the load buttons swap it.
@@ -275,23 +423,44 @@ function BuilderCanvas() {
     return { activeEdges, activeNodes }
   }, [hoveredEdgeId, hoveredBucket, hoveredNodeId, tracedDestId, selectedEdge, selectedId, nodes, activeMeta.rootNodeId])
 
-  // Edges are DERIVED from branch wiring (selection + isolation state applied).
-  const edges = useMemo(
-    () => deriveEdges(nodes, { selectedEdgeId: selectedEdge?.id, activeEdgeIds: focus?.activeEdges ?? null }),
-    [nodes, selectedEdge, focus],
+  // VIEW-ONLY visibility from the collapse set: which nodes/edges the canvas
+  // draws. Tree data is untouched — this only decides what's shown.
+  const visibility = useMemo(
+    () => computeVisibility(nodes, activeMeta.rootNodeId, collapsed),
+    [nodes, activeMeta.rootNodeId, collapsed],
   )
 
-  // Nodes for rendering: dim any node not on the isolated path (handles/positions
-  // unchanged — only a className is layered on for the fade).
+  // Edges are DERIVED from branch wiring (selection + isolation state applied),
+  // then filtered to the visible subgraph (no wires into hidden nodes, and none
+  // out of a collapsed node).
+  const edges = useMemo(() => {
+    const visNodes = nodes.filter((n) => visibility.visibleIds.has(n.id))
+    const derived = deriveEdges(visNodes, {
+      selectedEdgeId: selectedEdge?.id,
+      activeEdgeIds: focus?.activeEdges ?? null,
+    })
+    return derived.filter((e) => !collapsed.has(e.source))
+  }, [nodes, visibility, collapsed, selectedEdge, focus])
+
+  // Nodes for rendering: only the visible ones; dim any not on the isolated path
+  // (positions/handles unchanged), and inject the view-only collapse flags the
+  // card uses to draw its expand/collapse chevron + hidden-count badge.
   const displayNodes = useMemo(() => {
     const active = focus?.activeNodes ?? null
-    return nodes.map((n) => {
-      const dim = active ? !active.has(n.id) : false
-      const base = (n.className ?? '').replace(/\bomari-node-dim\b/g, '').trim()
-      const className = dim ? `${base} omari-node-dim`.trim() : base || undefined
-      return className === n.className ? n : { ...n, className }
-    })
-  }, [nodes, focus])
+    return nodes
+      .filter((n) => visibility.visibleIds.has(n.id))
+      .map((n) => {
+        const dim = active ? !active.has(n.id) : false
+        const base = (n.className ?? '').replace(/\bomari-node-dim\b/g, '').trim()
+        const className = dim ? `${base} omari-node-dim`.trim() : base || undefined
+        const view = {
+          collapsed: collapsed.has(n.id),
+          hasChildren: (visibility.childCount.get(n.id) ?? 0) > 0,
+          hiddenCount: visibility.hiddenCountByNode.get(n.id) ?? 0,
+        }
+        return { ...n, className, data: { ...n.data, view } }
+      })
+  }, [nodes, focus, visibility, collapsed])
 
   const selectedNode = nodes.find((n) => n.id === selectedId) ?? null
 
@@ -309,13 +478,86 @@ function BuilderCanvas() {
     return out.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'specialist' ? -1 : 1))
   }, [nodes])
 
+  /**
+   * Re-tidy the VISIBLE graph with ELK (Dagre fallback) for a given collapse set,
+   * then fit the visible nodes into view. Hidden nodes keep their positions —
+   * only what's on screen is laid out, so collapsing/expanding re-tidies cleanly.
+   * Layout/positions only: never changes tree data, wiring, or the saved tree.
+   */
+  const runLayout = useCallback(
+    async (collapsedSet: Set<string>, opts?: { fit?: boolean }) => {
+      const all = nodesRef.current
+      if (all.length === 0) return
+      const vis = computeVisibility(all, rootIdRef.current, collapsedSet)
+      const visNodes = all.filter((n) => vis.visibleIds.has(n.id))
+      // Lay out only edges that are actually drawn (skip wires out of collapsed nodes).
+      const layoutEdges = deriveEdges(visNodes).filter((e) => !collapsedSet.has(e.source))
+      const { nodes: laid } = await layoutGraph(visNodes, layoutEdges)
+      const posById = new Map(laid.map((n) => [n.id, n.position]))
+      setNodes((current) =>
+        current.map((n) => {
+          const p = posById.get(n.id)
+          return p ? { ...n, position: p } : n
+        }),
+      )
+      if (opts?.fit !== false) {
+        const fitNodes = visNodes.map((n) => ({ id: n.id }))
+        window.requestAnimationFrame(() =>
+          fitView({
+            nodes: fitNodes,
+            duration: prefersReducedMotion() ? 0 : 400,
+            padding: 0.15,
+          }),
+        )
+      }
+    },
+    [setNodes, fitView],
+  )
+
+  // On mount, refine the initial (Dagre-seeded) sample layout with ELK so the
+  // first paint also gets orthogonal routing + crossing minimisation.
+  useEffect(() => {
+    void runLayout(collapsedRef.current)
+    // Run once on mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // View-only: pin/unpin a destination to trace its routes. Never edits; clears
   // node/edge selection so the editor doesn't open and the two modes don't mix.
-  const onTraceDest = useCallback((id: string) => {
-    setTracedDestId((prev) => (prev === id ? null : id))
-    setSelectedId(null)
-    setSelectedEdge(null)
-  }, [])
+  // When pinning, auto-expand any collapsed nodes ON the traced path so the whole
+  // route is visible (re-tidying the layout if that revealed anything).
+  const onTraceDest = useCallback(
+    (id: string) => {
+      setTracedDestId((prev) => {
+        const next = prev === id ? null : id
+        if (next) {
+          const onPath = nodesOnPath(nodesRef.current, rootIdRef.current, next)
+          const cur = collapsedRef.current
+          const reduced = new Set([...cur].filter((c) => !onPath.has(c)))
+          if (reduced.size !== cur.size) {
+            setCollapsed(reduced)
+            void runLayout(reduced)
+          }
+        }
+        return next
+      })
+      setSelectedId(null)
+      setSelectedEdge(null)
+    },
+    [runLayout],
+  )
+
+  // VIEW-ONLY expand/collapse of a node's subtree, then re-tidy the visible graph.
+  const onToggleCollapse = useCallback(
+    (id: string) => {
+      const next = new Set(collapsedRef.current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      setCollapsed(next)
+      void runLayout(next)
+    },
+    [runLayout],
+  )
 
   // Nice-to-have: frame the traced route(s) once pinned (smooth; instant if
   // reduced-motion). Reads the freshly-computed focus for the active nodes.
@@ -341,6 +583,7 @@ function BuilderCanvas() {
     },
     [setNodes],
   )
+
 
   /* --------------------------- Add nodes --------------------------------- */
 
@@ -534,11 +777,25 @@ function BuilderCanvas() {
   /* --------------------------- Canvas actions ---------------------------- */
 
   const onAutoLayout = useCallback(() => {
-    setNodes((current) =>
-      layoutWithDagre(current as BuilderFlowNode[], deriveEdges(current as BuilderFlowNode[])),
-    )
-    window.requestAnimationFrame(() => fitView({ duration: 400, padding: 0.15 }))
-  }, [setNodes, fitView])
+    void runLayout(collapsedRef.current)
+  }, [runLayout])
+
+  // VIEW-ONLY: reveal every collapsed subtree at once, then re-tidy + fit.
+  const onExpandAll = useCallback(() => {
+    const empty = new Set<string>()
+    setCollapsed(empty)
+    void runLayout(empty)
+  }, [runLayout])
+
+  // VIEW-ONLY: collapse every node that has children (down to the root), then
+  // re-tidy + fit. Inverse of Expand all.
+  const onCollapseAll = useCallback(() => {
+    const adj = buildAdjacency(nodesRef.current)
+    const all = new Set<string>()
+    for (const [id, outs] of adj) if (outs.length > 0) all.add(id)
+    setCollapsed(all)
+    void runLayout(all)
+  }, [runLayout])
 
   const onClear = useCallback(() => {
     if (window.confirm('Clear the entire canvas and start over? This cannot be undone.')) {
@@ -546,16 +803,24 @@ function BuilderCanvas() {
       setSelectedId(null)
       setSelectedEdge(null)
       setTracedDestId(null)
+      setCollapsed(new Set())
     }
   }, [setNodes])
 
   // Load a tree onto the canvas AND make it the active tree for the Runner.
   // Presentation/data only: it just renders an existing validated Tree; the
   // engine and Runner are unchanged. The simple sample stays the safe fallback.
+  // Lays out instantly with Dagre, then refines with ELK; large trees open with
+  // their deeper branches collapsed (root + first level visible) for a calm start.
   const loadTree = useCallback(
     (tree: Tree) => {
       const flow = treeToFlowNodes(tree)
-      setNodes(layoutWithDagre(flow, deriveEdges(flow)))
+      const laid = layoutWithDagre(flow, deriveEdges(flow))
+      const initCollapsed = defaultCollapsedFor(laid, tree.rootNodeId)
+      setNodes(laid)
+      nodesRef.current = laid
+      setCollapsed(initCollapsed)
+      collapsedRef.current = initCollapsed
       setSelectedId(null)
       setSelectedEdge(null)
       setTracedDestId(null)
@@ -563,9 +828,9 @@ function BuilderCanvas() {
       setActiveMeta({ treeId: tree.treeId, rootNodeId: tree.rootNodeId })
       rootIdRef.current = tree.rootNodeId
       saveTree(tree) // Runner uses whichever tree is currently active
-      window.requestAnimationFrame(() => fitView({ duration: 400, padding: 0.15 }))
+      void runLayout(initCollapsed)
     },
-    [setNodes, saveTree, fitView],
+    [setNodes, saveTree, runLayout],
   )
   const loadTreeFromDb = useCallback(
     async (treeId: string) => {
@@ -621,24 +886,14 @@ function BuilderCanvas() {
     setSaveResult({ ok: true, warnings })
   }, [saveTree, activeMeta])
 
-  // Publish the global actions to the top app bar (and clear on unmount).
-  useEffect(() => {
-    register({
-      onSave,
-      onAutoLayout,
-      onClear,
-      onLoadSimple,
-      onLoadDuke,
-      treeId: activeMeta.treeId,
-    })
-    return () => register(null)
-  }, [register, onSave, onAutoLayout, onClear, onLoadSimple, onLoadDuke, activeMeta])
-
   const onBucketHover = useCallback(
     (key: { nodeId: string; branchIndex: number } | null) => setHoveredBucket(key),
     [],
   )
-  const actions = useMemo(() => ({ deleteNode, onBucketHover }), [deleteNode, onBucketHover])
+  const actions = useMemo(
+    () => ({ deleteNode, onBucketHover, onToggleCollapse }),
+    [deleteNode, onBucketHover, onToggleCollapse],
+  )
 
   return (
     <BuilderActionsContext.Provider value={actions}>
@@ -650,11 +905,21 @@ function BuilderCanvas() {
           onTraceDest={onTraceDest}
         />
 
-        {/* Canvas region: padded so the warm app background frames the surface. */}
-        <div className="min-w-0 flex-1 p-3">
+        {/* Canvas region: a document-style toolbar sits above the surface (like
+            the toolbar above a page in Word / Google Docs). */}
+        <div className="flex min-w-0 flex-1 flex-col gap-2 p-3">
+          <CanvasToolbar
+            onLoadSimple={onLoadSimple}
+            onLoadDuke={onLoadDuke}
+            onSave={onSave}
+            onExpandAll={onExpandAll}
+            onCollapseAll={onCollapseAll}
+            onAutoLayout={onAutoLayout}
+            onClear={onClear}
+          />
           <div
             ref={wrapperRef}
-            className="relative h-full overflow-hidden rounded-[12px] border border-line bg-canvas shadow-[0_1px_2px_rgba(31,36,33,0.04)]"
+            className="relative min-h-0 flex-1 overflow-hidden rounded-[12px] border border-line bg-canvas shadow-[0_1px_2px_rgba(31,36,33,0.04)]"
             onDrop={onDrop}
             onDragOver={onDragOver}
           >
@@ -836,7 +1101,7 @@ function LeftColumn({
     <aside className="omari-enter-side flex w-[260px] shrink-0 flex-col border-r border-line bg-canvas">
       {/* ── Add node ────────────────────────────────────────────────────── */}
       <div className="shrink-0 px-4 pb-2 pt-4">
-        <p className="font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
+        <p className="font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-accent-strong">
           Add node
         </p>
         <p className="mt-1 text-[11px] leading-snug text-muted">
@@ -870,7 +1135,7 @@ function LeftColumn({
             </span>
             <span
               aria-hidden
-              className="grid h-5 w-5 shrink-0 place-items-center rounded-md border border-line text-[13px] leading-none text-muted transition-colors group-hover:border-accent group-hover:text-accent"
+              className="grid h-5 w-5 shrink-0 place-items-center rounded-md border border-accent-strong/40 bg-canvas text-[14px] leading-none text-accent-strong transition-colors group-hover:border-accent-strong group-hover:bg-accent-strong group-hover:text-white"
             >
               +
             </span>
@@ -881,7 +1146,7 @@ function LeftColumn({
       {/* ── Path Explorer (view-only) ───────────────────────────────────── */}
       <div className="mt-3 flex min-h-0 flex-1 flex-col border-t border-line pt-3">
         <div className="flex items-center justify-between px-4">
-          <p className="font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
+          <p className="font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-accent-strong">
             Trace a path
           </p>
           {tracedDestId && (
@@ -939,7 +1204,7 @@ function LeftColumn({
 
       {/* ── Overview minimap (moved here from the canvas corner) ─────────── */}
       <div className="shrink-0 border-t border-line px-3 pb-4 pt-3">
-        <p className="mb-2 font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-muted">
+        <p className="mb-2 font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-accent-strong">
           Overview
         </p>
         <OverviewMap />
@@ -954,6 +1219,121 @@ function Builder() {
       <ReactFlowProvider>
         <BuilderCanvas />
       </ReactFlowProvider>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/* Document-style toolbar (above the canvas, à la Word / Google Docs)         */
+/* -------------------------------------------------------------------------- */
+
+/** Tiny stroke icon wrapper for the toolbar buttons. */
+function TBIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className="shrink-0"
+    >
+      {children}
+    </svg>
+  )
+}
+
+/**
+ * The Builder's tree actions, grouped into a calm white toolbar that sits just
+ * above the canvas. Inverted style: white buttons with a deep-blue outline +
+ * label (hover fills a faint blue). Tooltips carry the longer descriptions so
+ * the labels can stay short.
+ */
+function CanvasToolbar({
+  onLoadSimple,
+  onLoadDuke,
+  onSave,
+  onExpandAll,
+  onCollapseAll,
+  onAutoLayout,
+  onClear,
+}: {
+  onLoadSimple: () => void
+  onLoadDuke: () => void
+  onSave: () => void
+  onExpandAll: () => void
+  onCollapseAll: () => void
+  onAutoLayout: () => void
+  onClear: () => void
+}) {
+  const btn =
+    'inline-flex items-center gap-1.5 rounded-md border border-accent-strong/40 bg-canvas px-2.5 py-1.5 text-[12.5px] font-medium text-accent-strong transition-colors hover:border-accent-strong/70 hover:bg-sky'
+  const Divider = () => <span className="mx-0.5 h-5 w-px shrink-0 bg-line" aria-hidden />
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-[10px] border border-line bg-canvas px-2 py-1.5 shadow-[0_1px_2px_rgba(31,36,33,0.04)]">
+      <button className={btn} onClick={onLoadSimple} title="Load the simple seeded sample tree">
+        <TBIcon>
+          <circle cx="12" cy="5" r="2" />
+          <circle cx="6" cy="19" r="2" />
+          <circle cx="18" cy="19" r="2" />
+          <path d="M12 7v3M12 10l-5 6M12 10l5 6" />
+        </TBIcon>
+        Sample
+      </button>
+      <button className={btn} onClick={onLoadDuke} title="Load the deep Duke Nerve Center tree">
+        <TBIcon>
+          <path d="M12 2 2 7l10 5 10-5-10-5z" />
+          <path d="M2 17l10 5 10-5" />
+          <path d="M2 12l10 5 10-5" />
+        </TBIcon>
+        Duke
+      </button>
+
+      <Divider />
+
+      <button className={btn} onClick={onSave} title="Save this tree">
+        <TBIcon>
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+          <path d="M17 21v-8H7v8M7 3v5h8" />
+        </TBIcon>
+        Save
+      </button>
+
+      <Divider />
+
+      <button className={btn} onClick={onExpandAll} title="Reveal every collapsed branch at once">
+        <TBIcon>
+          <path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3" />
+        </TBIcon>
+        Expand all
+      </button>
+      <button className={btn} onClick={onCollapseAll} title="Collapse every branch down to the root">
+        <TBIcon>
+          <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3" />
+        </TBIcon>
+        Collapse all
+      </button>
+      <button className={btn} onClick={onAutoLayout} title="Auto-layout the tree">
+        <TBIcon>
+          <rect x="3" y="3" width="7" height="18" rx="1" />
+          <rect x="14" y="3" width="7" height="11" rx="1" />
+        </TBIcon>
+        Auto-layout
+      </button>
+
+      <Divider />
+
+      <button className={btn} onClick={onClear} title="Clear the canvas and start over">
+        <TBIcon>
+          <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+        </TBIcon>
+        Clear
+      </button>
     </div>
   )
 }

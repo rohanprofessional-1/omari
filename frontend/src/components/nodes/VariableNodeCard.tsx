@@ -6,7 +6,7 @@ import {
   shortBranchLabel,
   type BuilderFlowNode,
 } from '../../lib/treeToFlow'
-import { DeleteNodeButton, useBuilderActions } from '../BuilderActionsContext'
+import { CollapseToggle, DeleteNodeButton, useBuilderActions } from '../BuilderActionsContext'
 import { CardExpander } from './CardExpander'
 
 /**
@@ -19,6 +19,7 @@ function VariableNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
   const updateNodeInternals = useUpdateNodeInternals()
   const { onBucketHover } = useBuilderActions()
   const node = data.treeNode
+  const view = data.view
   if (node.type !== 'variable') return null
 
   return (
@@ -32,6 +33,15 @@ function VariableNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
       <Handle type="target" position={Position.Left} className="!bg-nodevar" />
 
       <div className="flex items-center gap-2 rounded-t-[10px] bg-nodevar px-3 py-1.5 text-white">
+        {/* Expand/collapse the downstream subtree — first chip in the header so it
+            never overlaps the title, delete button, or canvas wires. */}
+        {view?.hasChildren && (
+          <CollapseToggle
+            id={node.id}
+            collapsed={!!view.collapsed}
+            hiddenCount={view.hiddenCount}
+          />
+        )}
         <span className="font-display text-[10px] font-semibold uppercase tracking-[0.08em]">
           Variable
         </span>

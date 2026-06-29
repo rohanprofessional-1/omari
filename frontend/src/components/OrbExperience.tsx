@@ -5,7 +5,6 @@ import type { OrchestratorStep } from '../lib/orchestrator'
 import type { ChatMessage, Phase } from '../pages/Runner'
 import { StatusStepper } from '../pages/Runner'
 import { Orb, type AgentState } from './Orb'
-import { BubbleBackground } from './BubbleBackground'
 
 /**
  * Omari — Presentation-mode ORB experience (presentation-only patient view).
@@ -407,31 +406,8 @@ function OrbExperience({
   return (
     <div
       className="omari-orb-stage fixed inset-0 z-40 flex flex-col"
-      style={{
-        background:
-          'radial-gradient(120% 85% at 50% 12%, #eef4ff 0%, #f5f7fa 52%, #eaeefb 100%)',
-      }}
+      style={{ background: '#ffffff' }}
     >
-      {/* Animated blue/white "gooey" bubble background — calm ambient motion
-          behind everything. Skipped under reduced-motion (the static light
-          gradient above remains). pointer-events-none so it never blocks input. */}
-      {!reducedMotion && (
-        <div className="pointer-events-none absolute inset-0 z-0 opacity-60" aria-hidden>
-          <BubbleBackground />
-        </div>
-      )}
-
-      {/* Soft white center scrim — keeps the dark text/orb area legible over the
-          moving blobs, so the overlay reads seamlessly. */}
-      <div
-        className="pointer-events-none absolute inset-0 z-0"
-        aria-hidden
-        style={{
-          background:
-            'radial-gradient(60% 52% at 50% 46%, rgba(245,247,250,0.5) 0%, rgba(245,247,250,0) 72%)',
-        }}
-      />
-
       {/* Soft, ambient green edge glow — referral-sent success beat ONLY. */}
       {done && <div className="omari-success-glow pointer-events-none absolute inset-0 z-0" aria-hidden />}
 

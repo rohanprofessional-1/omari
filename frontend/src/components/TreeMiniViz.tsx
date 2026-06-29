@@ -26,7 +26,7 @@ import type { FilledVariables, Tree } from '../types/tree'
 const COLOR = {
   variable: '#2563EB', // --color-nodevar
   specialist: '#4B9CD3', // --color-nodespec
-  escalation: '#D08A2C', // --color-nodeesc
+  escalation: '#6CB4EE', // --color-nodeesc
   dimEdge: '#CBD5E1',
   takenEdge: '#2563EB',
   line: '#E2E8F0',
