@@ -60,7 +60,11 @@
       "Bash(echo \"Builder -> $\\(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/pages/Builder.tsx\\)\")",
       "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('deps:', JSON.stringify\\({...p.dependencies, ...p.devDependencies}, null, 0\\)\\)\")",
       "Bash(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/components/BubbleBackground.tsx)",
-      "Bash(echo \"BubbleBackground -> $\\(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/components/BubbleBackground.tsx\\)\")"
+      "Bash(echo \"BubbleBackground -> $\\(curl -s -o /dev/null -w '%{http_code}' http://localhost:5173/src/components/BubbleBackground.tsx\\)\")",
+      "Bash(git restore *)",
+      "Bash(node -e \"const E=require\\('elkjs'\\); console.log\\('elkjs ok', typeof E\\)\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5175/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5175/omari-logo.png)"
     ]
   }
 }

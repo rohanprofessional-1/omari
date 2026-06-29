@@ -29,10 +29,10 @@ export type AgentState = null | "thinking" | "listening" | "talking"
  * SPEED_EASE controls how smoothly the speed ramps between states (no snapping). */
 const BASE_TIME_SPEED = 0.5
 const SPEED_BY_STATE: Record<"idle" | "listening" | "thinking" | "talking", number> = {
-  idle: 1.5, // resting — ~1.5× the old resting motion (more alive at rest)
-  listening: 1.8, // while the patient is answering
-  thinking: 8.0, // FASTEST — orb dramatically spins up while the engine/LLM works (~5× idle)
-  talking: 2.2, // while presenting a message
+  idle: 1.1, // resting — gentle, flowing (not jittery, not frozen)
+  listening: 1.4, // while the patient is answering
+  thinking: 5.0, // FASTEST — orb spins up while the engine/LLM works
+  talking: 1.7, // while presenting a message
 }
 const REDUCED_SPEED = 1.0 // reduced-motion (manual mode) → calm, near the original speed
 const SPEED_EASE = 0.12 // how quickly the speed multiplier eases between states (snappier ramp)
@@ -305,10 +305,14 @@ function Scene({
         targetIn = clamp01(0.65 + Math.sin(t * 4.8) * 0.22)
         targetOut = clamp01(0.75 + Math.sin(t * 3.6) * 0.22)
       } else {
-        const base = 0.38 + 0.07 * Math.sin(t * 0.7)
-        const wander = 0.05 * Math.sin(t * 2.1) * Math.sin(t * 0.37 + 1.2)
+        // Calm, FLOWING idle: hold the volume fairly steady (so the orb doesn't
+        // just breathe in/out) while a gentle, multi-frequency wander makes the
+        // petals drift and spread in different directions. A higher, steadier
+        // uOutputVolume keeps the internal swirl/flow alive rather than pulsing.
+        const base = 0.42 + 0.04 * Math.sin(t * 0.5)
+        const wander = 0.05 * Math.sin(t * 0.9 + 0.5) * Math.sin(t * 0.33 + 1.2)
         targetIn = clamp01(base + wander)
-        targetOut = clamp01(0.48 + 0.12 * Math.sin(t * 1.05 + 0.6))
+        targetOut = clamp01(0.6 + 0.04 * Math.sin(t * 0.7 + 0.6))
       }
     }
 
@@ -530,10 +534,14 @@ void main() {
     // Original parameters for the ovals in polar coordinates
     float originalCenters[7] = float[7](0.0, 0.5 * PI, 1.0 * PI, 1.5 * PI, 2.0 * PI, 2.5 * PI, 3.0 * PI);
 
-    // Parameters for the animated centers in polar coordinates
+    // Parameters for the animated centers in polar coordinates. Two layered
+    // sine drifts (different speeds) make the petals wander/spread around the orb
+    // in varied directions rather than expanding uniformly in and out.
     float centers[7];
     for (int i = 0; i < 7; i++) {
-        centers[i] = originalCenters[i] + 0.5 * sin(uTime / 20.0 + uOffsets[i]);
+        centers[i] = originalCenters[i]
+            + 0.65 * sin(uTime / 20.0 + uOffsets[i])
+            + 0.28 * sin(uTime / 11.0 + uOffsets[i] * 1.7);
     }
 
     float a, b;

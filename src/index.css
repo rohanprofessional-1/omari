@@ -1,107 +1,53 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Galaxie Copernicus (Village) — the app typeface, used for ALL text.
-   It's a licensed font (not on any CDN), so each weight loads from a
-   LOCALLY-INSTALLED copy first; for the web, drop the licensed .woff2 files
-   into /public/fonts with the names below and they'll be served from /fonts.
-   If neither is available it falls back to a system serif (see --font-sans).
+   Typeface — INTER (clean modern sans), used for ALL text.
+   Self-hosted and bundled via `@fontsource-variable/inter` (imported in
+   main.tsx), so every weight is actually loaded — no CDN, works offline, and
+   never silently falls back to the system UI font. Family: "Inter Variable".
    ───────────────────────────────────────────────────────────────────────── */
-@font-face {
-  font-family: "Galaxie Copernicus";
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  src:
-    local("Galaxie Copernicus Book"), local("GalaxieCopernicus-Book"),
-    local("Galaxie Copernicus"),
-    url("/fonts/GalaxieCopernicus-Book.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Galaxie Copernicus";
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  src:
-    local("Galaxie Copernicus Medium"), local("GalaxieCopernicus-Medium"),
-    url("/fonts/GalaxieCopernicus-Medium.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Galaxie Copernicus";
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-  src:
-    local("Galaxie Copernicus Semibold"), local("GalaxieCopernicus-Semibold"),
-    url("/fonts/GalaxieCopernicus-Semibold.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Galaxie Copernicus";
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-  src:
-    local("Galaxie Copernicus Bold"), local("GalaxieCopernicus-Bold"),
-    url("/fonts/GalaxieCopernicus-Bold.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Galaxie Copernicus";
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-  src:
-    local("Galaxie Copernicus Book Italic"), local("GalaxieCopernicus-BookItalic"),
-    url("/fonts/GalaxieCopernicus-BookItalic.woff2") format("woff2");
-}
-@font-face {
-  font-family: "Galaxie Copernicus";
-  font-weight: 600;
-  font-style: italic;
-  font-display: swap;
-  src:
-    local("Galaxie Copernicus Semibold Italic"), local("GalaxieCopernicus-SemiboldItalic"),
-    url("/fonts/GalaxieCopernicus-SemiboldItalic.woff2") format("woff2");
-}
 
 /* ─────────────────────────────────────────────────────────────────────────
    Omari design tokens — "clinical instrument, but humane" — BLUE system.
    Defined once; reused everywhere via Tailwind utilities. No stray hex.
    ───────────────────────────────────────────────────────────────────────── */
 @theme {
+  /* LIGHT system — calm white surfaces, deep-blue used sparingly as the accent
+     (primary buttons, small UI). Defined once; reused everywhere. No stray hex. */
   --color-bg: #f5f7fa; /* app background — cool warm-neutral */
   --color-canvas: #fcfdff; /* canvas / surfaces */
   --color-ink: #16202e; /* primary text — deep blue-black */
   --color-muted: #64748b; /* muted text — slate */
   --color-line: #e2e8f0; /* hairline borders */
-  --color-accent: #2563eb; /* PRIMARY BLUE — core accent */
-  --color-accent-strong: #1e3a8a; /* deep blue — hovers / gradient end */
-  --color-bright: #3b82f6; /* bright blue — highlights / gradient start */
+  --color-accent: #2563eb; /* core blue accent (links, highlights) */
+  --color-accent-strong: #1e3a8a; /* DEEP BLUE — primary buttons / small UI */
+  --color-bright: #3b82f6; /* bright blue — highlights */
   --color-sky: #eff5ff; /* sky tint — subtle fills / selected rows */
   --color-danger: #b0413a; /* destructive (text/icon only) */
   --color-nodevar: #2563eb; /* variable node — primary blue */
   --color-nodespec: #4b9cd3; /* specialist node — UNC Carolina / Tar Heel blue */
-  --color-nodeesc: #d08a2c; /* escalation node — warm amber (intentional contrast) */
-  --color-carolina: #4b9cd3; /* UNC Carolina / Tar Heel blue — primary button */
+  --color-nodeesc: #6cb4ee; /* escalation node — baby blue */
+  --color-carolina: #4b9cd3; /* UNC Carolina / Tar Heel blue */
   --color-carolina-deep: #3d87be; /* button hover */
-  /* Success greens — friendly iMessage-style light primary (#88E788) paired with
-     a deeper companion. --color-success is the DEEPER companion on purpose: it
-     drives the timeline's bg/text/border-success utilities, which must stay
-     legible on the near-white background (light mint fails contrast there).
-     --color-success-light is the friendly #88E788 for the orb + soft fills. */
   --color-success: #2e9e5b; /* deeper companion — legible indicators/text on white */
   --color-success-light: #88e788; /* primary friendly light green — orb highlight, fills */
   --color-success-deep: #1f7a47; /* deepest green — for depth/harmony */
   --color-success-soft: #eaf9ee; /* soft mint tint (parallels --color-sky) */
 
-  /* Galaxie Copernicus everywhere (body + display), with serif system fallbacks. */
-  --font-sans: "Galaxie Copernicus", Georgia, Cambria, "Times New Roman", serif;
-  --font-display: "Galaxie Copernicus", Georgia, Cambria, "Times New Roman", serif;
+  /* Inter everywhere (body + display), with system-sans fallbacks. */
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* The signature gradient — defined once, reused with restraint. */
 :root {
+  /* Solid deep-blue button fills (no gradients) — hover is a touch lighter. */
+  --btn-blue: var(--color-accent-strong);
+  --btn-blue-hover: #24489c;
+  /* Kept ONLY for the decorative orb sphere in the patient experience (it needs a
+     gradient to read as a 3-D orb). UI chrome/buttons are flat — see .omari-grad. */
   --grad-blue: linear-gradient(135deg, #3b82f6 0%, #2563eb 52%, #1e3a8a 100%);
-  --grad-blue-bright: linear-gradient(135deg, #4f93ff 0%, #2f6dee 52%, #244aa3 100%);
   color-scheme: light;
 }
 
@@ -120,18 +66,41 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* ── Gradient helpers ────────────────────────────────────────────────────── */
+/* ── Scrollbars — deep-blue thumb (matches the small-UI accent) ───────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-accent-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-accent-strong);
+  border-radius: 9999px;
+  border: 2px solid var(--color-canvas); /* inset look */
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #24489c;
+}
+
+/* ── Primary accent helpers (SOLID deep blue — no gradients) ──────────────────
+   Named "grad" for historical reasons; they now paint a flat deep-blue fill so
+   the prominent buttons read as a calm, solid accent on the white UI. */
 .omari-grad {
-  background-image: var(--grad-blue);
+  background-image: none;
+  background-color: var(--btn-blue);
 }
 .omari-grad-hover:hover {
-  background-image: var(--grad-blue-bright);
+  background-image: none;
+  background-color: var(--btn-blue-hover);
 }
 .omari-grad-text {
-  background-image: var(--grad-blue);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  background: none;
+  color: var(--color-accent-strong);
 }
 
 /* Visible keyboard focus on interactive elements. */
@@ -400,17 +369,20 @@ textarea:focus-visible {
   box-shadow: 0 1px 3px rgba(22, 32, 46, 0.06);
   margin: 14px;
 }
-.react-flow__controls-button {
+/* Higher specificity (.react-flow__controls .…-button) so these win over
+   xyflow's own stylesheet, which is imported after index.css. White buttons with
+   a static navy-blue symbol (no fill); a faint sky tint on hover. */
+.react-flow__controls .react-flow__controls-button {
   background: var(--color-canvas);
   border-bottom: 1px solid var(--color-line);
   width: 30px;
   height: 30px;
 }
-.react-flow__controls-button:hover {
+.react-flow__controls .react-flow__controls-button:hover {
   background: var(--color-sky);
 }
-.react-flow__controls-button svg {
-  fill: var(--color-accent);
+.react-flow__controls .react-flow__controls-button svg {
+  fill: var(--color-accent-strong);
 }
 
 .react-flow__minimap {
@@ -535,6 +507,8 @@ textarea:focus-visible {
 }
 
 /* ── Respect reduced motion ──────────────────────────────────────────────── */
+/* Either the OS setting OR the in-app Settings toggle (.omari-reduce-motion on
+   <html>) collapses animations/transitions to instant. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -546,4 +520,11 @@ textarea:focus-visible {
   .react-flow__handle {
     transition: none;
   }
+}
+.omari-reduce-motion *,
+.omari-reduce-motion *::before,
+.omari-reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0ms !important;
+  transition-duration: 0.001ms !important;
 }
