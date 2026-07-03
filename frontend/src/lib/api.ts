@@ -3,6 +3,48 @@ import { TreeSchema } from '../types/tree'
 
 const API_BASE = import.meta.env.VITE_API_URL + '/api/v1'
 
+export interface ClinicSummary {
+  id: string
+  name: string
+  type?: string | null
+  knowledge_base?: string | null
+  group?: string | null
+}
+
+export interface TreeSummary {
+  id: string
+  clinic_id?: string | null
+  name: string
+}
+
+export interface KnowledgeBaseFileSummary {
+  filename: string
+  content_type?: string | null
+  file_type: string
+  text_length: number
+  selected_length: number
+  selected_chunk_count: number
+  relevant_topics: string[]
+  matched_specialists: string[]
+  matched_diagnoses: string[]
+  summary: string
+  key_points: string[]
+  evidence_quotes: string[]
+  model_used?: string | null
+}
+
+export interface KnowledgeBasePreviewResponse {
+  clinic_id: string
+  clinic_name: string
+  tree_id: string
+  tree_name: string
+  overview: string
+  focus_terms: string[]
+  files: KnowledgeBaseFileSummary[]
+  persisted: boolean
+  updated_at: string
+}
+
 function mapCondition(c: any): Condition {
   if (c.condition_type === 'equals') {
     let val: string | number | boolean = c.value_string
@@ -18,7 +60,13 @@ function mapCondition(c: any): Condition {
   throw new Error(`Unknown condition type: ${c.condition_type}`)
 }
 
-export async function fetchTrees(): Promise<{ id: string; name: string }[]> {
+export async function fetchClinics(): Promise<ClinicSummary[]> {
+  const res = await fetch(`${API_BASE}/clinics`)
+  if (!res.ok) throw new Error('Failed to fetch clinics')
+  return res.json()
+}
+
+export async function fetchTrees(): Promise<TreeSummary[]> {
   const res = await fetch(`${API_BASE}/trees`)
   if (!res.ok) throw new Error('Failed to fetch trees')
   return res.json()
@@ -82,6 +130,21 @@ export async function fetchVariables() {
 export async function fetchSpecialists() {
   const res = await fetch(`${API_BASE}/specialists`)
   if (!res.ok) throw new Error('Failed to fetch specialists')
+  return res.json()
+}
+
+export async function previewKnowledgeBase(
+  clinicId: string,
+  formData: FormData,
+): Promise<KnowledgeBasePreviewResponse> {
+  const res = await fetch(`${API_BASE}/clinics/${clinicId}/knowledge-base/preview`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(body || 'Failed to preview knowledge base')
+  }
   return res.json()
 }
 

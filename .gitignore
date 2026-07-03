@@ -45,3 +45,6 @@ pgdata/
 # OS
 .DS_Store
 Thumbs.db
+
+#Duke-knowledge
+/Duke-Sample/
