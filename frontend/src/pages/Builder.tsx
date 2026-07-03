@@ -47,6 +47,7 @@ import EscalationNodeCard from '../components/nodes/EscalationNodeCard'
 import BucketEdge from '../components/edges/BucketEdge'
 import EditorPanel from '../components/EditorPanel'
 import BuilderActionsContext from '../components/BuilderActionsContext'
+import BuilderChatPanel from '../components/BuilderChatPanel'
 
 const nodeTypes = {
   variable: VariableNodeCard,
@@ -300,6 +301,11 @@ function BuilderCanvas() {
     ok: boolean
     warnings: TreeWarning[]
   } | null>(null)
+  // The conversational assistant dock (propose → diff → confirm edits).
+  const [assistantOpen, setAssistantOpen] = useState(false)
+  // Nodes Sprout's latest reply refers to — highlighted so "which of these
+  // two nodes?" points at them. VIEW-ONLY, cleared by any canvas interaction.
+  const [assistantFocus, setAssistantFocus] = useState<Set<string> | null>(null)
   const { fitView, screenToFlowPosition } = useReactFlow()
   
   // The library trees available to open, and which one is currently on the canvas.
@@ -352,6 +358,7 @@ function BuilderCanvas() {
     let edgeId: string | null = null
     let nodeId: string | null = null
     let destId: string | null = null
+    let nodeSet: Set<string> | null = null
     if (hoveredEdgeId) edgeId = hoveredEdgeId
     else if (hoveredBucket) {
       const n = nodes.find((x) => x.id === hoveredBucket.nodeId)
@@ -359,10 +366,11 @@ function BuilderCanvas() {
       const branch = tn?.type === 'variable' ? tn.branches[hoveredBucket.branchIndex] : undefined
       if (branch?.nextNodeId) edgeId = `${hoveredBucket.nodeId}__b${hoveredBucket.branchIndex}__${branch.nextNodeId}`
     } else if (hoveredNodeId) nodeId = hoveredNodeId
+    else if (assistantFocus && assistantFocus.size > 0) nodeSet = assistantFocus
     else if (tracedDestId) destId = tracedDestId
     else if (selectedEdge) edgeId = selectedEdge.id
     else if (selectedId) nodeId = selectedId
-    if (!edgeId && !nodeId && !destId) return null
+    if (!edgeId && !nodeId && !destId && !nodeSet) return null
 
     // Edge descriptors (id → source/target) for the current wiring.
     const ids = new Set(nodes.map((n) => n.id))
@@ -426,9 +434,14 @@ function BuilderCanvas() {
       for (const n of fromRoot) if (toDest.has(n)) activeNodes.add(n)
       for (const d of descs) if (fromRoot.has(d.source) && toDest.has(d.target)) activeEdges.add(d.id)
     }
+    if (nodeSet) {
+      // Highlight the referenced nodes plus any wiring between them.
+      for (const id of nodeSet) if (ids.has(id)) activeNodes.add(id)
+      for (const d of descs) if (nodeSet.has(d.source) && nodeSet.has(d.target)) activeEdges.add(d.id)
+    }
     if (activeEdges.size === 0 && activeNodes.size === 0) return null
     return { activeEdges, activeNodes }
-  }, [hoveredEdgeId, hoveredBucket, hoveredNodeId, tracedDestId, selectedEdge, selectedId, nodes, activeMeta.rootNodeId])
+  }, [hoveredEdgeId, hoveredBucket, hoveredNodeId, assistantFocus, tracedDestId, selectedEdge, selectedId, nodes, activeMeta.rootNodeId])
 
   // VIEW-ONLY visibility from the collapse set: which nodes/edges the canvas
   // draws. Tree data is untouched — this only decides what's shown.
@@ -550,6 +563,7 @@ function BuilderCanvas() {
       })
       setSelectedId(null)
       setSelectedEdge(null)
+      setAssistantFocus(null)
     },
     [runLayout],
   )
@@ -810,6 +824,7 @@ function BuilderCanvas() {
       setSelectedId(null)
       setSelectedEdge(null)
       setTracedDestId(null)
+      setAssistantFocus(null)
       setCollapsed(new Set())
     }
   }, [setNodes])
@@ -831,6 +846,7 @@ function BuilderCanvas() {
       setSelectedId(null)
       setSelectedEdge(null)
       setTracedDestId(null)
+      setAssistantFocus(null)
       setSaveResult(null)
       setActiveMeta({ treeId: tree.treeId, rootNodeId: tree.rootNodeId })
       rootIdRef.current = tree.rootNodeId
@@ -925,6 +941,128 @@ function BuilderCanvas() {
     }
   }, [refreshDbTrees])
 
+  /* --------------------------- Assistant --------------------------------- */
+
+  // The canvas as a Tree for the assistant — wiring/data only, no geometry.
+  const getAssistantTree = useCallback(
+    () => flowNodesToTree(nodesRef.current, activeMeta.treeId, rootIdRef.current),
+    [activeMeta.treeId],
+  )
+
+  // Highlight the nodes Sprout's reply refers to: expand any collapsed
+  // ancestors hiding them, isolate them (dim the rest), and frame them.
+  // View-only, like tracing — clicking anywhere on the canvas clears it.
+  const focusAssistantNodes = useCallback(
+    (ids: string[]) => {
+      const existing = new Set(nodesRef.current.map((n) => n.id))
+      const valid = [...new Set(ids)].filter((id) => existing.has(id))
+      if (valid.length === 0) {
+        setAssistantFocus(null)
+        return
+      }
+      // Expand collapsed ancestors so every referenced node is visible.
+      const reverse = new Map<string, string[]>()
+      for (const n of nodesRef.current) {
+        const tn = n.data.treeNode
+        if (tn.type !== 'variable') continue
+        for (const b of tn.branches) {
+          if (!b.nextNodeId || !existing.has(b.nextNodeId)) continue
+          const arr = reverse.get(b.nextNodeId)
+          if (arr) arr.push(tn.id)
+          else reverse.set(b.nextNodeId, [tn.id])
+        }
+      }
+      const ancestors = new Set<string>()
+      const stack = [...valid]
+      while (stack.length) {
+        const cur = stack.pop()!
+        for (const p of reverse.get(cur) ?? []) {
+          if (!ancestors.has(p)) {
+            ancestors.add(p)
+            stack.push(p)
+          }
+        }
+      }
+      const cur = collapsedRef.current
+      const reduced = new Set([...cur].filter((c) => !ancestors.has(c) && !valid.includes(c)))
+      if (reduced.size !== cur.size) {
+        setCollapsed(reduced)
+        collapsedRef.current = reduced
+        void runLayout(reduced, { fit: false })
+      }
+      setAssistantFocus(new Set(valid))
+      setSelectedId(null)
+      setSelectedEdge(null)
+      setTracedDestId(null)
+      window.requestAnimationFrame(() =>
+        fitView({
+          nodes: valid.map((id) => ({ id })),
+          duration: prefersReducedMotion() ? 0 : 400,
+          padding: 0.3,
+        }),
+      )
+    },
+    [runLayout, fitView],
+  )
+
+  // Commit a clinician-CONFIRMED assistant proposal to the canvas. Surviving
+  // nodes keep their positions/measurements; new nodes get placed by the next
+  // layout pass. Collapsed ancestors of touched nodes are expanded so every
+  // approved change is actually visible. Canvas-only — the library is
+  // untouched until a manual "Save to library".
+  const applyAssistantTree = useCallback(
+    (tree: Tree, affectedIds: string[]) => {
+      const prevById = new Map(nodesRef.current.map((n) => [n.id, n]))
+      const flow: BuilderFlowNode[] = tree.nodes.map((tn) => {
+        const existing = prevById.get(tn.id)
+        return existing
+          ? { ...existing, data: { ...existing.data, treeNode: tn } }
+          : { id: tn.id, type: tn.type, position: { x: 0, y: 0 }, data: { treeNode: tn } }
+      })
+      setNodes(flow)
+      nodesRef.current = flow
+      setActiveMeta((m) => ({ ...m, rootNodeId: tree.rootNodeId }))
+      rootIdRef.current = tree.rootNodeId
+
+      const surviving = new Set(tree.nodes.map((n) => n.id))
+      setSelectedId((prev) => (prev && !surviving.has(prev) ? null : prev))
+      setSelectedEdge(null)
+      setTracedDestId((prev) => (prev && !surviving.has(prev) ? null : prev))
+
+      // Expand any collapsed node that hides an affected one (walk parents up).
+      const reverse = new Map<string, string[]>()
+      for (const tn of tree.nodes) {
+        if (tn.type !== 'variable') continue
+        for (const b of tn.branches) {
+          if (!b.nextNodeId) continue
+          const arr = reverse.get(b.nextNodeId)
+          if (arr) arr.push(tn.id)
+          else reverse.set(b.nextNodeId, [tn.id])
+        }
+      }
+      const ancestors = new Set<string>()
+      const stack = [...affectedIds]
+      while (stack.length) {
+        const cur = stack.pop()!
+        for (const p of reverse.get(cur) ?? []) {
+          if (!ancestors.has(p)) {
+            ancestors.add(p)
+            stack.push(p)
+          }
+        }
+      }
+      const nextCollapsed = new Set(
+        [...collapsedRef.current].filter((c) => surviving.has(c) && !ancestors.has(c) && !affectedIds.includes(c)),
+      )
+      setCollapsed(nextCollapsed)
+      collapsedRef.current = nextCollapsed
+      // Light up what just changed so the applied edit is easy to spot.
+      setAssistantFocus(affectedIds.length > 0 ? new Set(affectedIds) : null)
+      void runLayout(nextCollapsed)
+    },
+    [setNodes, runLayout],
+  )
+
   const onBucketHover = useCallback(
     (key: { nodeId: string; branchIndex: number } | null) => setHoveredBucket(key),
     [],
@@ -960,6 +1098,8 @@ function BuilderCanvas() {
             onCollapseAll={onCollapseAll}
             onAutoLayout={onAutoLayout}
             onClear={onClear}
+            assistantOpen={assistantOpen}
+            onToggleAssistant={() => setAssistantOpen((o) => !o)}
           />
           <div
             ref={wrapperRef}
@@ -979,6 +1119,7 @@ function BuilderCanvas() {
                 setSelectedId(node.id)
                 setSelectedEdge(null)
                 setTracedDestId(null)
+                setAssistantFocus(null)
               }}
               onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
               onNodeMouseLeave={() => setHoveredNodeId(null)}
@@ -989,11 +1130,13 @@ function BuilderCanvas() {
                 if (d) setSelectedEdge({ id: edge.id, source: d.sourceNodeId, branchIndex: d.branchIndex })
                 setSelectedId(null)
                 setTracedDestId(null)
+                setAssistantFocus(null)
               }}
               onPaneClick={() => {
                 setSelectedId(null)
                 setSelectedEdge(null)
                 setTracedDestId(null)
+                setAssistantFocus(null)
               }}
               deleteKeyCode={null}
               fitView
@@ -1024,6 +1167,18 @@ function BuilderCanvas() {
             treeNode={selectedNode.data.treeNode}
             onUpdate={(updater) => updateTreeNode(selectedNode.id, updater)}
             onClose={() => setSelectedId(null)}
+          />
+        )}
+
+        {assistantOpen && (
+          <BuilderChatPanel
+            getTree={getAssistantTree}
+            onApply={applyAssistantTree}
+            onFocusNodes={focusAssistantNodes}
+            onClose={() => {
+              setAssistantOpen(false)
+              setAssistantFocus(null)
+            }}
           />
         )}
       </div>
@@ -1310,6 +1465,8 @@ function CanvasToolbar({
   onCollapseAll,
   onAutoLayout,
   onClear,
+  assistantOpen,
+  onToggleAssistant,
 }: {
   trees: TreeSummary[]
   openTreeId: string | null
@@ -1323,6 +1480,8 @@ function CanvasToolbar({
   onCollapseAll: () => void
   onAutoLayout: () => void
   onClear: () => void
+  assistantOpen: boolean
+  onToggleAssistant: () => void
 }) {
   const btn =
     'inline-flex items-center gap-1.5 rounded-md border border-accent-strong/40 bg-canvas px-2.5 py-1.5 text-[12.5px] font-medium text-accent-strong transition-colors hover:border-accent-strong/70 hover:bg-sky'
@@ -1369,6 +1528,27 @@ function CanvasToolbar({
         </TBIcon>
         Clear
       </button>
+
+      <div className="ml-auto">
+        <button
+          onClick={onToggleAssistant}
+          aria-pressed={assistantOpen}
+          title="Chat with Sprout to edit this tree — you review and approve every change"
+          className={
+            assistantOpen
+              ? 'inline-flex items-center gap-1.5 rounded-md bg-accent-strong px-2.5 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90'
+              : btn
+          }
+        >
+          <TBIcon>
+            <path d="M7 20h10" />
+            <path d="M10 20c5.5-2.5.8-6.4 3-10" />
+            <path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" />
+            <path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" />
+          </TBIcon>
+          Sprout
+        </button>
+      </div>
     </div>
   )
 }

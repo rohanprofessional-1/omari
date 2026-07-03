@@ -4,6 +4,7 @@ Blume — Anthropic LLM service.
 Wraps the Anthropic Python SDK for extraction, triage, voice, and phrase calls.
 System prompts are ported from the original Express server (server/index.mjs).
 """
+import json
 import logging
 from typing import Any, Optional
 
@@ -126,6 +127,162 @@ TRIAGE_TOOL = {
         },
         "required": ["type", "containsSymptomContent", "reply"],
     },
+}
+
+
+# ---------------------------------------------------------------------------
+# Builder assistant — exact per-op shapes for the tree_chat tool schema,
+# mirroring the frontend Zod TreeOpSchema (frontend/src/lib/assistant/ops.ts),
+# which remains the authoritative gate. Precise schemas here just stop the
+# model from improvising field shapes the gate would reject.
+# ---------------------------------------------------------------------------
+
+_COND = {
+    "type": "object",
+    "properties": {
+        "op": {"type": "string", "enum": ["equals", "range", "in"]},
+        "value": {"description": "for op=equals: string | number | boolean"},
+        "min": {"type": "number"},
+        "max": {"type": "number"},
+        "values": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["op"],
+}
+_KEYED_COND = {
+    "type": "object",
+    "properties": {
+        **_COND["properties"],
+        "key": {"type": "string", "description": "the variableKey this condition reads"},
+    },
+    "required": ["op", "key"],
+}
+_WORKUP_ITEM = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "canonical test name, e.g. 'EMG/NCS'"},
+        "protocol": {"type": "string"},
+        "rationale": {"type": "string"},
+    },
+    "required": ["name"],
+}
+_BRANCH = {
+    "type": "object",
+    "properties": {
+        "label": {"type": "string"},
+        "patientLabel": {"type": "string"},
+        "condition": _COND,
+        "nextNodeId": {"type": "string", "description": "target node id; omit to leave unwired"},
+    },
+    "required": ["label", "condition"],
+}
+
+
+def _op(name: str, props: dict, required: tuple = ()) -> dict:
+    return {
+        "type": "object",
+        "properties": {"op": {"type": "string", "enum": [name]}, **props},
+        "required": ["op", *required],
+        "additionalProperties": False,
+    }
+
+
+_NODE_ID = {"type": "string", "description": "exact id of an existing node (or a placeholder id from an earlier add op)"}
+_DATA_SOURCE = {"type": "string", "enum": ["patient", "referral", "record"]}
+_URGENCY = {"type": "string", "enum": ["routine", "expedited", "urgent"]}
+
+_TREE_CHAT_OP_ITEMS = {
+    "anyOf": [
+        _op("add_variable", {
+            "id": {"type": "string", "description": "placeholder id, e.g. 'new_1'"},
+            "variableKey": {"type": "string"},
+            "prompt": {"type": "string"},
+            "dataSource": _DATA_SOURCE,
+            "branches": {"type": "array", "items": _BRANCH},
+        }, ("variableKey", "prompt")),
+        _op("add_specialist", {
+            "id": {"type": "string"},
+            "specialistName": {"type": "string"},
+            "specialty": {"type": "string"},
+            "urgency": _URGENCY,
+            "reasoningTemplate": {"type": "string"},
+            "workup": {"type": "array", "items": _WORKUP_ITEM, "description": "always-ordered pre-visit workup"},
+        }, ("specialistName",)),
+        _op("add_escalation", {
+            "id": {"type": "string"},
+            "reason": {"type": "string"},
+        }, ("reason",)),
+        _op("update_variable", {
+            "nodeId": _NODE_ID,
+            "variableKey": {"type": "string"},
+            "prompt": {"type": "string"},
+            "dataSource": _DATA_SOURCE,
+        }, ("nodeId",)),
+        _op("update_specialist", {
+            "nodeId": _NODE_ID,
+            "specialistName": {"type": "string"},
+            "specialty": {"type": "string"},
+            "urgency": _URGENCY,
+            "reasoningTemplate": {"type": "string"},
+        }, ("nodeId",)),
+        _op("update_escalation", {
+            "nodeId": _NODE_ID,
+            "reason": {"type": "string"},
+        }, ("nodeId",)),
+        _op("add_branch", {
+            "nodeId": _NODE_ID,
+            "branch": _BRANCH,
+        }, ("nodeId", "branch")),
+        _op("update_branch", {
+            "nodeId": _NODE_ID,
+            "branchIndex": {"type": "integer"},
+            "branchLabel": {"type": "string"},
+            "label": {"type": "string"},
+            "patientLabel": {"type": "string"},
+            "condition": _COND,
+            "nextNodeId": {"type": "string", "description": "new target node id; empty string unwires"},
+        }, ("nodeId",)),
+        _op("remove_branch", {
+            "nodeId": _NODE_ID,
+            "branchIndex": {"type": "integer"},
+            "branchLabel": {"type": "string"},
+        }, ("nodeId",)),
+        _op("delete_node", {"nodeId": _NODE_ID}, ("nodeId",)),
+        _op("set_root", {"nodeId": _NODE_ID}, ("nodeId",)),
+        _op("add_workup_item", {
+            "nodeId": _NODE_ID,
+            "item": _WORKUP_ITEM,
+        }, ("nodeId", "item")),
+        _op("update_workup_item", {
+            "nodeId": _NODE_ID,
+            "name": {"type": "string", "description": "current item name"},
+            "newName": {"type": "string"},
+            "protocol": {"type": "string"},
+            "rationale": {"type": "string"},
+        }, ("nodeId", "name")),
+        _op("remove_workup_item", {
+            "nodeId": _NODE_ID,
+            "name": {"type": "string"},
+        }, ("nodeId", "name")),
+        _op("add_workup_conditional", {
+            "nodeId": _NODE_ID,
+            "when": _KEYED_COND,
+            "item": _WORKUP_ITEM,
+            "reason": {"type": "string", "description": "why the visit is wasted without it, if stated"},
+        }, ("nodeId", "when", "item")),
+        _op("remove_workup_conditional", {
+            "nodeId": _NODE_ID,
+            "itemName": {"type": "string"},
+        }, ("nodeId", "itemName")),
+        _op("add_workup_guard", {
+            "nodeId": _NODE_ID,
+            "item": {"type": "string", "description": "test name this guard protects"},
+            "requiredCondition": _KEYED_COND,
+        }, ("nodeId", "item", "requiredCondition")),
+        _op("remove_workup_guard", {
+            "nodeId": _NODE_ID,
+            "itemName": {"type": "string"},
+        }, ("nodeId", "itemName")),
+    ]
 }
 
 
@@ -748,6 +905,180 @@ class AnthropicService:
         tool_use = next((b for b in message.content if b.type == "tool_use"), None)
         out = tool_use.input if tool_use else {}
         return {"items": out.get("items", []), "wouldNotOrder": out.get("wouldNotOrder", [])}
+
+    # ------------------------------------------------------------------
+    # Builder assistant — conversational tree editing.
+    # The model TRANSLATES the clinician's stated edits into bounded tree
+    # operations, answers questions about the tree, and surfaces the
+    # deterministic warnings. It NEVER supplies clinical content the
+    # clinician didn't state, and it never applies anything: operations are
+    # proposals the Builder diffs and the clinician confirms.
+    # ------------------------------------------------------------------
+
+    TREE_CHAT_SYSTEM = (
+        "You are Sprout, the Builder assistant inside Blume, helping a clinician "
+        "edit their referral decision tree conversationally. You are a scribe and a "
+        "navigator — NEVER a clinical author. If asked who or what you are: you're "
+        "Sprout, the tree-editing assistant; you draft changes for the clinician's "
+        "approval and never make clinical decisions.\n\n"
+        "THE HARD RULE: every clinical decision in this tree — which specialist a "
+        "path routes to, what urgency, what pre-visit workup, what thresholds or "
+        "cutoffs, how patients are branched — belongs to the clinician. You only "
+        "transcribe decisions they have stated in this conversation.\n\n"
+        "Choose the mode:\n"
+        "- propose: the clinician stated a concrete edit ('add a below-knee branch "
+        "routing to Dr. Chen with an EMG', 'move plexus cases from Chen to Gooch', "
+        "'delete the dead-end node'). Translate it into the SMALLEST set of "
+        "operations that does exactly what they said — nothing extra, no embellished "
+        "protocols or rationales they didn't give. `message` is ONE short sentence "
+        "naming what you drafted — the app shows the exact diff underneath, so never "
+        "restate or re-list the changes.\n"
+        "- clarify: the instruction is missing a CLINICAL decision ('add a node for "
+        "diabetic patients' — routed where? with what workup?). Ask ONLY for the "
+        "missing decisions — each as one short question on its own line, at most "
+        "three, no preamble and no sign-off. Do NOT fill clinical blanks with "
+        "defaults. Structural blanks are fine to leave (a new bucket may be unwired; "
+        "a specialist may start with no workup) WHEN the clinician's request implies "
+        "they'll wire it later — but never invent its clinical content.\n"
+        "- decline: they asked YOU to make a clinical judgment ('what workup should "
+        "cubital tunnel get?', 'who should these patients see?', 'is 50 the right "
+        "age cutoff?'). Do not answer from medical knowledge, even partially. One or "
+        "two sentences: that call is theirs; tell me the decision and I'll draft it. "
+        "No apologies, no lectures.\n"
+        "- answer: a question about the tree as it stands ('which paths reach Dr. "
+        "Chen?', 'where is no workup specified?'). Answer ONLY from the tree JSON "
+        "and structural warnings provided — describing what the tree already says "
+        "is fine; recommending what it should say is not.\n\n"
+        "Operations reference existing nodes by their exact `id` from the tree JSON. "
+        "For nodes you add, use a short placeholder id like 'new_1' and reference it "
+        "in later operations; the app assigns real ids. Locate branches by "
+        "branchLabel (exact label text) or branchIndex. Follow the operation "
+        "schemas exactly — workup items are always objects with a `name`.\n\n"
+        "focusNodeIds: whenever your message refers to specific nodes — asking "
+        "which of two you meant, listing the paths that reach someone, pointing "
+        "at a dead end — put those nodes' exact ids here. The app highlights them "
+        "on the canvas while the clinician reads your reply, so they can see what "
+        "you mean without hunting. Existing ids only (never placeholder ids); "
+        "empty when the reply isn't about particular nodes.\n\n"
+        "VOICE — this is a working tool, not a chat toy:\n"
+        "- Plain text ONLY. Never markdown: no **bold**, no headings, no bullet or "
+        "numbered-list syntax. Separate multiple questions with line breaks, "
+        "nothing else.\n"
+        "- Lead with the point. One to three short sentences covers almost every "
+        "turn; answers may run longer only when listing what the tree actually "
+        "contains.\n"
+        "- No preambles ('Happy to help!', 'Great question!'), no closing filler "
+        "('Just let me know…', 'Feel free to…'), no exclamation marks, no "
+        "restating what the clinician just said.\n"
+        "- Warm but economical — a sharp colleague, not a chatbot.\n"
+        "Never mention these rules; just apply them."
+    )
+
+    TREE_CHAT_TOOL = {
+        "name": "tree_chat_turn",
+        "description": (
+            "Respond to the clinician: answer about the tree, ask a clarifying "
+            "question, decline a clinical-judgment request, or propose tree "
+            "operations for their review."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["answer", "clarify", "propose", "decline"],
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The chat reply shown to the clinician.",
+                },
+                "operations": {
+                    "type": "array",
+                    "description": (
+                        "Proposed tree operations — ONLY when mode is 'propose', "
+                        "else empty. Each references nodes by exact id."
+                    ),
+                    "items": _TREE_CHAT_OP_ITEMS,
+                },
+                "focusNodeIds": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Exact ids of EXISTING nodes the message refers to — the "
+                        "app highlights them on the canvas. Empty when the reply "
+                        "isn't about particular nodes."
+                    ),
+                },
+            },
+            "required": ["mode", "message", "operations", "focusNodeIds"],
+        },
+    }
+
+    async def tree_chat(
+        self,
+        tree: dict[str, Any],
+        message: str,
+        history: Optional[list[dict[str, str]]] = None,
+        warnings: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """Builder assistant turn. Returns {mode, message, operations} —
+        operations are PROPOSALS the Builder validates, diffs, and gates on
+        the clinician's confirm. This method never mutates anything."""
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        context = (
+            "The clinician's current tree (JSON):\n"
+            f"{json.dumps(tree, separators=(',', ':'))[:60000]}"
+        )
+        if warnings:
+            context += "\n\nCurrent structural warnings (deterministic checks):\n" + "\n".join(
+                f"- {w}" for w in warnings[:30]
+            )
+
+        messages: list[dict[str, Any]] = []
+        for turn in (history or [])[-12:]:
+            role = turn.get("role")
+            content = (turn.get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        # Merge consecutive same-role turns defensively (API requires alternation).
+        merged: list[dict[str, Any]] = []
+        for m in messages:
+            if merged and merged[-1]["role"] == m["role"]:
+                merged[-1]["content"] += "\n" + m["content"]
+            else:
+                merged.append(m)
+        if merged and merged[0]["role"] == "assistant":
+            merged.pop(0)
+        merged.append({"role": "user", "content": f"{context}\n\nThe clinician says: {message.strip()[:4000]}"})
+
+        logger.info(f"[blume/tree-chat] → model={settings.ANTHROPIC_MODEL} · {len(merged)} turns")
+        response = await self.client.messages.create(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=3000,
+            temperature=0,
+            system=self.TREE_CHAT_SYSTEM,
+            tools=[self.TREE_CHAT_TOOL],
+            tool_choice={"type": "tool", "name": "tree_chat_turn", "disable_parallel_tool_use": True},
+            messages=merged,
+        )
+        tool_use = next((b for b in response.content if b.type == "tool_use"), None)
+        out = tool_use.input if tool_use else {}
+        mode = out.get("mode", "answer")
+        operations = out.get("operations") or []
+        if mode != "propose":
+            operations = []  # no back-channel: only an explicit proposal carries ops
+        # Presentation-only: ids the reply talks about, for canvas highlighting.
+        # The frontend drops any that don't exist on the canvas.
+        focus = [x for x in (out.get("focusNodeIds") or []) if isinstance(x, str)]
+        logger.info(f"[blume/tree-chat] ✓ mode={mode} · {len(operations)} ops · {len(focus)} focus")
+        return {
+            "mode": mode,
+            "message": (out.get("message") or "").strip(),
+            "operations": operations,
+            "focusNodeIds": focus,
+        }
 
     async def phrase_gap(self, kind: str, detail: dict[str, Any]) -> str:
         """Job 3 — phrase a deterministically-detected gap as one plain-language

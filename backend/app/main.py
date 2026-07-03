@@ -14,6 +14,7 @@ from app.api.v1 import (
     patients,
     conversations,
     gen,
+    assistant,
 )
 
 
@@ -50,6 +51,7 @@ app.include_router(specialists.router, prefix=settings.API_V1_PREFIX, tags=["spe
 app.include_router(patients.router, prefix=settings.API_V1_PREFIX, tags=["patients"])
 app.include_router(conversations.router, prefix=settings.API_V1_PREFIX, tags=["conversations"])
 app.include_router(gen.router, prefix=settings.API_V1_PREFIX, tags=["generator"])
+app.include_router(assistant.router, prefix=settings.API_V1_PREFIX, tags=["assistant"])
 
 
 @app.get(f"{settings.API_V1_PREFIX}/health", tags=["health"])

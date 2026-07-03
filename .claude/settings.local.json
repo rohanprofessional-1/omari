@@ -103,7 +103,11 @@
       "Bash(python3 -c ' *)",
       "Bash(curl -s -o /dev/null -w \"vite: %{http_code}\\\\n\" http://localhost:5173/ --max-time 3)",
       "Bash(curl -s -o /dev/null -w \"node-ai: %{http_code}\\\\n\" http://localhost:8001/api/health --max-time 3)",
-      "Bash(python3 -c \"import json,sys; [print\\(t['name'], '·', t['status']\\) for t in json.load\\(sys.stdin\\)]\")"
+      "Bash(python3 -c \"import json,sys; [print\\(t['name'], '·', t['status']\\) for t in json.load\\(sys.stdin\\)]\")",
+      "Bash(npx vitest *)",
+      "Bash(curl *)",
+      "Bash(perl -i -pe 's/z\\\\.array\\\\\\(WorkupItemSchema\\\\.partial\\\\\\(\\\\{ protocol: true, rationale: true \\\\}\\\\\\)\\\\\\)\\\\.default\\\\\\(\\\\[\\\\]\\\\\\)/z.array\\(WorkupItemInputSchema\\).default\\([]\\)/; s/item: WorkupItemSchema\\\\.partial\\\\\\(\\\\{ protocol: true, rationale: true \\\\}\\\\\\),/item: WorkupItemInputSchema,/' src/lib/assistant/ops.ts)",
+      "Bash(python3 -c 'import json,sys; d=json.load\\(sys.stdin\\); print\\(d[\"mode\"], \"|\", d[\"message\"]\\)')"
     ]
   }
 }
