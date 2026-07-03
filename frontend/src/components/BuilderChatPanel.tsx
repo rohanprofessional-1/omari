@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import sproutLogo from '../assets/sprout-logo.png'
 import type { Tree } from '../types/tree'
 import { validateTreeGraph } from '../lib/buildTree'
 import { sendTreeChat, type AssistantTurn } from '../lib/assistant/api'
@@ -33,7 +34,7 @@ interface PanelMsg {
 }
 
 const INTRO =
-  'I\'m Sprout. Tell me an edit and I\'ll draft it as a diff for you to approve — or ask me anything about this tree. The clinical calls stay yours.'
+  'I can explain any part of this tree, or make edits you approve before they go live. You decide the medicine; I handle the busywork.'
 
 /** Starter prompts — tapping one drops it into the composer to finish. */
 const SUGGESTIONS = [
@@ -58,9 +59,8 @@ export default function BuilderChatPanel({
   onFocusNodes: (ids: string[]) => void
   onClose: () => void
 }) {
-  const [messages, setMessages] = useState<PanelMsg[]>([
-    { id: nextMsgId++, role: 'assistant', text: INTRO },
-  ])
+  // Starts empty: the welcome hero fills the thread until the first message.
+  const [messages, setMessages] = useState<PanelMsg[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const threadRef = useRef<HTMLDivElement>(null)
@@ -202,26 +202,21 @@ export default function BuilderChatPanel({
     })
   }
 
-  const showSuggestions = !busy && !messages.some((m) => m.role === 'user')
-
   return (
-    <aside className="omari-enter-side flex w-[360px] shrink-0 flex-col border-l border-line bg-canvas">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
+    <aside className="omari-enter-side flex w-[360px] shrink-0 flex-col border-l border-[#cbd5e1] bg-canvas shadow-[-6px_0_16px_rgba(31,36,33,0.07)]">
+      {/* ── Header — identity hides while the welcome hero is showing ──── */}
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span aria-hidden className="omari-grad grid h-6 w-6 place-items-center rounded-full text-white">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M7 20h10" />
-              <path d="M10 20c5.5-2.5.8-6.4 3-10" />
-              <path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" />
-              <path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" />
-            </svg>
-          </span>
-          <div>
-            <p className="font-display text-[12.5px] font-semibold leading-tight text-ink">Sprout</p>
-            <p className="text-[10.5px] leading-tight text-muted">You approve every change</p>
+        {messages.length > 0 ? (
+          <div className="flex items-center gap-2">
+            <img src={sproutLogo} alt="" aria-hidden className="h-6 w-6 rounded-full" />
+            <div>
+              <p className="font-display text-[12.5px] font-semibold leading-tight text-ink">Sprout</p>
+              <p className="text-[10.5px] leading-tight text-muted">You approve every change</p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <span />
+        )}
         <button
           onClick={onClose}
           aria-label="Close Sprout"
@@ -235,6 +230,37 @@ export default function BuilderChatPanel({
 
       {/* ── Thread ─────────────────────────────────────────────────────── */}
       <div ref={threadRef} className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
+        {messages.length === 0 && (
+          <div className="omari-msg flex h-full flex-col items-center justify-center px-4 text-center">
+            <img
+              src={sproutLogo}
+              alt=""
+              aria-hidden
+              className="h-20 w-20 rounded-full shadow-[0_4px_16px_rgba(22,41,78,0.35)]"
+            />
+            <p className="mt-4 font-display text-[19px] font-semibold text-ink">Sprout</p>
+            <p className="mt-1 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-accent-strong">
+              AI assistant for the Builder
+            </p>
+            <p className="mt-3 max-w-[280px] text-[12.5px] leading-relaxed text-muted">{INTRO}</p>
+
+            <div className="mt-5 flex w-full max-w-[280px] flex-col gap-1.5">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    setDraft(s)
+                    inputRef.current?.focus()
+                  }}
+                  className="rounded-lg border border-line bg-canvas px-3 py-2 text-[12px] text-muted transition-all duration-150 hover:-translate-y-px hover:border-accent hover:bg-sky hover:text-accent hover:shadow-sm"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {messages.map((m) => (
           <div key={m.id} className={`omari-msg flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
@@ -258,23 +284,6 @@ export default function BuilderChatPanel({
             </div>
           </div>
         ))}
-
-        {showSuggestions && (
-          <div className="flex flex-wrap gap-1.5 pl-1 pt-0.5">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                onClick={() => {
-                  setDraft(s)
-                  inputRef.current?.focus()
-                }}
-                className="rounded-full border border-line bg-canvas px-2.5 py-1 text-[11px] text-muted transition-colors hover:border-accent hover:bg-sky hover:text-accent"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
 
         {busy && (
           <div className="omari-msg flex justify-start">

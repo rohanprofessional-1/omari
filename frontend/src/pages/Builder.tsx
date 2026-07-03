@@ -48,6 +48,7 @@ import BucketEdge from '../components/edges/BucketEdge'
 import EditorPanel from '../components/EditorPanel'
 import BuilderActionsContext from '../components/BuilderActionsContext'
 import BuilderChatPanel from '../components/BuilderChatPanel'
+import sproutLogo from '../assets/sprout-logo.png'
 
 const nodeTypes = {
   variable: VariableNodeCard,
@@ -1098,8 +1099,6 @@ function BuilderCanvas() {
             onCollapseAll={onCollapseAll}
             onAutoLayout={onAutoLayout}
             onClear={onClear}
-            assistantOpen={assistantOpen}
-            onToggleAssistant={() => setAssistantOpen((o) => !o)}
           />
           <div
             ref={wrapperRef}
@@ -1158,6 +1157,20 @@ function BuilderCanvas() {
                 </Panel>
               )}
             </ReactFlow>
+
+            {/* Floating Sprout launcher — the AI assistant lives bottom-right,
+                like a chat bubble, so it reads as "talk to something" rather
+                than another toolbar action. Hidden while the panel is open. */}
+            {!assistantOpen && (
+              <button
+                onClick={() => setAssistantOpen(true)}
+                title="Sprout — AI assistant. Drafts tree edits you approve, answers questions about the tree."
+                className="omari-reveal absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-full bg-[#16294e] py-1.5 pl-1.5 pr-4 shadow-[0_4px_18px_rgba(22,41,78,0.4)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_8px_26px_rgba(22,41,78,0.5)] active:translate-y-0"
+              >
+                <img src={sproutLogo} alt="" aria-hidden className="h-9 w-9 rounded-full" />
+                <span className="font-display text-[13px] font-semibold text-white">Ask Sprout</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -1465,8 +1478,6 @@ function CanvasToolbar({
   onCollapseAll,
   onAutoLayout,
   onClear,
-  assistantOpen,
-  onToggleAssistant,
 }: {
   trees: TreeSummary[]
   openTreeId: string | null
@@ -1480,8 +1491,6 @@ function CanvasToolbar({
   onCollapseAll: () => void
   onAutoLayout: () => void
   onClear: () => void
-  assistantOpen: boolean
-  onToggleAssistant: () => void
 }) {
   const btn =
     'inline-flex items-center gap-1.5 rounded-md border border-accent-strong/40 bg-canvas px-2.5 py-1.5 text-[12.5px] font-medium text-accent-strong transition-colors hover:border-accent-strong/70 hover:bg-sky'
@@ -1528,27 +1537,6 @@ function CanvasToolbar({
         </TBIcon>
         Clear
       </button>
-
-      <div className="ml-auto">
-        <button
-          onClick={onToggleAssistant}
-          aria-pressed={assistantOpen}
-          title="Chat with Sprout to edit this tree — you review and approve every change"
-          className={
-            assistantOpen
-              ? 'inline-flex items-center gap-1.5 rounded-md bg-accent-strong px-2.5 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90'
-              : btn
-          }
-        >
-          <TBIcon>
-            <path d="M7 20h10" />
-            <path d="M10 20c5.5-2.5.8-6.4 3-10" />
-            <path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" />
-            <path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" />
-          </TBIcon>
-          Sprout
-        </button>
-      </div>
     </div>
   )
 }
