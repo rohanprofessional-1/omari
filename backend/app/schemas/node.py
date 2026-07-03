@@ -51,6 +51,8 @@ class NodeRead(BaseModel):
     reasoning_template: Optional[str] = None
     clinical_basis: Optional[str] = None
     confirm_with_dr_li: Optional[bool] = None
+    # Schema v2 path-conditioned workup (preferred); workup_items is legacy.
+    workup_spec: Optional[dict] = None
     escalation_reason: Optional[str] = None
     branches: List["BranchRead"] = []
     workup_items: List["WorkupItemRead"] = []

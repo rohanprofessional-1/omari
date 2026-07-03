@@ -1,15 +1,25 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { useTreeStore } from '../store/treeStore'
-import { setDemoMode } from '../lib/extractionProvider'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { sampleTree } from '../data/sampleTree'
-import { fetchTrees, fetchTree } from '../lib/api'
+import { useTreeLibrary, type TreeLibrary } from '../lib/treeLibrary'
+import TreePicker from '../components/TreePicker'
 import { VARIABLE_SPECS } from '../data/variableSpecs'
 import { nodeDisplayName } from '../lib/treeToFlow'
-import { confidenceBand, planConversationStep, type Extraction, type OrchestratorStep } from '../lib/orchestrator'
+import { planConversationStep, type Extraction, type OrchestratorStep } from '../lib/orchestrator'
 import { coreIntakeKeys, escalationCategoryLabel, type EscalationAnalysis } from '../lib/escalation'
+import { explainRoute, type RouteReason } from '../lib/explain'
+import { resolveWorkup } from '../lib/engine'
+import { describeKeyedCondition } from '../lib/conditionText'
+import {
+  loadThresholds,
+  saveThresholds,
+  resolveBand,
+  toEngineThresholds,
+  BAND_LABEL,
+  type Thresholds,
+} from '../lib/thresholds'
 import TreeMiniViz from '../components/TreeMiniViz'
-import { extract, type ExtractionMode } from '../lib/extraction'
-import { voiceTurn, resetDemoVoice } from '../lib/voice'
+import { extract } from '../lib/extraction'
+import { voiceTurn } from '../lib/voice'
 import { triageTurn, type TriageSituation } from '../lib/triage'
 import { deriveQuestion, fillTemplate, type Choice } from '../lib/runner'
 import { composeConfirmation } from '../lib/confirmation'
@@ -82,25 +92,6 @@ const INTRO =
   "sure the right person sees you. To start, just tell me what’s going on in your own words — " +
   "take your time."
 
-/** Pre-written demo inputs known to behave correctly in simulated mode. */
-const SAMPLE_CASES: { label: string; hint: string; text: string }[] = [
-  {
-    label: 'Clean case',
-    hint: 'routes straight to a specialist',
-    text: "I've had constant numbness and tingling in my right hand for the past eight months, and a nerve conduction study came back abnormal.",
-  },
-  {
-    label: 'Vague case',
-    hint: 'triggers follow-up questions',
-    text: "Honestly it's hard to pin down — kind of a mix of everything, mostly in my hand. It's been bugging me for a while.",
-  },
-  {
-    label: 'Red-flag case',
-    hint: 'escalates for human review',
-    text: 'I found a hard lump in my forearm that I can feel under the skin, and it’s been growing.',
-  },
-]
-
 export type Phase = 'intro' | 'thinking' | 'awaiting' | 'done' | 'error'
 export interface ChatMessage {
   id: number
@@ -134,33 +125,22 @@ function usePresentationMode(): [boolean, (next: boolean) => void] {
 }
 
 function Runner() {
-  const { savedTree, savedAt, saveTree } = useTreeStore()
   const [presentation, setPresentation] = usePresentationMode()
-  const [dbTree, setDbTree] = useState<Tree | null>(null)
+  const library = useTreeLibrary()
 
-  useEffect(() => {
-    if (!savedTree && !dbTree) {
-      fetchTrees()
-        .then(async trees => {
-          if (trees.length > 0) {
-            const fetched = await fetchTree(trees[0].id)
-            setDbTree(fetched)
-            saveTree(fetched)
-          }
-        })
-        .catch(console.error)
-    }
-  }, [savedTree, dbTree, saveTree])
+  // The active DB tree, or the built-in sample when the library is empty/offline.
+  const tree = library.activeTree ?? sampleTree
+  const usingSample = library.activeTree == null
 
-  const tree = savedTree ?? dbTree ?? sampleTree
-  
-  // Re-key on each save so the Runner always starts fresh on the LATEST tree.
+  // Re-key on each tree switch so the Runner always starts a fresh conversation
+  // on the LATEST tree (sessionNonce bumps whenever the active tree loads).
   return (
     <>
       <RunnerSession
-        key={tree.treeId + (savedAt || 0)}
+        key={`${tree.treeId}:${library.activeId ?? 'sample'}:${library.sessionNonce}`}
         tree={tree}
-        usingFallback={!savedTree}
+        library={library}
+        usingSample={usingSample}
         presentation={presentation}
         onTogglePresentation={() => setPresentation(!presentation)}
       />
@@ -171,30 +151,34 @@ function Runner() {
 
 function RunnerSession({
   tree,
-  usingFallback,
+  library,
+  usingSample,
   presentation,
   onTogglePresentation,
 }: {
   tree: Tree
-  usingFallback: boolean
+  library: TreeLibrary
+  usingSample: boolean
   presentation: boolean
   onTogglePresentation: () => void
 }) {
   const idRef = useRef(0)
   const nextId = () => ++idRef.current
 
-  const [mode, setMode] = useState<ExtractionMode>('demo')
-
-  // The visible Demo-mode switch also drives the new extraction layer's
-  // DEMO_MODE: 'demo' → scripted/offline extraction, 'live' → real Claude call.
-  useEffect(() => {
-    setDemoMode(mode === 'demo')
-  }, [mode])
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: nextId(), from: 'bot', text: INTRO },
   ])
   const [filled, setFilled] = useState<FilledVariables>({})
   const [candidates, setCandidates] = useState<Record<string, Extraction>>({})
+  // Safety thresholds (persisted). A ref keeps async handlers reading the latest
+  // value without re-binding; state drives re-render of the clinician controls.
+  const [thresholds, setThresholdsState] = useState<Thresholds>(() => loadThresholds())
+  const thresholdsRef = useRef(thresholds)
+  thresholdsRef.current = thresholds
+  const setThresholds = (t: Thresholds) => {
+    setThresholdsState(t)
+    saveThresholds(t)
+  }
   const [step, setStep] = useState<OrchestratorStep | null>(null)
   const [phase, setPhase] = useState<Phase>('intro')
   const [error, setError] = useState<string | null>(null)
@@ -213,7 +197,6 @@ function RunnerSession({
 
   const reset = () => {
     idRef.current = 0
-    resetDemoVoice() // restart the warm-acknowledgment rotation for a fresh conversation
     setMessages([{ id: nextId(), from: 'bot', text: INTRO }])
     setFilled({})
     setCandidates({})
@@ -243,12 +226,19 @@ function RunnerSession({
     // Escalation-aware planning: the engine still decides, but an ambiguity
     // escalation triggers clarify-then-gather before we honour it (emergencies
     // and normal routing are unchanged).
-    const s = planConversationStep(tree, nextFilled, nextCandidates, VARIABLE_SPECS, {
-      coreKeys,
-      clarifiedKeys: clarifiedRef.current,
-      gatheredKeys: gatheredRef.current,
-      updatedKeys,
-    })
+    const s = planConversationStep(
+      tree,
+      nextFilled,
+      nextCandidates,
+      VARIABLE_SPECS,
+      {
+        coreKeys,
+        clarifiedKeys: clarifiedRef.current,
+        gatheredKeys: gatheredRef.current,
+        updatedKeys,
+      },
+      toEngineThresholds(thresholdsRef.current),
+    )
     setStep(s)
 
     if (s.kind === 'guard') {
@@ -268,11 +258,8 @@ function RunnerSession({
         if (s.purpose === 'intake') gatheredRef.current.add(s.key)
 
         const base = s.spec?.patientQuestion ?? s.node?.prompt ?? `Tell me about “${s.key}”.`
-        // A clarify re-ask gets a gentle lead so it doesn't read as a repeat.
-        const question =
-          s.purpose === 'clarify'
-            ? `I want to make sure I point you to exactly the right person — ${base}`
-            : base
+        // A clarify re-ask gets a tiny lead so it doesn't read as an exact repeat.
+        const question = s.purpose === 'clarify' ? `Just to be sure — ${base}` : base
         // Warm wording around the ENGINE's chosen question. Falls back to the
         // plain question on any failure (handled inside voiceTurn).
         const warm = await voiceTurn(
@@ -282,21 +269,15 @@ function RunnerSession({
             lastPatientMessage: lastPatientRef.current,
             progressHint: Object.keys(nextFilled).length >= 3,
           },
-          mode,
         )
         pushMessage('bot', warm)
         setPhase('awaiting')
         break
       }
       case 'confirm': {
-        // GUARD: a confirmation may only reference a variable updated THIS turn.
-        // The gate in planConversationStep enforces this; assert it here too so a
-        // regression surfaces loudly instead of silently confirming a stale value.
-        if (import.meta.env.DEV && !updatedKeys.has(s.key)) {
-          console.error(
-            `[Omari] confirmation referenced "${s.key}", which was not updated this turn — stale/one-behind confirm.`,
-          )
-        }
+        // A confirmation may reference a value the patient volunteered on an
+        // earlier turn (e.g. in their opening message) — that's intentional:
+        // we confirm stated info rather than re-asking it. See coreStatus.
         // Restate the MEANING (question intent + patient-facing answer) in one
         // plain sentence — never a bare token, never an internal/raw value.
         pushMessage('bot', composeConfirmation(s.node, s.candidate.value, s.spec))
@@ -320,20 +301,24 @@ function RunnerSession({
    * "just tell me in your own words" follow-up) — high-confidence → filled, else a
    * candidate to confirm. Identical to the original behaviour when starting empty.
    */
-  const runExtraction = async (text: string, useMode: ExtractionMode) => {
+  const runExtraction = async (text: string) => {
     setPhase('thinking')
     setError(null)
     try {
-      const extracted = await extract(text, VARIABLE_SPECS, useMode, tree)
+      const extracted = await extract(text, VARIABLE_SPECS, tree)
       const nextFilled: FilledVariables = { ...filled }
       const nextCandidates: Record<string, Extraction> = { ...candidates }
+      const t = thresholdsRef.current
       for (const [k, c] of Object.entries(extracted)) {
-        if (confidenceBand(c.confidence) === 'high') {
+        const band = resolveBand(k, c.confidence, t)
+        if (band === 'commit') {
           nextFilled[k] = { value: c.value, confidence: c.confidence }
           delete nextCandidates[k]
-        } else if (!(k in nextFilled)) {
+        } else if (band === 'confirm' && !(k in nextFilled)) {
           nextCandidates[k] = c
         }
+        // band === 'discard' → too uncertain to commit or even confirm; leave it
+        // out so the engine re-asks the question fresh (safe-by-default: never guess).
       }
       setFilled(nextFilled)
       setCandidates(nextCandidates)
@@ -381,12 +366,12 @@ function RunnerSession({
 
     setPhase('thinking')
     setError(null)
-    const triage = await triageTurn(text, { situation, currentQuestion }, mode)
+    const triage = await triageTurn(text, { situation, currentQuestion })
 
     if (triage.containsSymptomContent) {
       // Real symptom content (or greeting + symptom) → extract + advance. The
       // voice layer warmly acknowledges any human part of a MIXED message.
-      await runExtraction(text, mode)
+      await runExtraction(text)
       return
     }
 
@@ -446,9 +431,8 @@ function RunnerSession({
   }
 
   // Shared retry (used by the normal error card AND the orb error step).
-  const retryInDemo = () => {
-    setMode('demo')
-    void runExtraction(lastTextRef.current, 'demo')
+  const retryLive = () => {
+    void runExtraction(lastTextRef.current)
   }
 
   // ── Presentation mode ON → the immersive ORB experience (same engine state &
@@ -468,7 +452,7 @@ function RunnerSession({
         onText={submitText}
         onConfirmYes={confirmYes}
         onConfirmNo={confirmNo}
-        onRetry={retryInDemo}
+        onRetry={retryLive}
       />
     )
   }
@@ -478,12 +462,9 @@ function RunnerSession({
       {/* ── LAYER 1 · Presenter / demo apparatus (hidden in Presentation mode) ── */}
       {!presentation && (
         <PresenterBar
-          mode={mode}
-          onModeChange={setMode}
-          onReset={reset}
-          onLoadSample={setDraft}
-          usingFallback={usingFallback}
-          treeId={tree.treeId}
+          library={library}
+          currentTree={tree}
+          usingSample={usingSample}
           onEnterPresentation={onTogglePresentation}
         />
       )}
@@ -491,11 +472,11 @@ function RunnerSession({
       {/* ── LAYERS 2 + 3 · Patient app (hero) + behind-the-scenes (clinician) ── */}
       <div
         className={
-          presentation ? '' : 'mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start'
+          presentation ? '' : 'mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]'
         }
       >
         {/* LAYER 2 · the real product */}
-        <div className="min-w-0 space-y-4">
+        <div className="min-w-0 space-y-4 lg:flex lg:flex-col">
           <PatientApp
             messages={messages}
             phase={phase}
@@ -507,6 +488,7 @@ function RunnerSession({
             onText={submitText}
             onConfirmYes={confirmYes}
             onConfirmNo={confirmNo}
+            onRefresh={reset}
           />
 
           {phase === 'done' && step?.kind === 'route' && (
@@ -519,13 +501,10 @@ function RunnerSession({
               <p className="text-sm font-semibold text-danger">Something went wrong</p>
               <p className="mt-1 text-xs text-danger/80">{error}</p>
               <button
-                onClick={() => {
-                  setMode('demo')
-                  void runExtraction(lastTextRef.current, 'demo')
-                }}
+                onClick={retryLive}
                 className="mt-3 rounded-md bg-danger px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
               >
-                Switch to Demo mode &amp; retry
+                Retry
               </button>
             </div>
           )}
@@ -538,7 +517,8 @@ function RunnerSession({
             filled={filled}
             candidates={candidates}
             step={step}
-            messages={messages}
+            thresholds={thresholds}
+            onThresholds={setThresholds}
           />
         )}
       </div>
@@ -551,84 +531,26 @@ function RunnerSession({
 /* -------------------------------------------------------------------------- */
 
 function PresenterBar({
-  mode,
-  onModeChange,
-  onReset,
-  onLoadSample,
-  usingFallback,
-  treeId,
+  library,
+  currentTree,
+  usingSample,
   onEnterPresentation,
 }: {
-  mode: ExtractionMode
-  onModeChange: (m: ExtractionMode) => void
-  onReset: () => void
-  onLoadSample: (text: string) => void
-  usingFallback: boolean
-  treeId: string
+  library: TreeLibrary
+  currentTree: Tree
+  usingSample: boolean
   onEnterPresentation: () => void
 }) {
   return (
-    <div className="omari-enter-bar rounded-xl border border-dashed border-line bg-bg/70 p-3.5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
-          Demo controls
-        </span>
-        <span className="hidden text-[11px] text-muted sm:inline">
-          Presenter apparatus — not part of the patient app.
-        </span>
-
-        <button
-          onClick={onEnterPresentation}
-          className="omari-grad omari-grad-hover ml-auto inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(37,99,235,0.35)] transition-all hover:shadow-[0_2px_10px_rgba(37,99,235,0.35)] active:translate-y-px"
-          title="Hide all demo + clinician scaffolding for a pure patient view"
-        >
-          <span aria-hidden>▶</span> Presentation mode
-        </button>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-2.5">
-        <ModeToggle mode={mode} onChange={onModeChange} />
-        <button
-          onClick={onReset}
-          className="rounded-md border border-line bg-canvas px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-bg"
-        >
-          Reset demo
-        </button>
-
-        <span className="mx-1 hidden h-5 w-px bg-line sm:inline-block" aria-hidden />
-
-        <span className="font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-          Sample patients
-        </span>
-        {SAMPLE_CASES.map((c) => (
-          <button
-            key={c.label}
-            onClick={() => onLoadSample(c.text)}
-            title={c.text}
-            className="rounded-lg border border-line bg-canvas px-2.5 py-1.5 text-left transition-all hover:-translate-y-px hover:border-accent/40 hover:bg-sky"
-          >
-            <span className="block text-xs font-medium text-ink">{c.label}</span>
-            <span className="block text-[10px] leading-tight text-muted">{c.hint}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-3 border-t border-line/70 pt-2.5">
-        {usingFallback ? (
-          <p className="text-[11px] text-muted">
-            <span className="font-medium text-ink">No saved tree yet</span> — using the seeded
-            sample. Build &amp; save one in the Builder to route against your own logic.
-          </p>
-        ) : (
-          <p className="text-[11px] text-muted">
-            Routing against your saved tree{' '}
-            <span className="rounded border border-line bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-ink">
-              {treeId}
-            </span>
-            .
-          </p>
-        )}
-      </div>
+    <div className="omari-enter-bar flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line/70 pb-3">
+      <TreePicker library={library} currentTree={currentTree} usingSample={usingSample} />
+      <button
+        onClick={onEnterPresentation}
+        className="omari-grad omari-grad-hover ml-auto inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(37,99,235,0.35)] transition-all hover:shadow-[0_2px_10px_rgba(37,99,235,0.35)] active:translate-y-px"
+        title="Hide all demo + clinician scaffolding for a pure patient view"
+      >
+        <span aria-hidden>▶</span> Presentation mode
+      </button>
     </div>
   )
 }
@@ -661,6 +583,7 @@ function PatientApp({
   onText,
   onConfirmYes,
   onConfirmNo,
+  onRefresh,
 }: {
   messages: ChatMessage[]
   phase: Phase
@@ -672,6 +595,7 @@ function PatientApp({
   onText: (text: string) => void
   onConfirmYes: (current: OrchestratorStep & { kind: 'confirm' }) => void
   onConfirmNo: (current: OrchestratorStep & { kind: 'confirm' }) => void
+  onRefresh: () => void
 }) {
   const threadRef = useRef<HTMLDivElement>(null)
   // Keep the latest turn / typing indicator in view as the conversation grows.
@@ -684,7 +608,7 @@ function PatientApp({
   const showFooter = phase === 'intro' || phase === 'awaiting'
 
   return (
-    <div className="omari-msg overflow-hidden rounded-2xl border border-line bg-canvas shadow-[0_1px_3px_rgba(22,32,46,0.07)]">
+    <div className="omari-msg flex flex-col overflow-hidden rounded-2xl border border-line bg-canvas shadow-[0_1px_3px_rgba(22,32,46,0.07)] lg:h-full lg:flex-1">
       {/* Product header — reads like a real clinic intake widget */}
       <div className="flex items-center gap-2.5 border-b border-line px-5 py-3">
         <img src="/omari-logo.png" alt="" aria-hidden className="h-8 w-8 shrink-0 object-contain" />
@@ -699,10 +623,34 @@ function PatientApp({
         <span className="ml-auto inline-flex items-center gap-1.5 text-[10px] font-medium text-muted">
           <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden /> Secure
         </span>
+        <button
+          onClick={onRefresh}
+          title="Start a new conversation"
+          aria-label="Start a new conversation"
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-line bg-canvas text-muted transition-colors hover:bg-bg hover:text-ink"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+            <path d="M21 3v5h-5" />
+            <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+            <path d="M8 16H3v5" />
+          </svg>
+        </button>
       </div>
 
       {/* Conversation thread */}
-      <div ref={threadRef} className="max-h-[54vh] space-y-3 overflow-y-auto px-5 py-4">
+      <div ref={threadRef} className="max-h-[54vh] space-y-3 overflow-y-auto px-5 py-4 lg:max-h-none lg:min-h-0 lg:flex-1">
         {messages.map((m) => (
           <ChatBubble key={m.id} from={m.from} text={m.text} />
         ))}
@@ -728,8 +676,7 @@ function PatientApp({
                 placeholder="e.g. I've had numbness and tingling in my hand for a few months…"
                 className="w-full resize-y rounded-lg border border-line bg-canvas px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-[10px] text-muted">Enter to send · Shift+Enter for a new line</span>
+              <div className="mt-2 flex items-center justify-end">
                 <SendButton onClick={onSubmitInitial} disabled={!draft.trim()} />
               </div>
             </div>
@@ -1053,6 +1000,37 @@ export function StatusStepper({
  * patient until a human confirms. Hidden in Presentation mode with the rest of
  * the behind-the-scenes panel.
  */
+/**
+ * Auditable "Why this route?" block — the engine's own logic replayed in plain
+ * English. Every factor + the answer that determined it, straight from the
+ * decision path (no LLM). Clinician-facing.
+ */
+function WhyThisRoute({ headline, reasons }: { headline: string; reasons: RouteReason[] }) {
+  if (reasons.length === 0) return null
+  return (
+    <div className="rounded-md border border-accent/25 bg-accent/[0.04] px-2.5 py-2">
+      <p className="mb-1 font-display text-[9px] font-semibold uppercase tracking-[0.08em] text-accent">
+        Why this route?
+      </p>
+      <p className="mb-1.5 text-[11px] leading-snug text-ink">{headline}</p>
+      <ul className="space-y-1">
+        {reasons.map((r) => (
+          <li key={r.variableKey} className="flex items-center gap-1.5 text-[11px] leading-snug">
+            <span className="h-1 w-1 shrink-0 rounded-full bg-accent" aria-hidden />
+            <span className="text-muted">{r.label}:</span>
+            <span className="font-medium text-ink">{r.answer}</span>
+            {r.confidence !== undefined && (
+              <span className="ml-auto shrink-0 font-mono text-[9px] text-muted">
+                {Math.round(r.confidence * 100)}%
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function ReferralPacket({
   specialist,
   filled,
@@ -1065,6 +1043,9 @@ function ReferralPacket({
   pathTaken: string[]
 }) {
   const reasoning = fillTemplate(specialist.reasoningTemplate, specialist, filled)
+  // Path-conditioned workup, resolved by the deterministic engine against this
+  // patient's actual variables — including anything a guard withheld.
+  const workup = resolveWorkup(specialist.workup, filled)
   return (
     <div className="overflow-hidden rounded-lg border border-nodespec/30 bg-canvas">
       <div className="flex items-center justify-between gap-2 border-b border-line bg-nodespec/8 px-3 py-2">
@@ -1094,6 +1075,11 @@ function ReferralPacket({
           {reasoning}
         </p>
 
+        <WhyThisRoute
+          headline={`Matched to ${specialist.specialistName} (${specialist.specialty}) because the intake established:`}
+          reasons={explainRoute(tree, pathTaken, filled)}
+        />
+
         {specialist.clinicalBasis && (
           <p className="rounded-md border border-line bg-canvas px-2.5 py-1.5 text-[11px] leading-snug text-muted">
             <span className="font-medium text-ink">Clinical basis:</span> {specialist.clinicalBasis}
@@ -1105,18 +1091,41 @@ function ReferralPacket({
             Proposed pre-visit workup
           </p>
           <ul className="space-y-1.5">
-            {specialist.workup.map((item, i) => (
+            {workup.ordered.map((item, i) => (
               <li key={i} className="rounded-md border border-line px-2.5 py-1.5">
-                <p className="text-[11px] font-medium text-ink">{item.name}</p>
+                <p className="text-[11px] font-medium text-ink">
+                  {item.name}
+                  {item.source === 'conditional' && (
+                    <span className="ml-1.5 rounded bg-accent/10 px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide text-accent">
+                      path-specific
+                    </span>
+                  )}
+                </p>
                 <p className="text-[10px] leading-snug text-muted">
                   <span className="text-ink">Protocol:</span> {item.protocol}
                 </p>
                 <p className="text-[10px] leading-snug text-muted">
-                  <span className="text-ink">Why:</span> {item.rationale}
+                  <span className="text-ink">Why:</span> {item.reason || item.rationale}
+                </p>
+              </li>
+            ))}
+            {workup.withheld.map((w, i) => (
+              <li
+                key={`withheld-${i}`}
+                className="rounded-md border border-dashed border-line px-2.5 py-1.5"
+              >
+                <p className="text-[11px] font-medium text-muted line-through">{w.item}</p>
+                <p className="text-[10px] leading-snug text-muted">
+                  Withheld — only ordered when {describeKeyedCondition(w.requiredCondition)}.
                 </p>
               </li>
             ))}
           </ul>
+          {workup.escalated && (
+            <p className="mt-1.5 rounded-md border border-nodeesc/30 bg-nodeesc/10 px-2.5 py-1.5 text-[11px] leading-snug text-nodeesc">
+              {workup.escalationReason ?? 'Workup requires surgeon review.'}
+            </p>
+          )}
         </div>
 
         <div>
@@ -1175,13 +1184,15 @@ function BehindScenes({
   filled,
   candidates,
   step,
-  messages,
+  thresholds,
+  onThresholds,
 }: {
   tree: Tree
   filled: FilledVariables
   candidates: Record<string, Extraction>
   step: OrchestratorStep | null
-  messages: ChatMessage[]
+  thresholds: Thresholds
+  onThresholds: (t: Thresholds) => void
 }) {
   const filledEntries = Object.entries(filled)
   const pendingEntries = Object.entries(candidates)
@@ -1215,14 +1226,17 @@ function BehindScenes({
         ) : (
           <ul className="space-y-2">
             {filledEntries.map(([key, v]) => (
-              <VariableRow key={key} name={key} value={v.value} confidence={v.confidence} />
+              <VariableRow key={key} name={key} value={v.value} confidence={v.confidence} thresholds={thresholds} />
             ))}
             {pendingEntries.map(([key, c]) => (
-              <VariableRow key={key} name={key} value={c.value} confidence={c.confidence} pending />
+              <VariableRow key={key} name={key} value={c.value} confidence={c.confidence} thresholds={thresholds} pending />
             ))}
           </ul>
         )}
       </div>
+
+      {/* Tunable safety thresholds — the confidence cutoffs are a safety control. */}
+      <ThresholdControls thresholds={thresholds} onChange={onThresholds} />
 
       {/* Terminal outcome → the reviewable referral packet (what the doctor
           dashboard will surface). Mid-conversation → the live path so far. */}
@@ -1243,7 +1257,7 @@ function BehindScenes({
           />
         </div>
       ) : step?.kind === 'escalate' ? (
-        <EscalationPacket tree={tree} reason={step.reason} pathTaken={step.pathTaken} analysis={step.analysis} />
+        <EscalationPacket tree={tree} filled={filled} reason={step.reason} pathTaken={step.pathTaken} analysis={step.analysis} />
       ) : step ? (
         <div className="border-t border-line/70 pt-3">
           <p className="mb-3 font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
@@ -1253,22 +1267,8 @@ function BehindScenes({
         </div>
       ) : null}
 
-      {/* Transcript */}
-      <div className="border-t border-line/70 pt-3">
-        <p className="mb-2 font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-          Transcript
-        </p>
-        <ul className="max-h-48 space-y-1 overflow-y-auto">
-          {messages.map((m) => (
-            <li key={m.id} className="text-[11px] leading-snug">
-              <span className={m.from === 'bot' ? 'text-muted' : 'font-medium text-accent'}>
-                {m.from === 'bot' ? 'Q' : 'A'}:
-              </span>{' '}
-              <span className="text-ink">{m.text}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {/* Model calibration — reliability of the extractor's confidence, from eval. */}
+      <CalibrationPanel />
     </aside>
   )
 }
@@ -1276,11 +1276,13 @@ function BehindScenes({
 /** The reviewable escalation packet — category, reason, clarify/gather record, path. */
 function EscalationPacket({
   tree,
+  filled,
   reason,
   pathTaken,
   analysis,
 }: {
   tree: Tree
+  filled: FilledVariables
   reason?: string
   pathTaken: string[]
   analysis?: EscalationAnalysis
@@ -1313,6 +1315,12 @@ function EscalationPacket({
           <span className="font-medium">Reason:</span> {reason}
         </p>
       )}
+      <div className="mb-2.5">
+        <WhyThisRoute
+          headline={`Flagged for ${label.toLowerCase()} — the intake established:`}
+          reasons={explainRoute(tree, pathTaken, filled)}
+        />
+      </div>
       {clarified.length > 0 && (
         <p className="mb-1.5 text-[11px] text-muted">
           <span className="font-medium text-ink">Clarification attempted:</span>{' '}
@@ -1373,25 +1381,28 @@ function PathStepper({ tree, pathTaken }: { tree: Tree; pathTaken: string[] }) {
   )
 }
 
-/** One extracted variable: value + a colour-coded confidence meter. */
+/** One extracted variable: value + a colour-coded confidence meter + the policy
+ * band (Commit / Confirm / Re-ask) that the current thresholds assign to it. */
 function VariableRow({
   name,
   value,
   confidence,
+  thresholds,
   pending,
 }: {
   name: string
   value: unknown
   confidence: number
+  thresholds: Thresholds
   pending?: boolean
 }) {
-  const band = confidenceBand(confidence)
+  const band = resolveBand(name, confidence, thresholds)
   const meter =
-    band === 'high' ? 'bg-accent' : band === 'medium' ? 'bg-nodeesc' : 'bg-danger'
+    band === 'commit' ? 'bg-accent' : band === 'confirm' ? 'bg-nodeesc' : 'bg-danger'
   const chip =
-    band === 'high'
+    band === 'commit'
       ? 'bg-accent/12 text-accent'
-      : band === 'medium'
+      : band === 'confirm'
         ? 'bg-nodeesc/15 text-nodeesc'
         : 'bg-danger/10 text-danger'
   const pct = Math.round(confidence * 100)
@@ -1399,8 +1410,11 @@ function VariableRow({
     <li className="rounded-md border border-line bg-canvas px-2.5 py-2">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-mono text-[11px] text-muted">{name}</span>
-        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${chip}`}>
-          {pct}%
+        <span className="flex shrink-0 items-center gap-1">
+          <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${chip}`}>
+            {BAND_LABEL[band]}
+          </span>
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${chip}`}>{pct}%</span>
         </span>
       </div>
       <div className="mt-0.5 text-xs text-ink">
@@ -1418,27 +1432,188 @@ function VariableRow({
   )
 }
 
-function ModeToggle({
-  mode,
+const pctStr = (x: number) => `${Math.round(x * 100)}%`
+
+/** A titled disclosure — collapsed by default, with a glanceable summary so the
+ * clinician panel stays uncluttered until someone wants the detail. */
+function Collapsible({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string
+  summary?: string
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="overflow-hidden rounded-md border border-line bg-canvas">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left transition-colors hover:bg-bg"
+      >
+        <span className="min-w-0">
+          <span className="block font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+            {title}
+          </span>
+          {summary && !open && (
+            <span className="mt-0.5 block truncate text-[10px] text-muted/80">{summary}</span>
+          )}
+        </span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open && <div className="border-t border-line px-2.5 py-2.5">{children}</div>}
+    </div>
+  )
+}
+
+/** Live, persisted safety-threshold sliders + the safe-by-default policy text. */
+function ThresholdControls({
+  thresholds,
   onChange,
 }: {
-  mode: ExtractionMode
-  onChange: (m: ExtractionMode) => void
+  thresholds: Thresholds
+  onChange: (t: Thresholds) => void
 }) {
-  const demo = mode === 'demo'
+  const setCommit = (v: number) => onChange({ ...thresholds, commit: Math.max(v, thresholds.confirm + 0.05) })
+  const setConfirm = (v: number) => onChange({ ...thresholds, confirm: Math.min(v, thresholds.commit - 0.05) })
   return (
-    <button
-      onClick={() => onChange(demo ? 'live' : 'demo')}
-      className="flex items-center gap-2 rounded-md border border-line bg-canvas px-3 py-1.5 text-sm transition-colors hover:bg-bg"
-      title="Demo mode uses a simulated extractor; Live calls the real AI through the backend."
+    <Collapsible
+      title="Safety thresholds"
+      summary={`Commit ≥ ${pctStr(thresholds.commit)} · Confirm ≥ ${pctStr(thresholds.confirm)}`}
     >
-      <span
-        className={`inline-block h-2.5 w-2.5 rounded-full ${demo ? 'bg-accent' : 'bg-success'}`}
-      />
-      <span className="font-medium text-ink">
-        {demo ? 'Demo mode (simulated AI)' : 'Live AI mode'}
-      </span>
-    </button>
+      <label className="mb-2 block">
+        <span className="flex items-center justify-between text-[11px] text-ink">
+          <span>Commit ≥ <span className="text-accent">{pctStr(thresholds.commit)}</span></span>
+          <span className="text-[10px] text-muted">route on it</span>
+        </span>
+        <input
+          type="range"
+          min={0.5}
+          max={0.99}
+          step={0.05}
+          value={thresholds.commit}
+          onChange={(e) => setCommit(Number(e.target.value))}
+          className="mt-1 w-full accent-accent"
+        />
+      </label>
+      <label className="block">
+        <span className="flex items-center justify-between text-[11px] text-ink">
+          <span>Confirm ≥ <span className="text-nodeesc">{pctStr(thresholds.confirm)}</span></span>
+          <span className="text-[10px] text-muted">ask “is that right?”</span>
+        </span>
+        <input
+          type="range"
+          min={0.1}
+          max={0.9}
+          step={0.05}
+          value={thresholds.confirm}
+          onChange={(e) => setConfirm(Number(e.target.value))}
+          className="mt-1 w-full accent-nodeesc"
+        />
+      </label>
+      <p className="mt-2 text-[10px] leading-snug text-muted">
+        ≥ {pctStr(thresholds.commit)} commit · {pctStr(thresholds.confirm)}–{pctStr(thresholds.commit)} confirm ·
+        below {pctStr(thresholds.confirm)} re-ask. When uncertain the engine asks or escalates — it never guesses.
+      </p>
+    </Collapsible>
+  )
+}
+
+interface CalibrationBin {
+  lo: number
+  hi: number
+  n: number
+  confidence: number
+  accuracy: number
+}
+interface CalibrationData {
+  generatedAt: string
+  model: string
+  n: number
+  ece: number
+  bins: CalibrationBin[]
+}
+
+/** Reliability diagram — predicted confidence vs. measured accuracy per bin,
+ * loaded from the eval harness artifact (public/calibration.json). */
+function CalibrationPanel() {
+  const [data, setData] = useState<CalibrationData | null>(null)
+  const [state, setState] = useState<'loading' | 'ok' | 'none'>('loading')
+  useEffect(() => {
+    fetch('/calibration.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        setData(d)
+        setState('ok')
+      })
+      .catch(() => setState('none'))
+  }, [])
+
+  const summary =
+    state === 'ok' && data
+      ? `ECE ${data.ece.toFixed(2)} · n=${data.n}`
+      : state === 'none'
+        ? 'run npm run eval to populate'
+        : 'loading…'
+
+  return (
+    <Collapsible title="Extraction calibration" summary={summary}>
+      {state === 'loading' && <p className="text-[11px] text-muted">Loading…</p>}
+      {state === 'none' && (
+        <p className="text-[11px] leading-snug text-muted">
+          No calibration data yet. Run <span className="font-mono text-ink">npm run eval</span> to measure whether the
+          model’s confidence matches its accuracy.
+        </p>
+      )}
+      {state === 'ok' && data && (
+        <div>
+          <p className="mb-2 text-[11px] leading-snug text-muted">
+            Does “{Math.round(0.9 * 100)}% confident” mean 90% correct? ·{' '}
+            <span className="font-medium text-ink">ECE {data.ece.toFixed(2)}</span> (lower = better) · n={data.n} ·{' '}
+            <span className="font-mono text-[10px]">{data.model}</span>
+          </p>
+          <ul className="space-y-1.5">
+            {data.bins.map((b) => {
+              const gap = Math.abs(b.accuracy - b.confidence)
+              const tone = gap <= 0.1 ? 'bg-accent' : gap <= 0.2 ? 'bg-nodeesc' : 'bg-danger'
+              return (
+                <li key={b.lo} className="text-[10px]">
+                  <div className="flex items-center justify-between text-muted">
+                    <span>
+                      {pctStr(b.lo)}–{pctStr(b.hi)} conf · n={b.n}
+                    </span>
+                    <span>
+                      pred <span className="text-ink">{pctStr(b.confidence)}</span> · actual{' '}
+                      <span className="font-semibold text-ink">{pctStr(b.accuracy)}</span>
+                    </span>
+                  </div>
+                  <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-line">
+                    <div className={`h-full rounded-full ${tone}`} style={{ width: pctStr(b.accuracy) }} />
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+    </Collapsible>
   )
 }
 

@@ -26,8 +26,7 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import { sampleTree } from '../data/sampleTree'
-import { dukeNerveTree } from '../data/dukeNerveTree'
-import { fetchTrees, fetchTree } from '../lib/api'
+import { fetchTrees, fetchTree, createTreeFull, type TreeSummary } from '../lib/api'
 import {
   createTreeNode,
   deriveEdges,
@@ -42,7 +41,6 @@ import {
 } from '../lib/treeToFlow'
 import { TreeSchema, type Node as TreeNode, type Tree } from '../types/tree'
 import { flowNodesToTree, validateTreeGraph, type TreeWarning } from '../lib/buildTree'
-import { useTreeStore } from '../store/treeStore'
 import VariableNodeCard from '../components/nodes/VariableNodeCard'
 import SpecialistNodeCard from '../components/nodes/SpecialistNodeCard'
 import EscalationNodeCard from '../components/nodes/EscalationNodeCard'
@@ -303,13 +301,22 @@ function BuilderCanvas() {
     warnings: TreeWarning[]
   } | null>(null)
   const { fitView, screenToFlowPosition } = useReactFlow()
-  const { saveTree } = useTreeStore()
   
-  const [dbTrees, setDbTrees] = useState<{ id: string; name: string }[]>([])
+  // The library trees available to open, and which one is currently on the canvas.
+  const [dbTrees, setDbTrees] = useState<TreeSummary[]>([])
+  const [openTreeId, setOpenTreeId] = useState<string | null>(null)
+
+  const refreshDbTrees = useCallback(async () => {
+    try {
+      setDbTrees(await fetchTrees())
+    } catch (e) {
+      console.error('Failed to list trees:', e)
+    }
+  }, [])
 
   useEffect(() => {
-    fetchTrees().then(setDbTrees).catch(console.error)
-  }, [])
+    void refreshDbTrees()
+  }, [refreshDbTrees])
 
   // Keep a ref to the latest nodes for event handlers (keydown) that must read
   // current state without being re-bound on every change.
@@ -827,45 +834,54 @@ function BuilderCanvas() {
       setSaveResult(null)
       setActiveMeta({ treeId: tree.treeId, rootNodeId: tree.rootNodeId })
       rootIdRef.current = tree.rootNodeId
-      saveTree(tree) // Runner uses whichever tree is currently active
       void runLayout(initCollapsed)
     },
-    [setNodes, saveTree, runLayout],
+    [setNodes, runLayout],
   )
   const loadTreeFromDb = useCallback(
     async (treeId: string) => {
       try {
         const tree = await fetchTree(treeId)
         loadTree(tree)
+        setOpenTreeId(treeId)
       } catch (err) {
         console.error('Failed to load tree:', err)
-        alert('Failed to load tree from database')
+        alert('Failed to load tree from the library')
       }
     },
     [loadTree],
   )
 
-  const onLoadSimple = useCallback(() => {
-    const t = dbTrees.find(t => t.name === 'Sample Tree')
-    if (t) loadTreeFromDb(t.id)
-    else loadTree(sampleTree)
-  }, [dbTrees, loadTreeFromDb, loadTree])
-  
-  const onLoadDuke = useCallback(() => {
-    const t = dbTrees.find(t => t.name === 'Duke Nerve Tree')
-    if (t) loadTreeFromDb(t.id)
-    else loadTree(dukeNerveTree)
-  }, [dbTrees, loadTreeFromDb, loadTree])
+  // Start a fresh canvas from the built-in sample (used when the library is empty).
+  const onNewFromSample = useCallback(() => {
+    loadTree(sampleTree)
+    setOpenTreeId(null)
+  }, [loadTree])
 
-  // Convert the canvas back into a Tree, validate with Zod + soft graph checks,
-  // log the serialized schema, and store it for the Runner.
-  const onSave = useCallback(() => {
+  // Generator handoff: the Generate wizard saves its validated draft to the
+  // library and asks the Builder to open it by leaving the id in localStorage.
+  useEffect(() => {
+    const id = localStorage.getItem('omari:builderOpenTreeId')
+    if (id) {
+      localStorage.removeItem('omari:builderOpenTreeId')
+      void loadTreeFromDb(id)
+    }
+  }, [loadTreeFromDb])
+
+  // Single save → the shared Postgres tree library (so the tree shows up in the
+  // Runner's tree picker and survives reloads / other browsers). The canvas is
+  // validated up front; if valid, the inline name field opens, and committing
+  // persists it. Stash the validated tree between the two steps.
+  const pendingTreeRef = useRef<Tree | null>(null)
+  const pendingWarningsRef = useRef<TreeWarning[]>([])
+
+  const validateForLibrary = useCallback((): boolean => {
     const tree = flowNodesToTree(nodesRef.current, activeMeta.treeId, rootIdRef.current)
     const warnings = validateTreeGraph(tree)
-
     const parsed = TreeSchema.safeParse(tree)
     if (!parsed.success) {
       console.error('[Blume] Tree failed Zod validation:', parsed.error.issues)
+      pendingTreeRef.current = null
       setSaveResult({
         ok: false,
         warnings: [
@@ -876,15 +892,38 @@ function BuilderCanvas() {
           ...warnings,
         ],
       })
-      return
+      return false
     }
+    pendingTreeRef.current = parsed.data
+    pendingWarningsRef.current = warnings
+    return true
+  }, [activeMeta])
 
-    // Proof it's the real schema, not raw React Flow geometry.
-    console.log('[Blume] Saved Tree JSON:\n' + JSON.stringify(parsed.data, null, 2))
-
-    saveTree(parsed.data)
-    setSaveResult({ ok: true, warnings })
-  }, [saveTree, activeMeta])
+  const commitSaveToLibrary = useCallback(async (name: string): Promise<boolean> => {
+    const tree = pendingTreeRef.current
+    if (!tree) return false
+    try {
+      const created = await createTreeFull(name, tree)
+      setOpenTreeId(created.id)
+      void refreshDbTrees()
+      setSaveResult({
+        ok: true,
+        warnings: [
+          { id: 'lib', message: `Saved as “${name}” — now in the tree picker here and in the Runner.` },
+          ...pendingWarningsRef.current,
+        ],
+      })
+      return true
+    } catch (err) {
+      setSaveResult({
+        ok: false,
+        warnings: [
+          { id: 'lib', message: err instanceof Error ? err.message : 'Failed to save to the library.' },
+        ],
+      })
+      return false
+    }
+  }, [refreshDbTrees])
 
   const onBucketHover = useCallback(
     (key: { nodeId: string; branchIndex: number } | null) => setHoveredBucket(key),
@@ -909,9 +948,14 @@ function BuilderCanvas() {
             the toolbar above a page in Word / Google Docs). */}
         <div className="flex min-w-0 flex-1 flex-col gap-2 p-3">
           <CanvasToolbar
-            onLoadSimple={onLoadSimple}
-            onLoadDuke={onLoadDuke}
-            onSave={onSave}
+            trees={dbTrees}
+            openTreeId={openTreeId}
+            onOpenTree={loadTreeFromDb}
+            onRefreshTrees={refreshDbTrees}
+            onNewFromSample={onNewFromSample}
+            suggestedName={activeMeta.treeId}
+            onValidateForLibrary={validateForLibrary}
+            onCommitToLibrary={commitSaveToLibrary}
             onExpandAll={onExpandAll}
             onCollapseAll={onCollapseAll}
             onAutoLayout={onAutoLayout}
@@ -1254,17 +1298,27 @@ function TBIcon({ children }: { children: ReactNode }) {
  * the labels can stay short.
  */
 function CanvasToolbar({
-  onLoadSimple,
-  onLoadDuke,
-  onSave,
+  trees,
+  openTreeId,
+  onOpenTree,
+  onRefreshTrees,
+  onNewFromSample,
+  suggestedName,
+  onValidateForLibrary,
+  onCommitToLibrary,
   onExpandAll,
   onCollapseAll,
   onAutoLayout,
   onClear,
 }: {
-  onLoadSimple: () => void
-  onLoadDuke: () => void
-  onSave: () => void
+  trees: TreeSummary[]
+  openTreeId: string | null
+  onOpenTree: (id: string) => void
+  onRefreshTrees: () => void
+  onNewFromSample: () => void
+  suggestedName: string
+  onValidateForLibrary: () => boolean
+  onCommitToLibrary: (name: string) => Promise<boolean>
   onExpandAll: () => void
   onCollapseAll: () => void
   onAutoLayout: () => void
@@ -1272,39 +1326,22 @@ function CanvasToolbar({
 }) {
   const btn =
     'inline-flex items-center gap-1.5 rounded-md border border-accent-strong/40 bg-canvas px-2.5 py-1.5 text-[12.5px] font-medium text-accent-strong transition-colors hover:border-accent-strong/70 hover:bg-sky'
-  const Divider = () => <span className="mx-0.5 h-5 w-px shrink-0 bg-line" aria-hidden />
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-[10px] border border-line bg-canvas px-2 py-1.5 shadow-[0_1px_2px_rgba(31,36,33,0.04)]">
-      <button className={btn} onClick={onLoadSimple} title="Load the simple seeded sample tree">
-        <TBIcon>
-          <circle cx="12" cy="5" r="2" />
-          <circle cx="6" cy="19" r="2" />
-          <circle cx="18" cy="19" r="2" />
-          <path d="M12 7v3M12 10l-5 6M12 10l5 6" />
-        </TBIcon>
-        Sample
-      </button>
-      <button className={btn} onClick={onLoadDuke} title="Load the deep Duke Nerve Center tree">
-        <TBIcon>
-          <path d="M12 2 2 7l10 5 10-5-10-5z" />
-          <path d="M2 17l10 5 10-5" />
-          <path d="M2 12l10 5 10-5" />
-        </TBIcon>
-        Duke
-      </button>
+      <OpenTreePicker
+        trees={trees}
+        openTreeId={openTreeId}
+        onOpenTree={onOpenTree}
+        onRefreshTrees={onRefreshTrees}
+        onNewFromSample={onNewFromSample}
+      />
 
-      <Divider />
-
-      <button className={btn} onClick={onSave} title="Save this tree">
-        <TBIcon>
-          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-          <path d="M17 21v-8H7v8M7 3v5h8" />
-        </TBIcon>
-        Save
-      </button>
-
-      <Divider />
+      <SaveToLibraryButton
+        suggestedName={suggestedName}
+        onValidate={onValidateForLibrary}
+        onCommit={onCommitToLibrary}
+      />
 
       <button className={btn} onClick={onExpandAll} title="Reveal every collapsed branch at once">
         <TBIcon>
@@ -1326,14 +1363,290 @@ function CanvasToolbar({
         Auto-layout
       </button>
 
-      <Divider />
-
       <button className={btn} onClick={onClear} title="Clear the canvas and start over">
         <TBIcon>
           <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
         </TBIcon>
         Clear
       </button>
+    </div>
+  )
+}
+
+/**
+ * The single "Save to library" control. Validates the canvas on click; if valid,
+ * opens a small inline name field (no browser prompt) and commits on confirm.
+ */
+function SaveToLibraryButton({
+  suggestedName,
+  onValidate,
+  onCommit,
+}: {
+  suggestedName: string
+  onValidate: () => boolean
+  onCommit: (name: string) => Promise<boolean>
+}) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const begin = () => {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    if (!onValidate()) return // invalid tree → parent shows the error banner
+    setName(suggestedName)
+    setOpen(true)
+  }
+
+  const commit = async () => {
+    const n = name.trim()
+    if (!n || saving) return
+    setSaving(true)
+    try {
+      if (await onCommit(n)) setOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        onClick={begin}
+        aria-expanded={open}
+        title="Save this tree to the shared library — it appears in the Runner's tree picker"
+        className="inline-flex items-center gap-1.5 rounded-md bg-accent-strong px-2.5 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90"
+      >
+        <TBIcon>
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+          <path d="M17 21v-8H7v8M7 3v5h8" />
+        </TBIcon>
+        Save to library
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-72 rounded-lg border border-line bg-canvas p-3 shadow-[0_10px_30px_rgba(31,36,33,0.18)]">
+          <label className="mb-1.5 block font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+            Save to library as
+          </label>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onFocus={(e) => e.target.select()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void commit()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setOpen(false)
+              }
+            }}
+            placeholder="Tree name"
+            className="w-full rounded-md border border-line bg-bg px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          <div className="mt-2.5 flex items-center justify-end gap-2">
+            <button
+              onClick={() => setOpen(false)}
+              className="rounded-md px-2.5 py-1 text-[12px] font-medium text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={!name.trim() || saving}
+              onClick={() => void commit()}
+              className="rounded-md bg-accent-strong px-3 py-1 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function fmtLibDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Open-a-tree picker for the Builder — the single entry point for pulling any
+ * library tree onto the canvas to edit (mirrors the Runner's tree picker). The
+ * trigger shows the tree currently on the canvas; the menu lists every stored
+ * tree, and selecting one loads it. Empty library → start from the built-in sample.
+ */
+function OpenTreePicker({
+  trees,
+  openTreeId,
+  onOpenTree,
+  onRefreshTrees,
+  onNewFromSample,
+}: {
+  trees: TreeSummary[]
+  openTreeId: string | null
+  onOpenTree: (id: string) => void
+  onRefreshTrees: () => void
+  onNewFromSample: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const active = trees.find((t) => t.id === openTreeId)
+  const label = active?.name ?? 'Unsaved tree'
+
+  const toggle = () => {
+    if (!open) onRefreshTrees() // freshen the list each time it opens
+    setOpen((o) => !o)
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        onClick={toggle}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title="Open a tree from the library to edit"
+        className="inline-flex items-center gap-1.5 rounded-md border border-accent-strong/40 bg-canvas px-2.5 py-1.5 text-[12.5px] font-medium text-accent-strong transition-colors hover:border-accent-strong/70 hover:bg-sky"
+      >
+        <TBIcon>
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        </TBIcon>
+        <span className="max-w-[160px] truncate">{label}</span>
+        <svg
+          width="11"
+          height="11"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-72 overflow-hidden rounded-lg border border-line bg-canvas shadow-[0_10px_30px_rgba(31,36,33,0.18)]">
+          <div className="flex items-center justify-between border-b border-line px-3 py-2">
+            <p className="font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+              Open a tree
+            </p>
+            <button
+              onClick={() => onRefreshTrees()}
+              title="Refresh list"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors hover:bg-bg hover:text-ink"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                <path d="M8 16H3v5" />
+              </svg>
+            </button>
+          </div>
+          <div className="max-h-[280px] overflow-y-auto p-1.5">
+            {trees.length === 0 ? (
+              <div className="px-2 py-4 text-center">
+                <p className="text-[12px] font-medium text-ink">No trees in the library</p>
+                <p className="mt-0.5 text-[11px] text-muted">
+                  Start from the built-in sample, then “Save to library”.
+                </p>
+                <button
+                  onClick={() => {
+                    onNewFromSample()
+                    setOpen(false)
+                  }}
+                  className="omari-grad omari-grad-hover mt-3 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold text-white"
+                >
+                  Start from sample
+                </button>
+              </div>
+            ) : (
+              <ul className="space-y-0.5">
+                {trees.map((t) => {
+                  const isActive = t.id === openTreeId
+                  return (
+                    <li key={t.id}>
+                      <button
+                        onClick={() => {
+                          onOpenTree(t.id)
+                          setOpen(false)
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                          isActive ? 'bg-sky' : 'hover:bg-bg'
+                        }`}
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                            isActive ? 'border-accent bg-accent text-white' : 'border-line'
+                          }`}
+                          aria-hidden
+                        >
+                          {isActive && (
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] font-medium text-ink">{t.name}</span>
+                          <span className="block truncate text-[10px] text-muted">
+                            v{t.version} · updated {fmtLibDate(t.updated_at)}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

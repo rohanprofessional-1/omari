@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import type { Urgency } from '../../types/tree'
 import type { BuilderFlowNode } from '../../lib/treeToFlow'
+import { describeKeyedCondition } from '../../lib/conditionText'
 import { DeleteNodeButton } from '../BuilderActionsContext'
 import { CardExpander } from './CardExpander'
 
@@ -63,16 +64,40 @@ function SpecialistNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
           </CardExpander>
         )}
 
-        <CardExpander label={`Workup · ${node.workup.length}`}>
+        <CardExpander
+          label={`Workup · ${node.workup.always.length + node.workup.conditional.length}`}
+        >
           <ul className="space-y-1.5">
-            {node.workup.map((item, i) => (
-              <li key={i} className="rounded-md border border-line/70 bg-bg px-2 py-1.5">
+            {node.workup.always.map((item, i) => (
+              <li key={`a${i}`} className="rounded-md border border-line/70 bg-bg px-2 py-1.5">
                 <p className="text-[11px] font-medium text-ink">{item.name}</p>
                 <p className="mt-0.5 text-[10px] leading-snug text-muted">
                   <span className="font-medium text-ink">Protocol:</span> {item.protocol}
                 </p>
                 <p className="mt-0.5 text-[10px] leading-snug text-muted">
                   <span className="font-medium text-ink">Why:</span> {item.rationale}
+                </p>
+              </li>
+            ))}
+            {node.workup.conditional.map((rule, i) => (
+              <li key={`c${i}`} className="rounded-md border border-line/70 bg-sky/40 px-2 py-1.5">
+                <p className="text-[11px] font-medium text-ink">{rule.item.name}</p>
+                <p className="mt-0.5 text-[10px] leading-snug text-muted">
+                  <span className="font-medium text-ink">Only if:</span>{' '}
+                  {describeKeyedCondition(rule.when)}
+                </p>
+                {rule.reason && (
+                  <p className="mt-0.5 text-[10px] leading-snug text-muted">
+                    <span className="font-medium text-ink">Or else:</span> {rule.reason}
+                  </p>
+                )}
+              </li>
+            ))}
+            {node.workup.doNotOrderUnless.map((guard, i) => (
+              <li key={`g${i}`} className="rounded-md border border-danger/30 bg-danger/5 px-2 py-1.5">
+                <p className="text-[10px] leading-snug text-muted">
+                  <span className="font-medium text-ink">Don't order {guard.item}</span> unless{' '}
+                  {describeKeyedCondition(guard.requiredCondition)}
                 </p>
               </li>
             ))}

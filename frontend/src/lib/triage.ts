@@ -1,5 +1,3 @@
-import type { ExtractionMode } from './extraction'
-
 /**
  * Omari — patient-turn triage (presentation/conversation layer only).
  *
@@ -10,9 +8,8 @@ import type { ExtractionMode } from './extraction'
  * NO influence on routing, never interprets symptoms, and never gives medical
  * advice. The reply text it returns is used ONLY for non-symptom turns.
  *
- * - demo → offline heuristics + scripted warm replies (no API).
- * - live → the safe backend (/api/triage); on ANY failure, falls back to the
- *   same heuristics so the conversation never breaks.
+ * Classification runs through the safe backend (/api/triage); on ANY failure it
+ * falls back to offline heuristics so the conversation never breaks.
  */
 
 export type TurnType =
@@ -174,13 +171,8 @@ function heuristicTriage(text: string, ctx: TriageContext): TriageResult {
 export async function triageTurn(
   text: string,
   ctx: TriageContext,
-  mode: ExtractionMode,
   opts: { signal?: AbortSignal; endpoint?: string } = {},
 ): Promise<TriageResult> {
-  if (mode === 'demo') {
-    return heuristicTriage(text, ctx)
-  }
-
   try {
     const res = await fetch(opts.endpoint ?? '/api/triage', {
       method: 'POST',

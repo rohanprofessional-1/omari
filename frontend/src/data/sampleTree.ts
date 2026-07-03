@@ -1,4 +1,4 @@
-import { TreeSchema, type Tree } from '../types/tree'
+import { TreeSchema, type Tree, type TreeInput } from '../types/tree'
 import { VARIABLE_SPECS } from './variableSpecs'
 
 /**
@@ -20,7 +20,9 @@ import { VARIABLE_SPECS } from './variableSpecs'
  * the first whose condition matches — authoring order is significant.
  */
 
-const SAMPLE_TREE_RAW: Tree = {
+// TreeInput: the raw literal uses the legacy flat workup arrays; TreeSchema.parse
+// normalizes them into WorkupSpec ({ always, conditional, doNotOrderUnless }).
+const SAMPLE_TREE_RAW: TreeInput = {
   treeId: 'blume-peripheral-nerve-v1',
   rootNodeId: 'node_presentation',
   nodes: [

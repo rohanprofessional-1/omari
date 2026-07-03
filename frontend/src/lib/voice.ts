@@ -1,5 +1,3 @@
-import type { ExtractionMode } from './extraction'
-
 /**
  * Omari — the "voice layer" (presentation only).
  *
@@ -36,65 +34,18 @@ interface VoiceOptions {
 const DEFAULT_ENDPOINT = '/api/voice'
 
 /* -------------------------------------------------------------------------- */
-/* Demo voice — offline, no API. Warm, varied, and NEVER medical.             */
-/* -------------------------------------------------------------------------- */
-
-// Acknowledgments rotate so the same phrase doesn't repeat back-to-back.
-const DEMO_ACKS = [
-  'Thanks for sharing that.',
-  'Got it — that’s really helpful.',
-  'Okay, thank you for walking me through that.',
-  'That’s helpful, thank you.',
-  'Appreciate you telling me that.',
-]
-
-// Worry/fear → comfort about the FEELING only, never the medicine.
-const WORRY_RE = /\b(scared|afraid|worried|worry|nervous|anxious|anxiety|terrified|frightened|freaking out|panic|stressed)\b/i
-const DEMO_WORRY_ACK =
-  'That sounds really stressful, and I’m sorry you’re going through it — let’s get you to the right person.'
-
-let demoAckCursor = 0
-
-/** Reset rotation so a fresh conversation starts varied from the top. */
-export function resetDemoVoice(): void {
-  demoAckCursor = 0
-}
-
-function demoVoice(input: VoiceTurnInput): string {
-  const last = input.lastPatientMessage ?? ''
-  let ack = ''
-  if (last.trim()) {
-    if (WORRY_RE.test(last)) {
-      ack = DEMO_WORRY_ACK
-    } else {
-      ack = DEMO_ACKS[demoAckCursor % DEMO_ACKS.length]
-      demoAckCursor += 1
-    }
-  }
-  const lead = ack ? ack + ' ' : ''
-  const progress = input.progressHint ? 'We’re almost there — just a little more. ' : ''
-  return `${lead}${progress}${input.question}`.trim()
-}
-
-/* -------------------------------------------------------------------------- */
-/* Public entry — demo vs live, with a safe fallback to the raw question.      */
+/* Public entry — live backend, with a safe fallback to the raw question.      */
 /* -------------------------------------------------------------------------- */
 
 /**
- * Produce the warm, patient-facing version of the engine's question.
- * - demo → scripted, offline warmth (no network).
- * - live → the safe backend (/api/voice); on ANY failure, falls back to the
- *   engine's plain question so the conversation never breaks.
+ * Produce the warm, patient-facing version of the engine's question via the
+ * safe backend (/api/voice); on ANY failure, falls back to the engine's plain
+ * question so the conversation never breaks.
  */
 export async function voiceTurn(
   input: VoiceTurnInput,
-  mode: ExtractionMode,
   opts: VoiceOptions = {},
 ): Promise<string> {
-  if (mode === 'demo') {
-    return demoVoice(input)
-  }
-
   try {
     const res = await fetch(opts.endpoint ?? DEFAULT_ENDPOINT, {
       method: 'POST',

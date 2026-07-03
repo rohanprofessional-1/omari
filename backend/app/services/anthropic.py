@@ -33,22 +33,26 @@ PHRASE_SYSTEM_PROMPT = (
 )
 
 VOICE_SYSTEM_PROMPT = (
-    "You are Omari, a warm AI care coordinator helping a patient through intake so "
-    "they reach exactly the right specialist. You are NOT a doctor. You must NEVER "
-    "give medical advice, interpret what symptoms mean, suggest diagnoses, or "
-    "comment on how serious or mild anything is — no reassurance like \"I'm sure "
-    "it's fine\" or \"that sounds serious\", and never \"this could be X\". You may "
-    "warmly acknowledge the patient's EXPERIENCE and feelings (stress, worry, "
-    "frustration, how long it has gone on) — never the medical meaning.\n\n"
-    "You will be given (1) the patient's last message and (2) the EXACT next "
-    "question to ask. Reply with: first one or two short sentences of genuine, "
-    "specific human warmth acknowledging their last message, then ask EXACTLY that "
-    "question in friendlier, conversational language. Rules: do NOT change which "
-    "question is asked; do NOT drop, rename, or alter any answer option; do NOT "
-    "invent new questions; do NOT add medical content or opinions. If answer "
-    "options are provided you may mention them naturally but must preserve all of "
-    "them. Keep it concise, warm, and unhurried. Return ONLY the message text — no "
-    "preamble, no quotation marks."
+    "You are Omari, a warm but EFFICIENT AI care coordinator doing patient intake so "
+    "they reach the right specialist. Think calm, competent nurse who respects the "
+    "patient's time — not an over-apologetic chatbot. You are NOT a doctor: never "
+    "give medical advice, interpret symptoms, suggest diagnoses, or comment on how "
+    "serious or mild anything is (no \"I'm sure it's fine\", \"that sounds serious\", "
+    "or \"this could be X\").\n\n"
+    "You are given (1) the patient's last message and (2) the EXACT next question "
+    "the engine chose. Rephrase that question as ONE short, natural sentence and "
+    "return only that. Rules:\n"
+    "- NEVER list, repeat, or hint at the answer options — the patient already sees "
+    "them as clickable buttons. Ask the question ONLY. E.g. say \"What's bothering "
+    "you the most?\" — NOT \"...pain, numbness, weakness, or a mix?\".\n"
+    "- Do NOT add an acknowledgment before every question. Usually just ask it. "
+    "Only occasionally, when the patient shared something genuinely notable, you may "
+    "prepend a SHORT (max ~6 words) human acknowledgment. Never formulaic filler "
+    "like \"thank you for sharing that\", \"I hear you\", or \"I know that's not easy\".\n"
+    "- Keep it to one sentence, warm and plain. Do NOT change WHICH question is "
+    "asked or invent new questions. No medical content, no preamble, no quotation "
+    "marks.\n\n"
+    "Return ONLY the message text."
 )
 
 TRIAGE_SYSTEM_PROMPT = (
@@ -239,21 +243,20 @@ class AnthropicService:
         if not self.client:
             raise RuntimeError("Anthropic API key not configured.")
 
-        user_content = f'The exact question to ask the patient: "{question}"'
+        user_content = f'The question to ask the patient: "{question}"'
         if options:
-            opts_str = ", ".join(f'"{o}"' for o in options)
+            # Deliberately do NOT send the option text — the patient taps buttons,
+            # so the reply must ask the question WITHOUT listing them.
             user_content += (
-                f"\nAnswer options (keep ALL of them, do not drop or rename any): {opts_str}"
+                "\n(The patient answers by tapping on-screen buttons — do NOT list, "
+                "name, or hint at the options; ask the question only.)"
             )
         if last_patient_message and last_patient_message.strip():
             user_content += (
                 f'\n\nThe patient just said: "{last_patient_message.strip()[:800]}"'
             )
         else:
-            user_content += (
-                "\n\n(This is the first question — there is no earlier patient message to "
-                "acknowledge, so just open warmly and ask it.)"
-            )
+            user_content += "\n\n(First question — no earlier message; just ask it in one short line.)"
         if progress_hint:
             user_content += (
                 "\n\nIf it feels natural, you may add a brief, light touch of encouragement "
@@ -311,6 +314,177 @@ class AnthropicService:
         phrased = text_block.text.strip() if text_block else ""
         phrased = phrased.strip("\"'").strip()
         return phrased or question
+
+    # ------------------------------------------------------------------
+    # Generator jobs (tree-generator spec §6.1, jobs 1–3).
+    # The LLM generates/classifies/phrases here — it NEVER authors routing
+    # or workup logic. Induction, assembly, gap detection, and validation
+    # are deterministic code operating on the surgeon's recorded decisions.
+    # ------------------------------------------------------------------
+
+    async def generate_cases(
+        self,
+        subspecialty: str,
+        count: int = 5,
+        variable_hints: Optional[list[str]] = None,
+        roster: Optional[list[dict]] = None,
+        minimal_pair_seed: Optional[dict[str, Any]] = None,
+    ) -> list[dict[str, Any]]:
+        """Job 1 — synthetic case generation (offline/curated; surgeon reviews
+        before use). Returns [{narrative, groundTruth, variedVariable?}]."""
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        tool = {
+            "name": "record_cases",
+            "description": "Record the generated synthetic referral cases.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "cases": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "narrative": {
+                                    "type": "string",
+                                    "description": "The rich, messy, first-person-or-referral-note patient story (150-300 words).",
+                                },
+                                "groundTruth": {
+                                    "type": "object",
+                                    "description": "The clinical variables deliberately planted in the narrative, as snake_case keys with simple values.",
+                                },
+                                "variedVariable": {
+                                    "type": "string",
+                                    "description": "For minimal-pair cases only: the single variable flipped vs the seed case.",
+                                },
+                            },
+                            "required": ["narrative", "groundTruth"],
+                        },
+                    }
+                },
+                "required": ["cases"],
+            },
+        }
+
+        system = (
+            "You write SYNTHETIC patient referral cases for eliciting a surgeon's "
+            "routing and workup judgment. Cases must be clinically realistic, rich, "
+            "and messy — the way real referrals read: buried salient facts, irrelevant "
+            "detail, colloquial symptom descriptions, occasional red herrings. Every "
+            "case is FICTIONAL; never reuse real patient details. Each case plants "
+            "specific clinical variables (the groundTruth) INSIDE the narrative so a "
+            "surgeon reading it can recognize them. Vary ages, presentations, durations, "
+            "comorbidities (e.g. pacemakers, anticoagulants, prior surgery) — including "
+            "facts that change the pre-visit WORKUP without changing WHO the patient "
+            "should see, and vice versa. Do not state conclusions or diagnoses; the "
+            "narrative shows, the surgeon decides."
+        )
+
+        user = f"Generate {count} synthetic referral cases for the subspecialty: {subspecialty}."
+        if variable_hints:
+            user += (
+                "\n\nPlant (a varied subset of) these clinical variables across the cases, "
+                f"as groundTruth keys: {', '.join(variable_hints)}. Add 2-4 further variables "
+                "you judge clinically salient for this subspecialty, including at least one "
+                "workup-only determinant (changes what should be done before the visit, not who sees them)."
+            )
+        if roster:
+            names = ", ".join(f"{r.get('name')} ({r.get('specialty', '')})" for r in roster)
+            user += (
+                f"\n\nThe department roster (for coverage, NOT to mention in narratives): {names}. "
+                "Ensure the case set plausibly spans the whole roster's territory plus 1-2 genuinely ambiguous cases."
+            )
+        if minimal_pair_seed:
+            user += (
+                "\n\nMINIMAL-PAIR MODE: each generated case must be a near-copy of this seed case "
+                f"with exactly ONE clinically meaningful variable flipped (set variedVariable):\n"
+                f"SEED NARRATIVE: {minimal_pair_seed.get('narrative', '')[:1500]}\n"
+                f"SEED GROUND TRUTH: {minimal_pair_seed.get('ground_truth', {})}"
+            )
+
+        logger.info(f"[blume/gen-cases] → model={settings.ANTHROPIC_MODEL} · {count} cases · {subspecialty}")
+        message = await self.client.messages.create(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=4096,
+            system=system,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"], "disable_parallel_tool_use": True},
+            messages=[{"role": "user", "content": user}],
+        )
+        tool_use = next((b for b in message.content if b.type == "tool_use"), None)
+        cases = (tool_use.input if tool_use else {}).get("cases", [])
+        logger.info(f"[blume/gen-cases] ✓ {len(cases)} cases")
+        return cases
+
+    async def classify_highlight(
+        self,
+        span_text: str,
+        axis: str,
+        known_variables: Optional[list[dict]] = None,
+    ) -> dict[str, Any]:
+        """Job 2 — fallback classifier for a highlighted span that didn't match
+        the case's ground truth. Returns {key, label, valueSample}."""
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        tool = {
+            "name": "record_variable",
+            "description": "Record the clinical variable this highlighted phrase represents.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "snake_case variable key, e.g. symptom_duration"},
+                    "label": {"type": "string", "description": "Short human label, e.g. 'Symptom duration'"},
+                    "valueSample": {"type": "string", "description": "The value this span indicates, e.g. '8 months'"},
+                },
+                "required": ["key", "label", "valueSample"],
+            },
+        }
+        system = (
+            "You map a phrase a surgeon highlighted in a patient case to the clinical "
+            "VARIABLE it represents. You classify only — you never decide routing or "
+            "workup. Prefer reusing a known variable key when the phrase is another "
+            "value of the same underlying fact; only mint a new snake_case key when "
+            "none fits."
+        )
+        user = f'Highlighted phrase: "{span_text.strip()[:500]}"\nTagged axis: {axis}'
+        if known_variables:
+            listing = "\n".join(f"- {v.get('key')}: {v.get('label') or ''}" for v in known_variables[:40])
+            user += f"\n\nKnown variable keys so far:\n{listing}"
+
+        message = await self.client.messages.create(
+            model=settings.ANTHROPIC_EXTRACT_MODEL or settings.ANTHROPIC_MODEL,
+            max_tokens=256,
+            system=system,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"], "disable_parallel_tool_use": True},
+            messages=[{"role": "user", "content": user}],
+        )
+        tool_use = next((b for b in message.content if b.type == "tool_use"), None)
+        return tool_use.input if tool_use else {}
+
+    async def phrase_gap(self, kind: str, detail: dict[str, Any]) -> str:
+        """Job 3 — phrase a deterministically-detected gap as one plain-language
+        question for the surgeon. Phrasing only; detection already happened."""
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        system = (
+            "You phrase ONE short, direct question to a surgeon about a hole detected "
+            "in their draft referral tree. The gap was found by deterministic checks — "
+            "you only put it into natural clinical language. Be specific and concrete, "
+            "one sentence, no preamble, no hedging, no medical advice."
+        )
+        user = f"Gap kind: {kind}\nGap details (structured): {detail}"
+        message = await self.client.messages.create(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=200,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        text_block = next((b for b in message.content if b.type == "text"), None)
+        return (text_block.text.strip().strip("\"'") if text_block else "") or ""
 
 
 # Singleton instance

@@ -1,4 +1,4 @@
-import { TreeSchema, type Tree } from '../types/tree'
+import { TreeSchema, type Tree, type TreeInput } from '../types/tree'
 import { VARIABLE_SPECS } from './variableSpecs'
 
 /**
@@ -27,7 +27,9 @@ import { VARIABLE_SPECS } from './variableSpecs'
  * referral conventions should be confirmed with Dr. Li.
  */
 
-const DUKE_TREE_RAW: Tree = {
+// TreeInput: the raw literal uses the legacy flat workup arrays; TreeSchema.parse
+// normalizes them into WorkupSpec ({ always, conditional, doNotOrderUnless }).
+const DUKE_TREE_RAW: TreeInput = {
   treeId: 'duke-nerve-center-v1',
   rootNodeId: 'node_redflag',
   nodes: [

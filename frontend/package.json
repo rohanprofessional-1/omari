@@ -13,7 +13,8 @@
     "test:extract": "node scripts/test-extract.mjs",
     "test:conversation": "node scripts/test-conversation.mjs",
     "test:phrase": "node scripts/test-phrase.mjs",
-    "test:demo": "node scripts/test-demo-mode.mjs"
+    "test:demo": "node scripts/test-demo-mode.mjs",
+    "eval": "node eval/run-eval.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",

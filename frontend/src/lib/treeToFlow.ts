@@ -1,7 +1,7 @@
 import dagre from 'dagre'
 import ELK from 'elkjs/lib/elk.bundled.js'
 import { MarkerType, type Edge, type Node as RFNode } from '@xyflow/react'
-import type { Condition, Node as TreeNode, Tree } from '../types/tree'
+import { emptyWorkupSpec, type Condition, type Node as TreeNode, type Tree } from '../types/tree'
 
 /**
  * Blume — Tree <-> React Flow conversion, dagre auto-layout, and factories
@@ -460,7 +460,7 @@ export function createTreeNode(kind: NodeKind, id: string = newNodeId(kind)): Tr
         specialty: 'Specialty',
         urgency: 'routine',
         reasoningTemplate: 'Routing to {specialistName}.',
-        workup: [],
+        workup: emptyWorkupSpec(),
       }
     case 'escalation':
       return {

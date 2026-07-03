@@ -1,7 +1,20 @@
 import type { Tree, Condition } from '../types/tree'
 import { TreeSchema } from '../types/tree'
 
-const API_BASE = import.meta.env.VITE_API_URL + '/api/v1'
+// Relative — Vite proxies /api/v1 → FastAPI (Postgres). See vite.config.ts.
+const API_BASE = '/api/v1'
+
+/** Tree metadata as returned by the list endpoint (TreeRead). */
+export interface TreeSummary {
+  id: string
+  name: string
+  description?: string | null
+  version: number
+  is_active: boolean
+  authored_by?: string | null
+  created_at: string
+  updated_at: string
+}
 
 function mapCondition(c: any): Condition {
   if (c.condition_type === 'equals') {
@@ -18,8 +31,8 @@ function mapCondition(c: any): Condition {
   throw new Error(`Unknown condition type: ${c.condition_type}`)
 }
 
-export async function fetchTrees(): Promise<{ id: string; name: string }[]> {
-  const res = await fetch(`${API_BASE}/trees`)
+export async function fetchTrees(): Promise<TreeSummary[]> {
+  const res = await fetch(`${API_BASE}/trees?is_active=true`)
   if (!res.ok) throw new Error('Failed to fetch trees')
   return res.json()
 }
@@ -56,10 +69,13 @@ export async function fetchTree(id: string): Promise<Tree> {
         base.reasoningTemplate = n.reasoning_template
         base.clinicalBasis = n.clinical_basis || undefined
         base.confirmWithDrLi = n.confirm_with_dr_li || undefined
-        base.workup = (n.workup_items || []).map((w: any) => ({
+        // Prefer the v2 path-conditioned spec (JSONB); fall back to the legacy
+        // flat workup_items rows. Either way TreeSchema.parse normalizes to
+        // WorkupSpec, so the engine sees one shape.
+        base.workup = n.workup_spec ?? (n.workup_items || []).map((w: any) => ({
           name: w.name,
-          protocol: w.protocol,
-          rationale: w.rationale
+          protocol: w.protocol ?? '',
+          rationale: w.rationale ?? ''
         }))
       } else if (n.node_type === 'escalation') {
         base.reason = n.escalation_reason
@@ -113,4 +129,48 @@ export async function getConversation(conversationId: string) {
   const res = await fetch(`${API_BASE}/conversations/${conversationId}`)
   if (!res.ok) throw new Error('Failed to fetch conversation')
   return res.json()
+}
+
+/* -------------------------------------------------------------------------- */
+/* Tree library — persist / manage whole trees in Postgres                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Persist a complete tree (nodes, branches, conditions, workup) to the DB.
+ * The frontend Tree shape is already what the /trees/full endpoint accepts.
+ */
+export async function createTreeFull(
+  name: string,
+  tree: Tree,
+  opts: { description?: string } = {},
+): Promise<TreeSummary> {
+  const res = await fetch(`${API_BASE}/trees/full`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      description: opts.description,
+      rootNodeId: tree.rootNodeId,
+      nodes: tree.nodes,
+    }),
+  })
+  if (!res.ok) throw new Error(`Failed to save tree: ${await res.text()}`)
+  return res.json()
+}
+
+/** Rename a stored tree. */
+export async function renameTree(id: string, name: string): Promise<TreeSummary> {
+  const res = await fetch(`${API_BASE}/trees/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error('Failed to rename tree')
+  return res.json()
+}
+
+/** Soft-delete a stored tree (the backend sets is_active = false). */
+export async function deleteTree(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/trees/${id}`, { method: 'DELETE' })
+  if (!res.ok && res.status !== 204) throw new Error('Failed to delete tree')
 }

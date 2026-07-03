@@ -33,7 +33,7 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     clinicalPrompt:
       'The single most bothersome symptom, used to weight the differential between compressive pain, sensory loss, motor loss, or a mixed picture.',
     patientQuestion:
-      'What bothers you the most — pain, numbness or tingling, weakness, or a mix of these?',
+      'What’s bothering you the most?',
     answerType: 'single_choice',
     options: ['pain', 'numbness_tingling', 'weakness', 'mixed'],
     extractionHints:
@@ -83,7 +83,7 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     clinicalPrompt:
       'Up-front red-flag / urgent-access screen (the center’s <72h SLA for acute nerve injury). Detect EMERGENCY presentations that must bypass full intake. The emergency VALUE strings deliberately match the engine’s emergency set so they short-circuit.',
     patientQuestion:
-      'First, a quick safety check: is any of these happening — a recent serious injury or cut to the area; a lump that is growing fast; or weakness that is getting worse quickly (like a foot or hand suddenly not working)?',
+      'First, a quick safety check — is any of these happening?',
     answerType: 'single_choice',
     options: ['acute_trauma', 'mass_lump', 'acute', 'none'],
     extractionHints:
@@ -105,7 +105,7 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     clinicalPrompt:
       'The single most bothersome symptom. Muscle wasting flags advanced denervation and weights toward diagnostics / surgical urgency.',
     patientQuestion:
-      'What is the single most bothersome part — pain, numbness or tingling, weakness, visible muscle wasting/shrinking, or a mix?',
+      'What’s the single most bothersome part?',
     answerType: 'single_choice',
     options: ['pain', 'numbness_tingling', 'weakness', 'muscle_wasting', 'mixed'],
     extractionHints:
@@ -127,7 +127,7 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     clinicalPrompt:
       'One side vs both. Bilateral symptoms raise suspicion for a systemic/diffuse process → neuromuscular neurology.',
     patientQuestion:
-      'Is this on one side of your body, or both sides?',
+      'Which side is affected?',
     answerType: 'single_choice',
     options: ['one_side', 'both_sides'],
     extractionHints:
@@ -171,7 +171,7 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     clinicalPrompt:
       'Night-time or position-dependent symptoms — a classic compressive/entrapment pattern (e.g. carpal tunnel waking them at night).',
     patientQuestion:
-      'Are the symptoms worse at night, or when you hold the limb in a certain position (for example, waking you up, or worse on the phone or driving)?',
+      'Are the symptoms worse at night or in certain positions?',
     answerType: 'single_choice',
     options: ['yes', 'no'],
     extractionHints:
@@ -182,7 +182,7 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     clinicalPrompt:
       'Trajectory: stable, slowly worsening, or rapidly worsening. Rapid worsening on the spine path escalates severity.',
     patientQuestion:
-      'Over time, are things staying about the same, slowly getting worse, or quickly getting worse?',
+      'How is it changing over time?',
     answerType: 'single_choice',
     options: ['stable', 'slowly_worsening', 'rapidly_worsening'],
     extractionHints:
@@ -193,7 +193,7 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     clinicalPrompt:
       'How much function is lost: mild, interferes with daily activity, or severe loss. Weights surgical-candidacy and which spine surgeon.',
     patientQuestion:
-      'How much is this affecting your daily life — mild and manageable, interfering with daily activities, or a severe loss of use?',
+      'How much is this affecting your daily life?',
     answerType: 'single_choice',
     options: ['mild', 'interferes_daily', 'severe_loss'],
     extractionHints:

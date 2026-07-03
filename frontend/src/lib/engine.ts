@@ -1,8 +1,11 @@
 import type {
   Condition,
   FilledVariables,
+  KeyedCondition,
   SpecialistNode,
   Tree,
+  WorkupItem,
+  WorkupSpec,
 } from '../types/tree'
 
 /**
@@ -22,12 +25,110 @@ export interface RoutingResult {
   outcome: 'routed' | 'escalated' | 'incomplete'
   /** Present only when outcome === 'routed'. */
   specialist?: SpecialistNode
+  /** The path-conditioned workup, resolved against the filled variables. Present only when routed. */
+  resolvedWorkup?: ResolvedWorkup
   /** Every node id visited, in order, including the node we stopped on. */
   pathTaken: string[]
   /** The single blocking variable when outcome === 'incomplete'; else []. */
   missingVariables: string[]
   /** Human-readable reason when outcome === 'escalated'. */
   escalationReason?: string
+}
+
+/* -------------------------------------------------------------------------- */
+/* Workup resolution (schema v2 — path-conditioned workup)                    */
+/* -------------------------------------------------------------------------- */
+
+/** One concrete workup item after resolution, with its provenance. */
+export interface ResolvedWorkupItem extends WorkupItem {
+  source: 'always' | 'conditional'
+  /** The surgeon's counterfactual, for conditional items. */
+  reason?: string
+}
+
+/** An item a do-not-order guard withheld, and why. */
+export interface WithheldWorkupItem {
+  item: string
+  requiredCondition: KeyedCondition
+}
+
+export interface ResolvedWorkup {
+  /** The concrete ordered list for THIS patient's path. */
+  ordered: ResolvedWorkupItem[]
+  /** Items suppressed by doNotOrderUnless guards (over-ordering protection). */
+  withheld: WithheldWorkupItem[]
+  /** True when escalateWorkupIf fired: the surgeon must choose diagnostics. */
+  escalated: boolean
+  escalationReason?: string
+}
+
+/** Evaluate a keyed condition against the filled variables. Missing value ⇒ false. */
+function evaluateKeyedCondition(
+  condition: KeyedCondition,
+  filled: FilledVariables,
+): boolean {
+  const resolved = filled[condition.key]
+  if (resolved === undefined) return false
+  return evaluateCondition(condition, resolved.value)
+}
+
+/** Case/whitespace-insensitive name match for do-not-order guards. */
+function workupNameMatches(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase()
+}
+
+/**
+ * Resolve a WorkupSpec against the patient's filled variables into the
+ * concrete ordered/withheld lists. Pure and total — the deterministic engine
+ * (never an LLM) decides the workup, exactly like routing.
+ *
+ * Order of operations (guards win over orders — over-ordering is the failure
+ * mode we protect against):
+ *   1. take `always`
+ *   2. add each `conditional` whose condition holds
+ *   3. remove anything a `doNotOrderUnless` guard forbids (condition not met)
+ *   4. check `escalateWorkupIf` — ambiguity goes to the surgeon
+ */
+export function resolveWorkup(
+  spec: WorkupSpec,
+  filled: FilledVariables,
+): ResolvedWorkup {
+  const ordered: ResolvedWorkupItem[] = spec.always.map((item) => ({
+    ...item,
+    source: 'always' as const,
+  }))
+
+  for (const rule of spec.conditional) {
+    if (evaluateKeyedCondition(rule.when, filled)) {
+      ordered.push({ ...rule.item, source: 'conditional', reason: rule.reason })
+    }
+  }
+
+  const withheld: WithheldWorkupItem[] = []
+  const kept: ResolvedWorkupItem[] = []
+  for (const item of ordered) {
+    const guard = spec.doNotOrderUnless.find((g) =>
+      workupNameMatches(g.item, item.name),
+    )
+    if (guard && !evaluateKeyedCondition(guard.requiredCondition, filled)) {
+      withheld.push({ item: item.name, requiredCondition: guard.requiredCondition })
+    } else {
+      kept.push(item)
+    }
+  }
+
+  const escalated =
+    spec.escalateWorkupIf !== undefined &&
+    evaluateKeyedCondition(spec.escalateWorkupIf, filled)
+
+  return {
+    ordered: kept,
+    withheld,
+    escalated,
+    escalationReason: escalated
+      ? `Workup requires surgeon review (condition on "${spec.escalateWorkupIf!.key}" met).`
+      : undefined,
+  }
 }
 
 /**
@@ -98,7 +199,13 @@ export function runEngine(tree: Tree, filled: FilledVariables): RoutingResult {
     pathTaken.push(currentId)
 
     if (node.type === 'specialist') {
-      return { outcome: 'routed', specialist: node, pathTaken, missingVariables: [] }
+      return {
+        outcome: 'routed',
+        specialist: node,
+        resolvedWorkup: resolveWorkup(node.workup, filled),
+        pathTaken,
+        missingVariables: [],
+      }
     }
 
     if (node.type === 'escalation') {

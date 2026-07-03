@@ -373,7 +373,7 @@ function OrbExperience({
         onClick={onRetry}
         className="rounded-full bg-danger px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
       >
-        Switch to Demo mode &amp; retry
+        Retry
       </button>
     )
   }

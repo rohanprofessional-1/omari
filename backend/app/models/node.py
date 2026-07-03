@@ -1,6 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import String, Text, Enum, ForeignKey, ForeignKeyConstraint
+from sqlalchemy import String, Text, Enum, ForeignKey, ForeignKeyConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin
 
@@ -42,6 +42,10 @@ class Node(Base, TimestampMixin):
     reasoning_template: Mapped[str | None] = mapped_column(Text, nullable=True)
     clinical_basis: Mapped[str | None] = mapped_column(Text, nullable=True)
     confirm_with_dr_li: Mapped[bool | None] = mapped_column(nullable=True)
+    # Schema v2: path-conditioned workup (WorkupSpec) as JSON —
+    # { always: [...], conditional: [...], doNotOrderUnless: [...], escalateWorkupIf? }.
+    # The Zod schema on the frontend is the canonical validator for this shape.
+    workup_spec: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Escalation fields
     escalation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

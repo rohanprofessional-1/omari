@@ -1,0 +1,191 @@
+{
+  "tree": "sample",
+  "description": "Gold-labeled extraction cases for the peripheral-nerve sample tree. Each case is a realistic patient utterance; `expect` lists ONLY the variables the utterance genuinely supports (its option key). Any variable the extractor returns that is NOT in `expect` counts as a spurious/over-extraction (false positive). `expectRoute` is the specialist name (or \"escalate\") the deterministic engine should reach given the correct high-confidence values.",
+  "cases": [
+    {
+      "id": "clean-cts-abnormal",
+      "utterance": "I've had constant numbness and tingling in my right hand for the past eight months, and a nerve conduction study came back abnormal.",
+      "expect": {
+        "presentationType": "typical_nerve_symptoms",
+        "dominantSymptom": "numbness_tingling",
+        "symptomLocation": "arm_hand",
+        "symptomDuration": "chronic",
+        "emgStatus": "done_abnormal"
+      }
+    },
+    {
+      "id": "mass-red-flag",
+      "utterance": "I found a hard lump in my forearm that I can feel under the skin, and it's been growing over the last couple of months.",
+      "expect": {
+        "presentationType": "mass_lump",
+        "symptomLocation": "arm_hand"
+      }
+    },
+    {
+      "id": "acute-trauma-fall",
+      "utterance": "I fell off my bike three days ago and landed hard on my wrist. It's been weak and painful since.",
+      "expect": {
+        "presentationType": "acute_trauma",
+        "dominantSymptom": "pain",
+        "symptomLocation": "arm_hand",
+        "symptomDuration": "acute"
+      }
+    },
+    {
+      "id": "leg-weakness-chronic",
+      "utterance": "For about six months my left foot has felt weak and I keep tripping because it drops when I walk.",
+      "expect": {
+        "dominantSymptom": "weakness",
+        "symptomLocation": "leg_foot",
+        "symptomDuration": "chronic"
+      }
+    },
+    {
+      "id": "neck-radiating-pain",
+      "utterance": "I have shooting pain that starts in my neck and runs down my arm. It started around five weeks ago.",
+      "expect": {
+        "dominantSymptom": "pain",
+        "symptomLocation": "neck_radiating",
+        "symptomDuration": "subacute"
+      }
+    },
+    {
+      "id": "vague-mixed-hand",
+      "utterance": "Honestly it's hard to pin down, kind of a mix of everything, mostly in my hand. It's been bugging me for a while.",
+      "expect": {
+        "dominantSymptom": "mixed",
+        "symptomLocation": "arm_hand"
+      }
+    },
+    {
+      "id": "emg-normal-numbness",
+      "utterance": "My fingers have been numb and tingly for a few months. I had an EMG done and they told me it was normal.",
+      "expect": {
+        "dominantSymptom": "numbness_tingling",
+        "symptomLocation": "arm_hand",
+        "symptomDuration": "chronic",
+        "emgStatus": "done_normal"
+      }
+    },
+    {
+      "id": "no-emg-yet",
+      "utterance": "I get pins and needles in my hand at night. I haven't had any nerve tests done yet.",
+      "expect": {
+        "dominantSymptom": "numbness_tingling",
+        "symptomLocation": "arm_hand",
+        "emgStatus": "not_done"
+      }
+    },
+    {
+      "id": "acute-onset-only",
+      "utterance": "This all came on suddenly yesterday.",
+      "expect": {
+        "symptomDuration": "acute"
+      }
+    },
+    {
+      "id": "subacute-weeks",
+      "utterance": "It's been going on for about two months now, gradually.",
+      "expect": {
+        "symptomDuration": "subacute"
+      }
+    },
+    {
+      "id": "location-only-leg",
+      "utterance": "The problem is in my lower leg and foot.",
+      "expect": {
+        "symptomLocation": "leg_foot"
+      }
+    },
+    {
+      "id": "symptom-only-pain",
+      "utterance": "Mainly it's just pain, that's the worst part.",
+      "expect": {
+        "dominantSymptom": "pain"
+      }
+    },
+    {
+      "id": "weakness-grip",
+      "utterance": "My grip has gotten really weak, I keep dropping cups and jars.",
+      "expect": {
+        "dominantSymptom": "weakness",
+        "symptomLocation": "arm_hand"
+      }
+    },
+    {
+      "id": "greeting-no-content",
+      "utterance": "Hi there, good morning! How does this work?",
+      "expect": {}
+    },
+    {
+      "id": "typical-nerve-chronic-arm",
+      "utterance": "Numbness and tingling down my forearm into my thumb and index finger for the last four months.",
+      "expect": {
+        "presentationType": "typical_nerve_symptoms",
+        "dominantSymptom": "numbness_tingling",
+        "symptomLocation": "arm_hand",
+        "symptomDuration": "chronic"
+      }
+    },
+    {
+      "id": "abnormal-emg-weakness-arm",
+      "utterance": "My hand's been weak for months and the nerve study they ran came back abnormal.",
+      "expect": {
+        "dominantSymptom": "weakness",
+        "symptomLocation": "arm_hand",
+        "symptomDuration": "chronic",
+        "emgStatus": "done_abnormal"
+      }
+    },
+    {
+      "id": "trauma-recent-weak",
+      "utterance": "I cut my forearm badly last week and now two of my fingers won't move properly.",
+      "expect": {
+        "presentationType": "acute_trauma",
+        "dominantSymptom": "weakness",
+        "symptomLocation": "arm_hand",
+        "symptomDuration": "acute"
+      }
+    },
+    {
+      "id": "neck-radiating-numb-chronic",
+      "utterance": "For the past several months I get numbness that radiates from my neck down into my hand.",
+      "expect": {
+        "dominantSymptom": "numbness_tingling",
+        "symptomLocation": "neck_radiating",
+        "symptomDuration": "chronic"
+      }
+    },
+    {
+      "id": "foot-pain-subacute",
+      "utterance": "Burning pain in my foot for the last month and a half or so.",
+      "expect": {
+        "dominantSymptom": "pain",
+        "symptomLocation": "leg_foot",
+        "symptomDuration": "subacute"
+      }
+    },
+    {
+      "id": "unsure-presentation",
+      "utterance": "I really can't tell what's going on, it's all confusing to me.",
+      "expect": {
+        "presentationType": "unsure"
+      }
+    },
+    {
+      "id": "mixed-arm-chronic-emgnone",
+      "utterance": "It's a mix of aching and numbness in my hand and wrist, going on maybe five months, no tests done.",
+      "expect": {
+        "dominantSymptom": "mixed",
+        "symptomLocation": "arm_hand",
+        "symptomDuration": "chronic",
+        "emgStatus": "not_done"
+      }
+    },
+    {
+      "id": "emotional-worry-no-clinical",
+      "utterance": "I'm really nervous about all of this, I've never had to see a specialist before.",
+      "expect": {}
+    }
+  ]
+}

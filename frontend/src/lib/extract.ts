@@ -69,15 +69,33 @@ export async function extractVariables(
 }
 
 /**
+ * Some models intermittently nest the tool arguments under a spurious wrapper
+ * key ({ variables: {...} }, { parameters: {...} }, { query: {...} }) instead of
+ * emitting the variable keys at the top level. Without this, a whole turn's
+ * extraction is silently dropped and the engine stalls on "incomplete". If none
+ * of the top-level keys are known variables but there's a single nested object,
+ * descend into it (recursively, in case it's double-wrapped).
+ */
+function unwrapVariables(raw: unknown, keys: Set<string>): unknown {
+  if (!raw || typeof raw !== 'object') return raw
+  const entries = Object.entries(raw as Record<string, unknown>)
+  if (entries.some(([k]) => keys.has(k))) return raw // already at the right level
+  const nested = entries.map(([, v]) => v).filter((v) => v && typeof v === 'object')
+  if (nested.length === 1) return unwrapVariables(nested[0], keys)
+  return raw
+}
+
+/**
  * Validate and normalise the model's raw tool input into FilledVariables.
  * Drops anything with no value, zero/absent confidence, or an out-of-enum value
  * — so only what the patient actually supported survives.
  */
 function parseExtracted(raw: unknown, specs: VariableSpec[]): FilledVariables {
   const out: FilledVariables = {}
-  if (!raw || typeof raw !== 'object') return out
 
   const byKey = new Map(specs.map((s) => [s.key, s]))
+  raw = unwrapVariables(raw, new Set(byKey.keys()))
+  if (!raw || typeof raw !== 'object') return out
 
   for (const [key, entry] of Object.entries(raw as Record<string, unknown>)) {
     if (!entry || typeof entry !== 'object') continue

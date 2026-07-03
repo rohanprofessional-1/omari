@@ -1,0 +1,4 @@
+
+# Eval run artifacts (timestamped reports)
+eval/reports/
+public/calibration.json

@@ -215,9 +215,11 @@ function coreStatus(
   if (plan.gatheredKeys.has(key)) return 'satisfied'
   const c = candidates[key]
   if (c && confidenceBand(c.confidence, high, medium) === 'medium') {
-    // Confirm ONLY a value updated this turn. A stale medium candidate from an
-    // earlier turn is asked fresh instead of surfacing a one-behind confirmation.
-    if (!plan.updatedKeys || plan.updatedKeys.has(key)) return 'confirm'
+    // The patient volunteered this value (medium confidence). CONFIRM it — never
+    // re-ask it as a fresh open question, even if it came from an earlier turn
+    // (e.g. stated in the opening message). Re-asking stated info makes the
+    // patient feel unheard; a quick "you mentioned X — is that right?" respects it.
+    return 'confirm'
   }
   return 'ask'
 }

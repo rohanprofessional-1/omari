@@ -1,8 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import dagre from 'dagre'
-import { evaluateCondition } from '../lib/engine'
-import { confidenceBand, type Extraction, type OrchestratorStep } from '../lib/orchestrator'
-import { coreIntakeKeys } from '../lib/escalation'
+import { type Extraction, type OrchestratorStep } from '../lib/orchestrator'
 import { nodeDisplayName } from '../lib/treeToFlow'
 import type { FilledVariables, Tree } from '../types/tree'
 
@@ -18,8 +16,8 @@ import type { FilledVariables, Tree } from '../types/tree'
  *   • DECISION — once the engine routes/escalates, the taken PATH is highlighted.
  * It deliberately does NOT depict routing node-by-node during questioning.
  *
- * Gating (visible only in Demo mode AND not Presentation mode) is enforced by
- * the caller — this component is only mounted in the behind-the-scenes panel.
+ * Gating (hidden in Presentation mode) is enforced by the caller — this
+ * component is only mounted in the behind-the-scenes clinician panel.
  */
 
 // Builder node colours (kept in sync with the design tokens / Builder cards).
@@ -34,24 +32,10 @@ const COLOR = {
   ink: '#16202E',
 }
 
-const VIEW_KEY = 'omari:treeviz' // remembers path vs tree across the session
-
-type View = 'path' | 'tree'
-
 /** Prettify a camelCase variable key into a short readable label. */
 function prettyKey(key: string): string {
   const words = key.replace(/([A-Z])/g, ' $1').trim()
   return words.charAt(0).toUpperCase() + words.slice(1)
-}
-
-/** The human branch label for a captured value at a variable (its matching branch). */
-function branchLabel(tree: Tree, key: string, value: unknown): string {
-  for (const node of tree.nodes) {
-    if (node.type !== 'variable' || node.variableKey !== key) continue
-    const branch = node.branches.find((b) => evaluateCondition(b.condition, value))
-    if (branch) return branch.label
-  }
-  return String(value)
 }
 
 interface VizState {
@@ -97,173 +81,17 @@ export default function TreeMiniViz({
   candidates: Record<string, Extraction>
   step: OrchestratorStep | null
 }) {
-  const [view, setView] = useState<View>(() => {
-    try {
-      return sessionStorage.getItem(VIEW_KEY) === 'tree' ? 'tree' : 'path'
-    } catch {
-      return 'path'
-    }
-  })
-  const setAndStore = (v: View) => {
-    setView(v)
-    try {
-      sessionStorage.setItem(VIEW_KEY, v)
-    } catch {
-      /* ignore */
-    }
-  }
-
   const viz = deriveVizState(filled, candidates, step)
 
   return (
     <div className="rounded-lg border border-line bg-canvas p-2.5">
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="mb-2 flex items-center gap-2">
         <p className="font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
           Decision tree · live
         </p>
-        <div className="inline-flex rounded-md border border-line bg-bg p-0.5">
-          {(['path', 'tree'] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setAndStore(v)}
-              aria-pressed={view === v}
-              className={
-                'rounded-[5px] px-2 py-0.5 text-[10px] font-medium transition-colors ' +
-                (view === v ? 'bg-canvas text-accent shadow-[0_1px_2px_rgba(22,32,46,0.08)]' : 'text-muted hover:text-ink')
-              }
-            >
-              {v === 'path' ? 'Path' : 'Tree'}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {view === 'path' ? (
-        <PathStrip tree={tree} filled={filled} candidates={candidates} step={step} viz={viz} />
-      ) : (
-        <TreeMiniMap tree={tree} viz={viz} />
-      )}
-    </div>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
-/* PATH STRIP (default) — core-intake chips that fill in, then the outcome      */
-/* -------------------------------------------------------------------------- */
-
-function PathStrip({
-  tree,
-  filled,
-  candidates,
-  step,
-  viz,
-}: {
-  tree: Tree
-  filled: FilledVariables
-  candidates: Record<string, Extraction>
-  step: OrchestratorStep | null
-  viz: VizState
-}) {
-  const coreKeys = useMemo(() => coreIntakeKeys(tree), [tree])
-
-  return (
-    <div className="flex flex-wrap items-stretch gap-1.5">
-      {coreKeys.map((key) => {
-        const f = filled[key]
-        const c = candidates[key]
-        const state: 'high' | 'med' | 'empty' = f ? 'high' : c ? 'med' : 'empty'
-        const value = f?.value ?? c?.value
-        const confidence = f?.confidence ?? c?.confidence
-        return (
-          <IntakeChip
-            key={key}
-            label={prettyKey(key)}
-            state={state}
-            valueLabel={value !== undefined ? branchLabel(tree, key, value) : undefined}
-            confidence={confidence}
-          />
-        )
-      })}
-      <span className="self-center text-[10px] text-muted" aria-hidden>
-        →
-      </span>
-      <OutcomeChip step={step} resolved={viz.resolved} />
-    </div>
-  )
-}
-
-function IntakeChip({
-  label,
-  state,
-  valueLabel,
-  confidence,
-}: {
-  label: string
-  state: 'high' | 'med' | 'empty'
-  valueLabel?: string
-  confidence?: number
-}) {
-  const tone =
-    state === 'high'
-      ? 'border-accent/40 bg-sky'
-      : state === 'med'
-        ? 'border-nodeesc/40 bg-nodeesc/5 border-dashed'
-        : 'border-line bg-canvas'
-  const dot =
-    state === 'empty'
-      ? 'bg-line'
-      : confidence !== undefined && confidenceBand(confidence) === 'high'
-        ? 'bg-accent'
-        : confidence !== undefined && confidenceBand(confidence) === 'medium'
-          ? 'bg-nodeesc'
-          : 'bg-danger'
-  return (
-    <div className={`min-w-[68px] rounded-md border px-2 py-1 transition-colors duration-300 ${tone}`}>
-      <div className="flex items-center gap-1">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
-        <span className="truncate text-[9.5px] font-medium uppercase tracking-wide text-muted">{label}</span>
-      </div>
-      {valueLabel !== undefined ? (
-        // Keyed on the value so it animates in the moment the answer is captured.
-        <div key={valueLabel} className="omari-msg mt-0.5">
-          <p className="truncate text-[11px] leading-tight text-ink" title={valueLabel}>
-            {valueLabel}
-          </p>
-          {confidence !== undefined && (
-            <p className="text-[9px] leading-tight text-muted">
-              {Math.round(confidence * 100)}%{state === 'med' ? ' · unconfirmed' : ''}
-            </p>
-          )}
-        </div>
-      ) : (
-        <p className="mt-0.5 text-[10px] leading-tight text-muted/70">—</p>
-      )}
-    </div>
-  )
-}
-
-function OutcomeChip({ step, resolved }: { step: OrchestratorStep | null; resolved: boolean }) {
-  if (resolved && step?.kind === 'route') {
-    return (
-      <div key="routed" className="omari-reveal flex min-w-[88px] flex-col justify-center rounded-md border border-nodespec bg-nodespec/10 px-2 py-1">
-        <span className="text-[9px] font-semibold uppercase tracking-wide text-carolina-deep">Routed</span>
-        <span className="truncate text-[11px] font-medium leading-tight text-ink" title={step.specialist.specialistName}>
-          {step.specialist.specialistName}
-        </span>
-      </div>
-    )
-  }
-  if (resolved && step?.kind === 'escalate') {
-    return (
-      <div key="escalated" className="omari-reveal flex min-w-[88px] flex-col justify-center rounded-md border border-nodeesc bg-nodeesc/10 px-2 py-1">
-        <span className="text-[9px] font-semibold uppercase tracking-wide text-nodeesc">Escalation</span>
-        <span className="truncate text-[11px] font-medium leading-tight text-ink">For clinical review</span>
-      </div>
-    )
-  }
-  return (
-    <div className="flex min-w-[88px] items-center rounded-md border border-dashed border-line bg-canvas px-2 py-1">
-      <span className="text-[10px] text-muted/70">Decision pending…</span>
+      <TreeMiniMap tree={tree} viz={viz} />
     </div>
   )
 }
