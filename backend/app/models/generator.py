@@ -79,8 +79,14 @@ class CaseHighlight(Base, TimestampMixin):
     span_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     span_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     axis: Mapped[str] = mapped_column(String(10), nullable=False)  # routing | workup | both
-    # Which candidate variable this span maps to (ground-truth match or LLM fallback).
+    # LEGACY (pre-decomposition): the first mapped variable. Kept in sync with
+    # observations_json[0].key for backward compatibility.
     mapped_variable_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # The atomic unit: one highlight owns MANY variable observations —
+    # [{ key, label?, value, spanText, spanStart?, spanEnd?, axis, source, confidence? }].
+    # source: ground_truth | llm | fallback. The surgeon curates these (chips);
+    # nothing enters the tally without being visible and removable.
+    observations_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     session: Mapped["GenerationSession"] = relationship(back_populates="highlights")
 
@@ -111,6 +117,10 @@ class CaseDecision(Base, TimestampMixin):
     # Routing axis: a roster specialist name, or NULL + escalated=True.
     routed_specialist_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     escalated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Skip-with-reason: the case was handled but NOT clinically decided.
+    # Skipped rows are excluded from induction/validation (joinDecidedCases).
+    skipped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    skip_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
     urgency: Mapped[str | None] = mapped_column(String(20), nullable=True)  # routine | expedited | urgent
     # Workup axis: [{ name, protocol?, rationale? }].
     workup_json: Mapped[list | None] = mapped_column(JSON, nullable=True)

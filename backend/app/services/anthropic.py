@@ -402,6 +402,23 @@ class AnthropicService:
                 f"SEED NARRATIVE: {minimal_pair_seed.get('narrative', '')[:1500]}\n"
                 f"SEED GROUND TRUTH: {minimal_pair_seed.get('ground_truth', {})}"
             )
+            parent_decision = minimal_pair_seed.get("parent_decision")
+            if parent_decision:
+                dest = (
+                    "escalated for their own review"
+                    if parent_decision.get("escalated")
+                    else f"routed to {parent_decision.get('routedTo', '?')}"
+                )
+                wu = ", ".join(parent_decision.get("workup") or []) or "no pre-visit tests"
+                user += (
+                    f"\n\nBOUNDARY TARGETING: the surgeon {dest} with workup: {wu}. "
+                    "Do NOT flip variables at random — pick the single flips MOST LIKELY to "
+                    "change that decision (push a variable across a plausible clinical "
+                    "boundary: a mass appearing, an implanted device, a red-flag onset, an "
+                    "age or duration crossing a threshold, a test result flipping). You are "
+                    "manufacturing probes near the decision boundary; you never predict or "
+                    "state what the new decision should be."
+                )
 
         logger.info(f"[blume/gen-cases] → model={settings.ANTHROPIC_MODEL} · {count} cases · {subspecialty}")
         message = await self.client.messages.create(
@@ -417,52 +434,320 @@ class AnthropicService:
         logger.info(f"[blume/gen-cases] ✓ {len(cases)} cases")
         return cases
 
-    async def classify_highlight(
+    async def decompose_highlight(
         self,
         span_text: str,
         axis: str,
         known_variables: Optional[list[dict]] = None,
-    ) -> dict[str, Any]:
-        """Job 2 — fallback classifier for a highlighted span that didn't match
-        the case's ground truth. Returns {key, label, valueSample}."""
+        already_found: Optional[list[str]] = None,
+    ) -> list[dict[str, Any]]:
+        """Job 2 — decompose a highlighted span into the DISTINCT clinical
+        variables inside it. Proposes only; the surgeon curates the result and
+        the deterministic ground-truth matches always win key collisions.
+
+        Returns [{key, label, value, spanText, axis, confidence}]."""
         if not self.client:
             raise RuntimeError("Anthropic API key not configured.")
 
         tool = {
-            "name": "record_variable",
-            "description": "Record the clinical variable this highlighted phrase represents.",
+            "name": "record_observations",
+            "description": "Record every distinct clinical variable present in the highlighted phrase.",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "key": {"type": "string", "description": "snake_case variable key, e.g. symptom_duration"},
-                    "label": {"type": "string", "description": "Short human label, e.g. 'Symptom duration'"},
-                    "valueSample": {"type": "string", "description": "The value this span indicates, e.g. '8 months'"},
+                    "observations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "key": {"type": "string", "description": "snake_case variable key, e.g. symptom_duration_months"},
+                                "label": {"type": "string", "description": "Short human label, e.g. 'Symptom duration'"},
+                                "value": {"type": "string", "description": "The value this span indicates, e.g. '8 months' or 'right'"},
+                                "spanText": {"type": "string", "description": "The exact sub-phrase of the highlight this observation comes from."},
+                                "axis": {
+                                    "type": "string",
+                                    "enum": ["routing", "workup", "both"],
+                                    "description": "Suggested axis for THIS variable (advisory; the surgeon's tag governs).",
+                                },
+                                "confidence": {"type": "number", "description": "0-1"},
+                            },
+                            "required": ["key", "label", "value", "spanText"],
+                        },
+                    }
                 },
-                "required": ["key", "label", "valueSample"],
+                "required": ["observations"],
             },
         }
         system = (
-            "You map a phrase a surgeon highlighted in a patient case to the clinical "
-            "VARIABLE it represents. You classify only — you never decide routing or "
-            "workup. Prefer reusing a known variable key when the phrase is another "
-            "value of the same underlying fact; only mint a new snake_case key when "
-            "none fits."
+            "A surgeon highlighted a phrase in a patient case. Identify EACH DISTINCT "
+            "CLINICAL CONCEPT in it as its own variable observation. You classify only — "
+            "you never decide routing or workup.\n\n"
+            "THE RULE THAT MUST NOT BE BROKEN: decompose into distinct clinical concepts, "
+            "NOT into tokens. Tokens that a clinician reads as one concept are ONE "
+            "variable — e.g. 'thumb, index, and middle fingers' is a single symptom "
+            "DISTRIBUTION (a median-nerve pattern), never three variables. Do not "
+            "over-split; when in doubt, group.\n\n"
+            "Example: '8 months he's had numbness and tingling in the right thumb, index "
+            "and middle fingers' → four observations: symptom duration (8 months), "
+            "laterality (right), symptom type (numbness/tingling), symptom distribution "
+            "(thumb/index/middle fingers).\n\n"
+            "Prefer reusing known variable keys when a sub-phrase is another value of the "
+            "same underlying fact; only mint a new snake_case key when none fits. Skip "
+            "concepts already captured (listed as already-found). Each spanText must be "
+            "an exact substring of the highlight."
         )
-        user = f'Highlighted phrase: "{span_text.strip()[:500]}"\nTagged axis: {axis}'
+        user = f'Highlighted phrase: "{span_text.strip()[:600]}"\nSurgeon tagged the whole highlight as axis: {axis}'
+        if already_found:
+            user += f"\n\nAlready captured deterministically (do NOT repeat): {', '.join(already_found)}"
         if known_variables:
             listing = "\n".join(f"- {v.get('key')}: {v.get('label') or ''}" for v in known_variables[:40])
             user += f"\n\nKnown variable keys so far:\n{listing}"
 
         message = await self.client.messages.create(
             model=settings.ANTHROPIC_EXTRACT_MODEL or settings.ANTHROPIC_MODEL,
-            max_tokens=256,
+            max_tokens=1024,
+            temperature=0,
             system=system,
             tools=[tool],
             tool_choice={"type": "tool", "name": tool["name"], "disable_parallel_tool_use": True},
             messages=[{"role": "user", "content": user}],
         )
         tool_use = next((b for b in message.content if b.type == "tool_use"), None)
-        return tool_use.input if tool_use else {}
+        return (tool_use.input if tool_use else {}).get("observations", [])
+
+    async def ingest_referrals(
+        self,
+        subspecialty: str,
+        letters_text: str,
+    ) -> list[dict[str, Any]]:
+        """Job 4 — convert DE-IDENTIFIED real referral letters into synthetic
+        cases. This attacks the R1 case-quality bottleneck: real letters carry
+        the messiness and tacit variables from-scratch generation can't invent.
+        The model TRANSLATES (letter → case format); it decides nothing.
+
+        Each case is REWRITTEN, never copied, and stripped of any residual
+        identifying detail. Callers must only pass de-identified text; until a
+        BAA is in place nothing containing PHI may reach this method.
+        """
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        tool = {
+            "name": "record_cases",
+            "description": "Record the synthetic cases derived from the referral letters.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "cases": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "narrative": {
+                                    "type": "string",
+                                    "description": "The REWRITTEN case narrative (150-300 words) — same clinical content, new wording, zero identifying details.",
+                                },
+                                "groundTruth": {
+                                    "type": "object",
+                                    "description": "Every clinical variable present in the letter, as snake_case keys with simple values.",
+                                },
+                            },
+                            "required": ["narrative", "groundTruth"],
+                        },
+                    }
+                },
+                "required": ["cases"],
+            },
+        }
+        system = (
+            "You convert DE-IDENTIFIED clinical referral letters into synthetic "
+            "elicitation cases. For each distinct letter in the input: REWRITE the "
+            "clinical story in fresh wording (never copy sentences), preserve every "
+            "clinically meaningful fact — symptoms, duration, laterality, distribution, "
+            "prior tests and their results, comorbidities, devices, medications, "
+            "failed treatments, occupation when clinically relevant — and plant each "
+            "such fact as a groundTruth variable (snake_case key, simple value). "
+            "REMOVE or genericize anything identifying: names, exact dates, "
+            "institutions, locations, unusual occupations that could identify someone. "
+            "You translate format only; you never add clinical facts that are not in "
+            "the letter and never draw conclusions from them."
+        )
+        user = (
+            f"Subspecialty: {subspecialty}\n\nDe-identified referral letters "
+            f"(one or more, separated by blank lines or dashes):\n\n{letters_text.strip()[:12000]}"
+        )
+        logger.info(f"[blume/gen-ingest] → model={settings.ANTHROPIC_MODEL} · {len(letters_text)} chars")
+        message = await self.client.messages.create(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=4096,
+            system=system,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"], "disable_parallel_tool_use": True},
+            messages=[{"role": "user", "content": user}],
+        )
+        tool_use = next((b for b in message.content if b.type == "tool_use"), None)
+        cases = (tool_use.input if tool_use else {}).get("cases", [])
+        logger.info(f"[blume/gen-ingest] ✓ {len(cases)} cases")
+        return cases
+
+    async def check_consistency(
+        self,
+        decisions: list[dict[str, Any]],
+        roster: Optional[list[dict]] = None,
+    ) -> list[dict[str, Any]]:
+        """Job 5 — Layer 2 live coaching: flag pairs of clinically similar
+        cases the surgeon decided DIFFERENTLY. Advisory only — the surgeon
+        resolves every flag (there may be a real distinction the system can't
+        see); nothing here touches the induced logic.
+
+        decisions: [{caseId, summary, routedTo, escalated, workup: [names],
+        wouldNotOrder: [names]}]. Returns [{caseIds: [a, b], concern}].
+        """
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        tool = {
+            "name": "record_flags",
+            "description": "Record possible inconsistencies between the surgeon's case decisions.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "flags": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "caseIds": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "The 2+ case ids that appear inconsistent.",
+                                },
+                                "concern": {
+                                    "type": "string",
+                                    "description": "One sentence: what looks similar and what was decided differently. Phrased as a question to the surgeon, never an accusation.",
+                                },
+                            },
+                            "required": ["caseIds", "concern"],
+                        },
+                    }
+                },
+                "required": ["flags"],
+            },
+        }
+        system = (
+            "You review a surgeon's routing and workup decisions across referral "
+            "cases during an elicitation session. Flag decisions that look "
+            "inconsistent: (a) clinically similar cases decided differently — "
+            "different specialist, or materially different pre-visit workup — or "
+            "(b) a case routed to a specialist whose stated focus doesn't plausibly "
+            "cover that presentation. Phrase each flag as a short, respectful "
+            "question ('cases X and Y both describe …, but one went to A and the "
+            "other to B — is there a distinction, or was one a slip?'). There may "
+            "well be a real distinction you cannot see — you surface, the surgeon "
+            "decides. If nothing looks inconsistent, return an empty list. Never "
+            "flag more than 3 concerns; pick the clearest."
+        )
+        lines = []
+        if roster:
+            lines.append(
+                "The department roster: "
+                + "; ".join(f"{r.get('name')} — {r.get('specialty') or 'unspecified focus'}" for r in roster)
+            )
+            lines.append("")
+        for d in decisions:
+            dest = "ESCALATE (see myself)" if d.get("escalated") else d.get("routedTo", "?")
+            wu = ", ".join(d.get("workup") or []) or "none"
+            refuse = ", ".join(d.get("wouldNotOrder") or [])
+            line = f"- case {d.get('caseId')}: {d.get('summary', '')[:220]} → {dest}; workup: {wu}"
+            if refuse:
+                line += f"; would NOT order: {refuse}"
+            lines.append(line)
+        user = "The surgeon's decisions so far:\n" + "\n".join(lines)
+
+        message = await self.client.messages.create(
+            model=settings.ANTHROPIC_EXTRACT_MODEL or settings.ANTHROPIC_MODEL,
+            max_tokens=600,
+            temperature=0,
+            system=system,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"], "disable_parallel_tool_use": True},
+            messages=[{"role": "user", "content": user}],
+        )
+        tool_use = next((b for b in message.content if b.type == "tool_use"), None)
+        return (tool_use.input if tool_use else {}).get("flags", [])
+
+    async def structure_workup(
+        self,
+        text: str,
+        known_tests: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """Job 6 — normalize the surgeon's free-text workup description into
+        structured items. Strictly a transcription aid: it must NEVER add a
+        test the surgeon didn't imply, and explicit refusals become
+        wouldNotOrder entries. The surgeon confirms/edits every row.
+
+        Returns {items: [{name, protocol, rationale}], wouldNotOrder: [str]}.
+        """
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        tool = {
+            "name": "record_workup",
+            "description": "Record the structured pre-visit workup the surgeon described.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "description": "Canonical test name, e.g. 'EMG/NCS', 'MRI brachial plexus'"},
+                                "protocol": {"type": "string", "description": "Protocol/sequence detail if the surgeon gave any, else empty."},
+                                "rationale": {"type": "string", "description": "Why, in the surgeon's words, if stated; else empty."},
+                                "conditionalHint": {
+                                    "type": "string",
+                                    "description": "If the surgeon phrased this test conditionally ('MRI only if there's a mass'), the stated condition verbatim-ish. Captured as a LEAD for later induction to confirm — never as logic. Empty when unconditional.",
+                                },
+                            },
+                            "required": ["name"],
+                        },
+                    },
+                    "wouldNotOrder": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tests the surgeon EXPLICITLY said they would not order here.",
+                    },
+                },
+                "required": ["items", "wouldNotOrder"],
+            },
+        }
+        system = (
+            "You transcribe a surgeon's free-text description of pre-visit workup "
+            "into structured orders. STRICT RULES: include ONLY tests the surgeon's "
+            "words state or clearly imply ('get nerves tested' → EMG/NCS); NEVER add "
+            "a test from your own medical knowledge; explicit refusals or 'I'd hold "
+            "off on X' go in wouldNotOrder, not items; conditional phrasing ('MRI if "
+            "there's a mass') still lists the test — the condition is elicited from "
+            "case decisions, not from you. Use canonical test names. You transcribe; "
+            "you never prescribe."
+        )
+        user = f'The surgeon said: "{text.strip()[:1200]}"'
+        if known_tests:
+            user += f"\n\nTest names already used in this session (reuse exact spellings when they match): {', '.join(known_tests[:30])}"
+
+        message = await self.client.messages.create(
+            model=settings.ANTHROPIC_EXTRACT_MODEL or settings.ANTHROPIC_MODEL,
+            max_tokens=600,
+            temperature=0,
+            system=system,
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"], "disable_parallel_tool_use": True},
+            messages=[{"role": "user", "content": user}],
+        )
+        tool_use = next((b for b in message.content if b.type == "tool_use"), None)
+        out = tool_use.input if tool_use else {}
+        return {"items": out.get("items", []), "wouldNotOrder": out.get("wouldNotOrder", [])}
 
     async def phrase_gap(self, kind: str, detail: dict[str, Any]) -> str:
         """Job 3 — phrase a deterministically-detected gap as one plain-language

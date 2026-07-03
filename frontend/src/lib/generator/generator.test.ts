@@ -12,6 +12,7 @@ import { induceSkeleton, induceWorkup, flattenRules } from './induce'
 import { assembleTree } from './assemble'
 import { validateTree } from './validate'
 import { detectGaps } from './gaps'
+import { discoverThresholds } from './pairs'
 import { joinDecidedCases, type GenCase, type GenDecision, type GenRosterEntry } from './types'
 
 declare const process: { exitCode?: number } | undefined
@@ -225,6 +226,61 @@ const checks: Check[] = [
       if (!gaps.some((g) => g.kind === 'thin_evidence'))
         return 'missed thin evidence (single-case leaves exist in fixture)'
       return null
+    },
+  },
+  {
+    name: 'minimal-pair flip is discovered as a threshold; no-flip is not',
+    run: () => {
+      const parent = mkCase('p1', { mass_present: false, loc: 'arm' })
+      const flipVariant: GenCase = {
+        ...mkCase('v1', { mass_present: true, loc: 'arm' }),
+        minimalPairOf: 'p1',
+        variedVariable: 'mass_present',
+      }
+      const noFlipVariant: GenCase = {
+        ...mkCase('v2', { mass_present: false, loc: 'arm', age: 71 }),
+        minimalPairOf: 'p1',
+        variedVariable: 'age',
+      }
+      const decisions: GenDecision[] = [
+        { caseId: 'p1', routedSpecialistName: 'Dr. Chen', escalated: false, workup: [{ name: 'EMG/NCS' }], wouldNotOrder: [], caseVariables: {} },
+        // flip: routing changes AND workup gains MRI
+        { caseId: 'v1', routedSpecialistName: 'Dr. Patel', escalated: false, workup: [{ name: 'EMG/NCS' }, { name: 'MRI' }], wouldNotOrder: [], caseVariables: {} },
+        // no flip: same routing, same workup set
+        { caseId: 'v2', routedSpecialistName: 'Dr. Chen', escalated: false, workup: [{ name: 'EMG/NCS' }], wouldNotOrder: [], caseVariables: {} },
+      ]
+      const thresholds = discoverThresholds([parent, flipVariant, noFlipVariant], decisions)
+      if (thresholds.length !== 1) return `expected 1 threshold, got ${thresholds.length}`
+      const t = thresholds[0]
+      if (t.variedVariable !== 'mass_present') return `wrong variable: ${t.variedVariable}`
+      if (!t.routingFlip || !t.workupFlip) return 'expected both axes to flip'
+      if (t.parentValue !== false || t.variantValue !== true) return 'boundary values wrong'
+      return null
+    },
+  },
+  {
+    name: 'skipped cases are excluded from induction/validation/thresholds but not lost',
+    run: () => {
+      const parent = mkCase('p1', { mass_present: false })
+      const variant: GenCase = {
+        ...mkCase('v1', { mass_present: true }),
+        minimalPairOf: 'p1',
+        variedVariable: 'mass_present',
+      }
+      const decisions: GenDecision[] = [
+        { caseId: 'p1', routedSpecialistName: 'Dr. Chen', escalated: false, workup: [], wouldNotOrder: [], caseVariables: {} },
+        // The variant was SKIPPED — handled, but not a clinical decision.
+        { caseId: 'v1', escalated: false, skipped: true, skipReason: 'not_my_subspecialty', workup: [], wouldNotOrder: [], caseVariables: {} },
+      ]
+      const joined = joinDecidedCases([parent, variant], decisions)
+      if (joined.length !== 1) return `join should exclude skipped: got ${joined.length}`
+      if (discoverThresholds([parent, variant], decisions).length !== 0)
+        return 'skipped variant produced a threshold'
+      // Validation via the same filter: only the decided case is scored.
+      const skeleton = induceSkeleton(joined)
+      const draft = assembleTree(skeleton, { subspecialty: 'x', roster: ROSTER })
+      const report = validateTree(draft.tree, joined)
+      return report.summary.totalCases === 1 ? null : 'validation scored a skipped case'
     },
   },
   {

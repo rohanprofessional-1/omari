@@ -30,6 +30,12 @@ export interface GenWorkupOrder {
   name: string
   protocol?: string
   rationale?: string
+  /**
+   * The surgeon's stated condition, verbatim-ish ("only if there's a mass").
+   * A LEAD for induction to confirm or reject — surfaced in Review, never
+   * binding. Induction remains the sole author of conditional workup rules.
+   */
+  conditionalHint?: string
 }
 
 /** The surgeon's coupled decision on one case (mirrors case_decisions rows). */
@@ -38,6 +44,13 @@ export interface GenDecision {
   /** Roster specialist name, or undefined when escalated. */
   routedSpecialistName?: string
   escalated: boolean
+  /**
+   * Skip-with-reason: the case was handled but NOT clinically decided.
+   * Skipped rows count toward progress yet are excluded from induction and
+   * validation — joinDecidedCases is the single filter both read through.
+   */
+  skipped?: boolean
+  skipReason?: string
   urgency?: Urgency
   workup: GenWorkupOrder[]
   workupCounterfactual?: string
@@ -84,11 +97,20 @@ export interface DecidedCase {
   facts: CaseFacts
 }
 
-/** Join cases and decisions into the induction working set. */
+/**
+ * Join cases and decisions into the induction working set.
+ *
+ * THE decided-and-not-skipped filter: induction, validation, gap detection,
+ * and threshold discovery all read through this one function, so "skipped is
+ * not a decision" is enforced in exactly one place. A skipped case counts
+ * toward session progress but must never shape the tree or drag the accuracy
+ * metric with a phantom mismatch.
+ */
 export function joinDecidedCases(cases: GenCase[], decisions: GenDecision[]): DecidedCase[] {
   const byId = new Map(cases.map((c) => [c.id, c]))
   const out: DecidedCase[] = []
   for (const d of decisions) {
+    if (d.skipped) continue
     const c = byId.get(d.caseId)
     if (c) out.push({ case: c, decision: d, facts: caseFacts(c, d) })
   }

@@ -34,8 +34,13 @@ from app.schemas.generator import (
     CaseGenerateRequest,
     CaseRead,
     CaseUpdate,
+    ReferralIngestRequest,
+    ConsistencyFlag,
+    WorkupStructureRequest,
+    WorkupStructureResponse,
     HighlightCreate,
     HighlightRead,
+    ObservationsUpdate,
     CandidateVariableRead,
     DecisionCreate,
     DecisionRead,
@@ -147,7 +152,13 @@ async def generate_cases(body: CaseGenerateRequest, db: AsyncSession = Depends(g
         seed_case = await db.get(SyntheticCase, body.minimal_pair_of)
         if not seed_case:
             raise HTTPException(status_code=404, detail="Seed case for minimal pairs not found")
-        seed = {"narrative": seed_case.narrative, "ground_truth": seed_case.ground_truth_json or {}}
+        seed = {
+            "narrative": seed_case.narrative,
+            "ground_truth": seed_case.ground_truth_json or {},
+            # Boundary-targeting: which flips are most likely to sit near the
+            # surgeon's decision boundary, given how they decided the seed.
+            "parent_decision": body.parent_decision,
+        }
 
     try:
         generated = await anthropic_service.generate_cases(
@@ -175,6 +186,47 @@ async def generate_cases(body: CaseGenerateRequest, db: AsyncSession = Depends(g
                 quality_reviewed=False,
                 minimal_pair_of=body.minimal_pair_of,
                 varied_variable=c.get("variedVariable"),
+            )
+        )
+    db.add_all(rows)
+    await db.commit()
+    for r in rows:
+        await db.refresh(r)
+    return rows
+
+
+@router.post("/cases/ingest", response_model=List[CaseRead], status_code=status.HTTP_201_CREATED)
+async def ingest_referral_letters(body: ReferralIngestRequest, db: AsyncSession = Depends(get_db)) -> Any:
+    """LLM job 4 — de-identified referral letters → synthetic cases. The
+    highest-leverage case source: real letters carry the messiness and tacit
+    variables from-scratch generation can't invent. Rewritten, never copied;
+    every case still lands unreviewed until a human approves it."""
+    if not anthropic_service.is_available:
+        raise HTTPException(status_code=503, detail="Anthropic API key not configured on the backend.")
+    if not body.letters.strip():
+        raise HTTPException(status_code=422, detail="No referral letter text provided.")
+
+    try:
+        derived = await anthropic_service.ingest_referrals(
+            subspecialty=body.subspecialty, letters_text=body.letters
+        )
+    except Exception as e:
+        logger.exception("referral ingestion failed")
+        raise HTTPException(status_code=502, detail=f"Referral ingestion failed: {e}")
+
+    rows: list[SyntheticCase] = []
+    for c in derived:
+        narrative = (c.get("narrative") or "").strip()
+        if not narrative:
+            continue
+        rows.append(
+            SyntheticCase(
+                subspecialty=body.subspecialty,
+                clinic_id=body.clinic_id,
+                narrative=narrative,
+                ground_truth_json=c.get("groundTruth") or {},
+                source="real_deidentified",
+                quality_reviewed=False,
             )
         )
     db.add_all(rows)
@@ -223,16 +275,70 @@ def _slugify(text: str) -> str:
     return slug[:60] or "unlabeled"
 
 
-def _match_ground_truth(span: str, ground_truth: dict) -> tuple[str | None, Any]:
-    """Deterministic mapping: does the span mention a planted variable's value
-    or key? Checked before any LLM fallback."""
-    span_lower = span.lower()
+def _locate(span: str, needle: str) -> tuple[int, int] | None:
+    """Case-insensitive location of `needle` inside `span`; None if absent."""
+    idx = span.lower().find(needle.lower())
+    return (idx, idx + len(needle)) if idx >= 0 else None
+
+
+def _match_ground_truth_all(
+    span: str,
+    ground_truth: dict,
+    axis: str,
+    span_start: int | None,
+) -> list[dict]:
+    """Deterministic decomposition: return an observation for EVERY planted
+    variable that appears inside the highlighted span (not just the first).
+    Tolerant by construction — we search within whatever sloppy region the
+    surgeon selected. Value matches beat key-mention matches; one observation
+    per key. Runs before (and outranks) any LLM proposal."""
+    observations: list[dict] = []
+    seen: set[str] = set()
+
+    def add(key: str, value, loc: tuple[int, int] | None) -> None:
+        if key in seen:
+            return
+        seen.add(key)
+        observations.append({
+            "key": key,
+            "label": None,
+            "value": value,
+            "spanText": span[loc[0]:loc[1]] if loc else span.strip()[:120],
+            "spanStart": (span_start + loc[0]) if (loc and span_start is not None) else None,
+            "spanEnd": (span_start + loc[1]) if (loc and span_start is not None) else None,
+            "axis": axis,
+            "source": "ground_truth",
+        })
+
+    # Pass 1 — value matches (strongest evidence).
     for key, value in (ground_truth or {}).items():
-        if str(value).lower() in span_lower and len(str(value)) >= 3:
-            return key, value
-        if key.replace("_", " ") in span_lower:
-            return key, value
-    return None, None
+        if isinstance(value, bool):
+            continue  # 'true'/'false' never appear verbatim in prose
+        text = str(value)
+        if isinstance(value, (int, float)):
+            # Word-boundary numeric match: '8' matches '8 months', not '2019'.
+            m = re.search(rf"(?<![\d.]){re.escape(text)}(?![\d.])", span)
+            if m:
+                add(key, value, (m.start(), m.end()))
+            continue
+        if len(text) >= 3:
+            loc = _locate(span, text)
+            if loc:
+                add(key, value, loc)
+                continue
+            # Planted values are often snake_case ('numbness_tingling') while
+            # prose has spaces — retry with underscores as spaces.
+            loc = _locate(span, text.replace("_", " "))
+            if loc:
+                add(key, value, loc)
+
+    # Pass 2 — key mentions ('symptom duration' appearing verbatim).
+    for key, value in (ground_truth or {}).items():
+        loc = _locate(span, key.replace("_", " "))
+        if loc:
+            add(key, value, loc)
+
+    return observations
 
 
 async def _bump_candidate(
@@ -275,12 +381,16 @@ async def create_highlight(body: HighlightCreate, db: AsyncSession = Depends(get
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    # 1. Deterministic mapping against the case's planted ground truth.
-    key, value_sample = _match_ground_truth(body.span_text, case.ground_truth_json or {})
-    label = None
+    # 1. Deterministic decomposition — EVERY planted variable inside the span.
+    observations = _match_ground_truth_all(
+        body.span_text, case.ground_truth_json or {}, body.axis, body.span_start
+    )
+    found_keys = {o["key"] for o in observations}
 
-    # 2. LLM fallback (job 2) only for unmatched spans, only if configured.
-    if key is None and anthropic_service.is_available:
+    # 2. LLM decomposition (job 2) — ADDITIVE: proposes further distinct
+    #    clinical concepts the ground truth didn't label. Deterministic matches
+    #    win key collisions; the surgeon curates everything afterward (chips).
+    if anthropic_service.is_available:
         try:
             known = (
                 (
@@ -291,21 +401,47 @@ async def create_highlight(body: HighlightCreate, db: AsyncSession = Depends(get
                 .scalars()
                 .all()
             )
-            out = await anthropic_service.classify_highlight(
+            proposed = await anthropic_service.decompose_highlight(
                 span_text=body.span_text,
                 axis=body.axis,
                 known_variables=[{"key": v.key, "label": v.label} for v in known],
+                already_found=sorted(found_keys),
             )
-            key = out.get("key") or None
-            label = out.get("label")
-            value_sample = out.get("valueSample")
+            for p in proposed:
+                key = (p.get("key") or "").strip()
+                if not key or key in found_keys:
+                    continue  # deterministic wins; no duplicates
+                found_keys.add(key)
+                sub = (p.get("spanText") or "").strip()
+                loc = _locate(body.span_text, sub) if sub else None
+                observations.append({
+                    "key": key,
+                    "label": p.get("label"),
+                    "value": p.get("value"),
+                    "spanText": sub or body.span_text.strip()[:120],
+                    "spanStart": (body.span_start + loc[0]) if (loc and body.span_start is not None) else None,
+                    "spanEnd": (body.span_start + loc[1]) if (loc and body.span_start is not None) else None,
+                    # The surgeon's tag governs the axis; the LLM's per-item
+                    # suggestion is advisory and merely recorded.
+                    "axis": body.axis,
+                    "source": "llm",
+                    "confidence": p.get("confidence"),
+                })
         except Exception:
-            logger.warning("highlight classify fallback failed; slugifying", exc_info=True)
+            logger.warning("highlight decomposition LLM failed; deterministic-only", exc_info=True)
 
-    # 3. Last resort: deterministic slug of the span itself.
-    if key is None:
-        key = _slugify(body.span_text)
-        value_sample = body.span_text.strip()
+    # 3. Last resort — never lose a highlight: slug the whole span.
+    if not observations:
+        observations.append({
+            "key": _slugify(body.span_text),
+            "label": None,
+            "value": body.span_text.strip(),
+            "spanText": body.span_text.strip()[:120],
+            "spanStart": body.span_start,
+            "spanEnd": body.span_end,
+            "axis": body.axis,
+            "source": "fallback",
+        })
 
     highlight = CaseHighlight(
         session_id=session.id,
@@ -314,12 +450,46 @@ async def create_highlight(body: HighlightCreate, db: AsyncSession = Depends(get
         span_start=body.span_start,
         span_end=body.span_end,
         axis=body.axis,
-        mapped_variable_key=key,
+        mapped_variable_key=observations[0]["key"],  # legacy mirror
+        observations_json=observations,
     )
     db.add(highlight)
-    await _bump_candidate(db, session.id, key, body.axis, label, value_sample)
+    # One generous highlight bumps EVERY variable it contains.
+    for o in observations:
+        await _bump_candidate(db, session.id, o["key"], o["axis"], o.get("label"), o.get("value"))
     if session.stage == "setup":
         session.stage = "highlight"
+    await db.commit()
+    await db.refresh(highlight)
+    return highlight
+
+
+async def _rebuild_candidates(db: AsyncSession, session_id: str) -> None:
+    """Recompute the session's candidate-variable tally from every highlight's
+    observations. Used after curation (chip removal) so frequencies never
+    drift — correct decrement semantics without bookkeeping."""
+    await db.execute(delete(CandidateVariable).where(CandidateVariable.session_id == session_id))
+    result = await db.execute(select(CaseHighlight).where(CaseHighlight.session_id == session_id))
+    for h in result.scalars().all():
+        for o in h.observations_json or []:
+            await _bump_candidate(
+                db, session_id, o["key"], o.get("axis", h.axis), o.get("label"), o.get("value")
+            )
+
+
+@router.put("/highlights/{highlight_id}/observations", response_model=HighlightRead)
+async def update_highlight_observations(
+    highlight_id: str, body: ObservationsUpdate, db: AsyncSession = Depends(get_db)
+) -> Any:
+    """Surgeon curation: replace a highlight's observation set (chip removal /
+    correction). Removing the last observation keeps the highlight row with an
+    empty set — the span stays visible, contributing nothing to the tally."""
+    highlight = await db.get(CaseHighlight, highlight_id)
+    if not highlight:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+    highlight.observations_json = [o.model_dump(exclude_none=True) for o in body.observations]
+    highlight.mapped_variable_key = body.observations[0].key if body.observations else None
+    await _rebuild_candidates(db, highlight.session_id)
     await db.commit()
     await db.refresh(highlight)
     return highlight
@@ -349,8 +519,11 @@ async def list_candidate_variables(session_id: str, db: AsyncSession = Depends(g
 @router.post("/decisions", response_model=DecisionRead, status_code=status.HTTP_201_CREATED)
 async def create_decision(body: DecisionCreate, db: AsyncSession = Depends(get_db)) -> Any:
     session = await _get_session(body.session_id, db)
-    if not body.escalated and not body.routed_specialist_name:
-        raise HTTPException(status_code=422, detail="Provide routed_specialist_name or escalated=true.")
+    if not body.escalated and not body.routed_specialist_name and not body.skipped:
+        raise HTTPException(
+            status_code=422,
+            detail="Provide routed_specialist_name, escalated=true, or skipped=true (with a reason).",
+        )
 
     # One decision per (session, case): re-deciding replaces the earlier answer.
     await db.execute(
@@ -361,8 +534,10 @@ async def create_decision(body: DecisionCreate, db: AsyncSession = Depends(get_d
     decision = CaseDecision(
         session_id=body.session_id,
         case_id=body.case_id,
-        routed_specialist_name=body.routed_specialist_name,
+        routed_specialist_name=None if body.skipped else body.routed_specialist_name,
         escalated=body.escalated,
+        skipped=body.skipped,
+        skip_reason=body.skip_reason if body.skipped else None,
         urgency=body.urgency,
         workup_json=body.workup,
         workup_counterfactual=body.workup_counterfactual,
@@ -383,6 +558,73 @@ async def list_decisions(session_id: str, db: AsyncSession = Depends(get_db)) ->
         select(CaseDecision).where(CaseDecision.session_id == session_id)
     )
     return result.scalars().all()
+
+
+@router.post("/sessions/{session_id}/consistency", response_model=List[ConsistencyFlag])
+async def check_decision_consistency(session_id: str, db: AsyncSession = Depends(get_db)) -> Any:
+    """LLM job 5 — Layer 2 live coaching. Flags clinically-similar cases the
+    surgeon decided differently, phrased as questions. ADVISORY ONLY: flags are
+    returned, never persisted into the logic — the surgeon resolves each one
+    (there may be a real distinction the model can't see)."""
+    session = await _get_session(session_id, db)
+    if not anthropic_service.is_available:
+        return []
+
+    decisions = (
+        (await db.execute(select(CaseDecision).where(CaseDecision.session_id == session_id)))
+        .scalars()
+        .all()
+    )
+    if len(decisions) < 3:
+        return []  # too few decisions to meaningfully compare
+
+    case_ids = [d.case_id for d in decisions]
+    cases = (
+        (await db.execute(select(SyntheticCase).where(SyntheticCase.id.in_(case_ids))))
+        .scalars()
+        .all()
+    )
+    narrative_by_id = {c.id: c.narrative for c in cases}
+
+    payload = [
+        {
+            "caseId": d.case_id,
+            "summary": narrative_by_id.get(d.case_id, "")[:220],
+            "routedTo": d.routed_specialist_name,
+            "escalated": d.escalated,
+            "workup": [w.get("name") for w in (d.workup_json or []) if isinstance(w, dict)],
+            "wouldNotOrder": d.would_not_order_json or [],
+        }
+        for d in decisions
+    ]
+    try:
+        flags = await anthropic_service.check_consistency(payload, roster=session.roster_json or [])
+    except Exception:
+        logger.warning("consistency check failed; returning no flags", exc_info=True)
+        return []
+    valid_ids = set(case_ids)
+    return [
+        ConsistencyFlag(caseIds=[i for i in (f.get("caseIds") or []) if i in valid_ids], concern=f.get("concern", ""))
+        for f in flags
+        if f.get("concern")
+    ]
+
+
+@router.post("/workup/structure", response_model=WorkupStructureResponse)
+async def structure_workup_text(body: WorkupStructureRequest) -> Any:
+    """LLM job 6 — transcribe the surgeon's free-text workup description into
+    structured items + explicit refusals. A transcription aid only: it never
+    adds tests the surgeon didn't imply, and the surgeon edits every row."""
+    if not anthropic_service.is_available:
+        raise HTTPException(status_code=503, detail="Anthropic API key not configured on the backend.")
+    if not body.text.strip():
+        raise HTTPException(status_code=422, detail="No workup text provided.")
+    try:
+        out = await anthropic_service.structure_workup(text=body.text, known_tests=body.known_tests)
+    except Exception as e:
+        logger.exception("workup structuring failed")
+        raise HTTPException(status_code=502, detail=f"Workup structuring failed: {e}")
+    return WorkupStructureResponse(items=out["items"], wouldNotOrder=out["wouldNotOrder"])
 
 
 # --- layers 2/3: persist deterministic pipeline outputs -------------------------
@@ -436,10 +678,13 @@ async def persist_gaps(
     rows: list[Gap] = []
     for g in body.gaps:
         question = g.question
-        # LLM job 3 — phrasing only, deterministic template as fallback.
-        if not question and g.phrase_with_llm and anthropic_service.is_available:
+        # LLM job 3 — phrasing ONLY (detection already happened, deterministically).
+        # The provided template question is the guaranteed fallback.
+        if g.phrase_with_llm and anthropic_service.is_available:
             try:
-                question = await anthropic_service.phrase_gap(g.kind, g.detail or {})
+                phrased = await anthropic_service.phrase_gap(g.kind, g.detail or {})
+                if phrased:
+                    question = phrased
             except Exception:
                 logger.warning("gap phrasing failed; using template", exc_info=True)
         rows.append(Gap(session_id=session_id, kind=g.kind, detail_json=g.detail, question=question))

@@ -68,6 +68,11 @@ class CaseGenerateRequest(BaseModel):
     roster: List[RosterEntry] = []
     # Generate minimal pairs of an existing case instead of fresh cases.
     minimal_pair_of: Optional[str] = None
+    # Boundary-targeting context: how the surgeon decided the seed case
+    # ({routedTo, escalated, workup: [names]}). Used ONLY to pick which single
+    # variable to flip so variants probe the decision boundary — the LLM still
+    # never decides any case.
+    parent_decision: Optional[dict] = None
 
 
 class CaseRead(BaseModel):
@@ -91,7 +96,46 @@ class CaseUpdate(BaseModel):
     quality_reviewed: Optional[bool] = None
 
 
+class ReferralIngestRequest(BaseModel):
+    """DE-IDENTIFIED referral letters → synthetic cases (LLM job 4).
+    Callers are responsible for de-identification; see the PHI gate in the
+    architecture spec — no PHI through the model without a BAA."""
+    subspecialty: str
+    letters: str
+    clinic_id: Optional[str] = None
+
+
+class ConsistencyFlag(BaseModel):
+    caseIds: List[str]
+    concern: str
+
+
+class WorkupStructureRequest(BaseModel):
+    text: str
+    known_tests: List[str] = []
+
+
+class WorkupStructureResponse(BaseModel):
+    items: List[dict]           # [{name, protocol, rationale}]
+    wouldNotOrder: List[str]
+
+
 # --- layer 1: highlights & candidate variables -------------------------------
+
+class Observation(BaseModel):
+    """One distinct clinical concept found inside a highlight. The decomposition
+    rule: distinct clinical CONCEPTS, never tokens — a symptom distribution like
+    'thumb, index and middle fingers' is ONE observation."""
+    key: str
+    label: Optional[str] = None
+    value: Optional[Any] = None
+    spanText: str = ""
+    spanStart: Optional[int] = None
+    spanEnd: Optional[int] = None
+    axis: str = Field("routing", pattern="^(routing|workup|both)$")
+    source: str = Field("ground_truth", pattern="^(ground_truth|llm|fallback)$")
+    confidence: Optional[float] = None
+
 
 class HighlightCreate(BaseModel):
     session_id: str
@@ -100,6 +144,11 @@ class HighlightCreate(BaseModel):
     span_start: Optional[int] = None
     span_end: Optional[int] = None
     axis: str = Field(..., pattern="^(routing|workup|both)$")
+
+
+class ObservationsUpdate(BaseModel):
+    """Surgeon curation: replace a highlight's observation set (chip removal)."""
+    observations: List[Observation]
 
 
 class HighlightRead(BaseModel):
@@ -111,6 +160,7 @@ class HighlightRead(BaseModel):
     span_end: Optional[int] = None
     axis: str
     mapped_variable_key: Optional[str] = None
+    observations_json: Optional[list] = None
 
     model_config = {"from_attributes": True}
 
@@ -134,8 +184,11 @@ class DecisionCreate(BaseModel):
     case_id: str
     routed_specialist_name: Optional[str] = None
     escalated: bool = False
+    # Skip-with-reason: handled but NOT decided; excluded from induction.
+    skipped: bool = False
+    skip_reason: Optional[str] = None
     urgency: Optional[str] = None
-    workup: List[dict] = []          # [{ name, protocol?, rationale? }]
+    workup: List[dict] = []          # [{ name, protocol?, rationale?, conditionalHint? }]
     workup_counterfactual: Optional[str] = None
     would_not_order: List[str] = []  # test names the surgeon deliberately skips
     case_variables: dict[str, Any] = {}
@@ -147,6 +200,8 @@ class DecisionRead(BaseModel):
     case_id: str
     routed_specialist_name: Optional[str] = None
     escalated: bool
+    skipped: bool = False
+    skip_reason: Optional[str] = None
     urgency: Optional[str] = None
     workup_json: Optional[list] = None
     workup_counterfactual: Optional[str] = None

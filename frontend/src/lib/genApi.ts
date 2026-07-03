@@ -118,6 +118,9 @@ export async function generateCases(input: {
   variableHints?: string[]
   roster?: GenRosterEntry[]
   minimalPairOf?: string
+  /** Boundary-targeting context for minimal pairs: how the surgeon decided
+   * the seed case. Steers WHICH variable gets flipped — never the outcome. */
+  parentDecision?: { routedTo?: string; escalated: boolean; workup: string[] }
 }): Promise<GenCase[]> {
   return (
     (await req<any[]>('/gen/cases/generate', {
@@ -128,6 +131,7 @@ export async function generateCases(input: {
         variable_hints: input.variableHints ?? [],
         roster: (input.roster ?? []).map((r) => ({ name: r.name, specialty: r.specialty, focus: r.focus ?? '' })),
         minimal_pair_of: input.minimalPairOf,
+        parent_decision: input.parentDecision,
       }),
     })) ?? []
   ).map(mapCase)
@@ -152,6 +156,41 @@ export async function createCase(input: {
   )
 }
 
+/** LLM job 4 — DE-IDENTIFIED referral letters → synthetic cases (rewritten,
+ * never copied). The caller is responsible for de-identification. */
+export async function ingestReferralLetters(input: {
+  subspecialty: string
+  letters: string
+}): Promise<GenCase[]> {
+  return (
+    (await req<any[]>('/gen/cases/ingest', {
+      method: 'POST',
+      body: JSON.stringify({ subspecialty: input.subspecialty, letters: input.letters }),
+    })) ?? []
+  ).map(mapCase)
+}
+
+/** LLM job 5 — advisory consistency flags across the surgeon's decisions. */
+export interface ConsistencyFlag {
+  caseIds: string[]
+  concern: string
+}
+
+export async function checkConsistency(sessionId: string): Promise<ConsistencyFlag[]> {
+  return (await req<ConsistencyFlag[]>(`/gen/sessions/${sessionId}/consistency`, { method: 'POST' })) ?? []
+}
+
+/** LLM job 6 — surgeon's free-text workup → proposed structured items. */
+export async function structureWorkupText(
+  text: string,
+  knownTests: string[],
+): Promise<{ items: { name: string; protocol?: string; rationale?: string }[]; wouldNotOrder: string[] }> {
+  return req('/gen/workup/structure', {
+    method: 'POST',
+    body: JSON.stringify({ text, known_tests: knownTests }),
+  })
+}
+
 export async function markCaseReviewed(id: string, reviewed: boolean): Promise<GenCase> {
   return mapCase(
     await req(`/gen/cases/${id}`, {
@@ -163,12 +202,38 @@ export async function markCaseReviewed(id: string, reviewed: boolean): Promise<G
 
 /* ── layer 1: highlights + candidate variables ── */
 
+/** One distinct clinical concept found inside a highlight. */
+export interface HighlightObservation {
+  key: string
+  label?: string | null
+  value?: unknown
+  spanText: string
+  spanStart?: number | null
+  spanEnd?: number | null
+  axis: 'routing' | 'workup' | 'both'
+  source: 'ground_truth' | 'llm' | 'fallback'
+  confidence?: number | null
+}
+
 export interface GenHighlight {
   id: string
   caseId: string
   spanText: string
   axis: 'routing' | 'workup' | 'both'
   mappedVariableKey?: string | null
+  /** The atomic units: a highlight owns MANY variable observations. */
+  observations: HighlightObservation[]
+}
+
+function mapHighlight(h: any): GenHighlight {
+  return {
+    id: h.id,
+    caseId: h.case_id,
+    spanText: h.span_text,
+    axis: h.axis,
+    mappedVariableKey: h.mapped_variable_key,
+    observations: (h.observations_json ?? []) as HighlightObservation[],
+  }
 }
 
 export async function submitHighlight(input: {
@@ -179,24 +244,33 @@ export async function submitHighlight(input: {
   spanEnd?: number
   axis: 'routing' | 'workup' | 'both'
 }): Promise<GenHighlight> {
-  const h = await req<any>('/gen/highlights', {
-    method: 'POST',
-    body: JSON.stringify({
-      session_id: input.sessionId,
-      case_id: input.caseId,
-      span_text: input.spanText,
-      span_start: input.spanStart,
-      span_end: input.spanEnd,
-      axis: input.axis,
+  return mapHighlight(
+    await req<any>('/gen/highlights', {
+      method: 'POST',
+      body: JSON.stringify({
+        session_id: input.sessionId,
+        case_id: input.caseId,
+        span_text: input.spanText,
+        span_start: input.spanStart,
+        span_end: input.spanEnd,
+        axis: input.axis,
+      }),
     }),
-  })
-  return {
-    id: h.id,
-    caseId: h.case_id,
-    spanText: h.span_text,
-    axis: h.axis,
-    mappedVariableKey: h.mapped_variable_key,
-  }
+  )
+}
+
+/** Surgeon curation: replace a highlight's observation set (chip removal).
+ * The backend rebuilds the candidate tally so frequencies never drift. */
+export async function updateHighlightObservations(
+  highlightId: string,
+  observations: HighlightObservation[],
+): Promise<GenHighlight> {
+  return mapHighlight(
+    await req<any>(`/gen/highlights/${highlightId}/observations`, {
+      method: 'PUT',
+      body: JSON.stringify({ observations }),
+    }),
+  )
 }
 
 export async function listCandidateVariables(sessionId: string): Promise<GenCandidateVariable[]> {
@@ -220,6 +294,8 @@ export async function submitDecision(sessionId: string, d: GenDecision): Promise
       case_id: d.caseId,
       routed_specialist_name: d.routedSpecialistName,
       escalated: d.escalated,
+      skipped: d.skipped ?? false,
+      skip_reason: d.skipReason,
       urgency: d.urgency,
       workup: d.workup,
       workup_counterfactual: d.workupCounterfactual,
@@ -235,6 +311,8 @@ export async function listDecisions(sessionId: string): Promise<GenDecision[]> {
     caseId: r.case_id,
     routedSpecialistName: r.routed_specialist_name ?? undefined,
     escalated: r.escalated,
+    skipped: r.skipped ?? false,
+    skipReason: r.skip_reason ?? undefined,
     urgency: r.urgency ?? undefined,
     workup: r.workup_json ?? [],
     workupCounterfactual: r.workup_counterfactual ?? undefined,
@@ -279,7 +357,9 @@ export async function persistGaps(sessionId: string, gaps: GapFinding[]): Promis
   const rows = await req<any[]>(`/gen/sessions/${sessionId}/gaps`, {
     method: 'POST',
     body: JSON.stringify({
-      gaps: gaps.map((g) => ({ kind: g.kind, detail: g.detail, question: g.question })),
+      // LLM job 3: ask for warmer phrasing; the deterministic template travels
+      // along as the guaranteed fallback (detection already happened client-side).
+      gaps: gaps.map((g) => ({ kind: g.kind, detail: g.detail, question: g.question, phrase_with_llm: true })),
     }),
   })
   return (rows ?? []).map((g) => ({

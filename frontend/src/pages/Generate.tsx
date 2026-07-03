@@ -6,10 +6,15 @@ import {
   createGenSession,
   generateCases,
   listCases,
+  ingestReferralLetters,
+  checkConsistency,
+  structureWorkupText,
   submitHighlight,
+  updateHighlightObservations,
   listCandidateVariables,
   submitDecision,
   persistRules,
+  type ConsistencyFlag,
   persistDraft,
   persistGaps,
   persistValidation,
@@ -27,7 +32,9 @@ import {
   validateTree,
   detectGaps,
   joinDecidedCases,
+  discoverThresholds,
   type AssembledDraft,
+  type DiscoveredThreshold,
   type GenCandidateVariable,
   type GenCase,
   type GenDecision,
@@ -150,10 +157,10 @@ export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void 
             Tree generator
           </p>
           <h1 className="font-display text-xl font-semibold text-ink">
-            {stage === 'setup' && 'Set up the elicitation'}
-            {stage === 'highlight' && 'Layer 1 — what matters in these cases?'}
-            {stage === 'decide' && 'Layer 2 — decide each case'}
-            {stage === 'review' && 'Layer 3 — your draft, interrogated and scored'}
+            {stage === 'setup' && 'Before we start'}
+            {stage === 'highlight' && 'What matters in these cases?'}
+            {stage === 'decide' && 'Decide each case'}
+            {stage === 'review' && 'Your draft, interrogated and scored'}
           </h1>
           <StageRail stage={stage} />
         </header>
@@ -197,6 +204,10 @@ export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void 
               setHighlights((prev) => [...prev, h])
               await refreshCandidates(session.id)
             }}
+            onHighlightUpdated={async (h) => {
+              setHighlights((prev) => prev.map((x) => (x.id === h.id ? h : x)))
+              await refreshCandidates(session.id)
+            }}
             onDone={async () => {
               await patchGenSession(session.id, { stage: 'decide' }).catch(() => undefined)
               setCaseIdx(0)
@@ -228,6 +239,8 @@ export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void 
             report={report}
             gaps={gaps}
             setGaps={setGaps}
+            cases={cases}
+            decisions={decisions}
             onBack={() => setStage('decide')}
             onRebuild={buildDraft}
             onSave={saveAndOpenBuilder}
@@ -242,10 +255,10 @@ export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void 
 
 function StageRail({ stage }: { stage: Stage }) {
   const steps: { id: Stage; label: string }[] = [
-    { id: 'setup', label: 'Setup' },
-    { id: 'highlight', label: '1 · Highlight' },
-    { id: 'decide', label: '2 · Decide' },
-    { id: 'review', label: '3 · Review & validate' },
+    { id: 'setup', label: '1 · Set up' },
+    { id: 'highlight', label: '2 · Highlight' },
+    { id: 'decide', label: '3 · Decide' },
+    { id: 'review', label: '4 · Review & sign' },
   ]
   const idx = steps.findIndex((s) => s.id === stage)
   return (
@@ -281,64 +294,78 @@ function SetupStage({
 }) {
   const [subspecialty, setSubspecialty] = useState('Peripheral nerve surgery')
   const [surgeonName, setSurgeonName] = useState('')
-  const [roster, setRoster] = useState<GenRosterEntry[]>([
-    { name: '', specialty: '' },
-    { name: '', specialty: '' },
-  ])
+  const [roster, setRoster] = useState<GenRosterEntry[]>([{ name: '', specialty: '' }])
   const [caseCount, setCaseCount] = useState(6)
   const [useAI, setUseAI] = useState(true)
+  const [letters, setLetters] = useState('')
+  const [loadingDirectory, setLoadingDirectory] = useState(false)
 
   const setRosterAt = (i: number, patch: Partial<GenRosterEntry>) =>
     setRoster((r) => r.map((e, j) => (j === i ? { ...e, ...patch } : e)))
 
+  const filledRoster = roster.filter((r) => r.name.trim())
+  const canStart = subspecialty.trim().length > 0 && filledRoster.length >= 2
+  const startHint = !subspecialty.trim()
+    ? 'Name the subspecialty to begin.'
+    : filledRoster.length < 2
+      ? 'Add at least two specialists to begin — routing needs at least two destinations to tell apart.'
+      : null
+
   const loadDirectory = async () => {
+    setLoadingDirectory(true)
     try {
       const specialists: any[] = await fetchSpecialists()
-      if (specialists.length > 0) {
-        setRoster(
-          specialists
-            .filter((s) => s.is_active !== false)
-            .map((s) => ({ name: s.name, specialty: s.specialty ?? '' })),
-        )
+      const active = specialists.filter((s) => s.is_active !== false)
+      if (active.length > 0) {
+        setRoster(active.map((s) => ({ name: s.name, specialty: s.specialty ?? '' })))
+        setError(null)
       } else {
-        setError('No specialists in the directory yet — enter your roster below.')
+        setError('No specialists in the directory yet — add your roster below.')
       }
-    } catch (e) {
+    } catch {
       setError('Could not load the specialist directory.')
+    } finally {
+      setLoadingDirectory(false)
     }
   }
 
   const start = async () => {
-    const cleanRoster = roster.filter((r) => r.name.trim())
-    if (cleanRoster.length < 2) {
-      setError('Add at least two specialists — routing needs somewhere to route.')
-      return
-    }
+    if (!canStart) return
     setError(null)
     try {
-      setBusy('Starting the session…')
+      setBusy('Starting your session…')
       const session = await createGenSession({
         subspecialty: subspecialty.trim(),
         surgeonName: surgeonName.trim() || undefined,
-        roster: cleanRoster,
+        roster: filledRoster,
       })
 
-      // Case supply: reuse the reviewed library for this subspecialty, top up
-      // with AI generation when allowed, otherwise require hand-authoring.
+      // Case supply, in value order: (1) cases derived from the clinic's own
+      // de-identified referral letters — the richest source, (2) the existing
+      // library, (3) drafted cases to top up (unless turned off under Advanced).
+      if (letters.trim()) {
+        setBusy('Converting your referral letters into cases…')
+        await ingestReferralLetters({ subspecialty: session.subspecialty, letters })
+      }
       setBusy('Gathering cases…')
       let pool = await listCases(session.subspecialty)
+      // Letter-derived cases first — they carry the real-world messiness.
+      pool = [
+        ...pool.filter((c) => c.source === 'real_deidentified'),
+        ...pool.filter((c) => c.source !== 'real_deidentified'),
+      ]
       if (pool.length < caseCount && useAI) {
-        setBusy(`Writing ${caseCount - pool.length} synthetic cases (AI, ~30s)…`)
+        setBusy(`Drafting ${caseCount - pool.length} cases for you to review (~30s)…`)
         const fresh = await generateCases({
           subspecialty: session.subspecialty,
           count: caseCount - pool.length,
-          roster: cleanRoster,
+          roster: filledRoster,
         })
         pool = [...pool, ...fresh]
       }
       if (pool.length === 0) {
         throw new Error(
-          'No cases available — enable AI generation or seed cases via the API (POST /api/v1/gen/cases).',
+          'No cases available for this subspecialty yet — turn automatic case drafting back on (under Advanced), or seed cases via the API.',
         )
       }
       onStarted(session, pool.slice(0, caseCount))
@@ -353,31 +380,46 @@ function SetupStage({
     'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted/60 focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent-strong/15'
 
   return (
-    <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
-      <Card title="Who is authoring, and for what?">
-        <label className="mb-3 block">
-          <span className="mb-1 block text-[11px] font-medium text-muted">Subspecialty</span>
-          <input className={input} value={subspecialty} onChange={(e) => setSubspecialty(e.target.value)} />
-        </label>
-        <label className="mb-3 block">
-          <span className="mb-1 block text-[11px] font-medium text-muted">Authoring surgeon</span>
-          <input className={input} placeholder="Dr. Li" value={surgeonName} onChange={(e) => setSurgeonName(e.target.value)} />
-        </label>
-
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[11px] font-medium text-muted">
-            Specialist roster — the people patients get routed TO
-          </span>
-          <button onClick={loadDirectory} className="text-[11px] font-medium text-accent-strong hover:underline">
-            Load from directory
-          </button>
+    <div className="max-w-2xl space-y-4">
+      {/* 1 · Session basics */}
+      <SetupSection step={1} title="Your session">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-medium text-muted">Subspecialty</span>
+            <input className={input} value={subspecialty} onChange={(e) => setSubspecialty(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-medium text-muted">Authoring surgeon</span>
+            <input
+              className={input}
+              placeholder="Your name"
+              value={surgeonName}
+              onChange={(e) => setSurgeonName(e.target.value)}
+            />
+          </label>
         </div>
+      </SetupSection>
+
+      {/* 2 · The roster — the hero: these become the tree's routing destinations. */}
+      <SetupSection
+        step={2}
+        title="Specialists patients can be routed to"
+        why="These are the destinations Omari can route patients to — the endpoints of your tree. Add everyone a referral could realistically land with."
+      >
+        <button
+          onClick={loadDirectory}
+          disabled={loadingDirectory}
+          className="mb-3 w-full rounded-md border border-accent-strong/50 bg-sky px-3 py-2 text-[13px] font-semibold text-accent-strong transition-colors hover:border-accent-strong hover:bg-sky/70 disabled:opacity-60"
+        >
+          {loadingDirectory ? 'Loading your directory…' : 'Load from your directory'}
+        </button>
+
         <div className="space-y-2">
           {roster.map((r, i) => (
             <div key={i} className="flex gap-2">
               <input
                 className={input}
-                placeholder="Dr. Chen"
+                placeholder="Specialist name"
                 value={r.name}
                 onChange={(e) => setRosterAt(i, { name: e.target.value })}
               />
@@ -388,9 +430,11 @@ function SetupStage({
                 onChange={(e) => setRosterAt(i, { specialty: e.target.value })}
               />
               <button
-                onClick={() => setRoster((rr) => rr.filter((_, j) => j !== i))}
+                onClick={() =>
+                  setRoster((rr) => (rr.length > 1 ? rr.filter((_, j) => j !== i) : [{ name: '', specialty: '' }]))
+                }
                 className="shrink-0 rounded px-2 text-[12px] text-muted hover:bg-danger/10 hover:text-danger"
-                aria-label="Remove"
+                aria-label="Remove specialist"
               >
                 ✕
               </button>
@@ -401,18 +445,24 @@ function SetupStage({
           onClick={() => setRoster((r) => [...r, { name: '', specialty: '' }])}
           className="mt-2 rounded-md border border-dashed border-line px-2.5 py-1 text-[12px] font-medium text-muted hover:border-accent/50 hover:text-accent-strong"
         >
-          + Add specialist
+          + Add another specialist
         </button>
-      </Card>
+        {filledRoster.length > 0 && filledRoster.length < 2 && (
+          <p className="mt-2 text-[11.5px] text-muted">
+            One more to go — with a single destination there's nothing to route between.
+          </p>
+        )}
+      </SetupSection>
 
-      <Card title="Case supply">
-        <p className="mb-3 text-[12.5px] leading-snug text-muted">
-          You'll react to realistic synthetic cases — never a blank canvas. Existing reviewed cases
-          for this subspecialty are reused; the rest are written by the case generator and marked
-          for your quality review.
+      {/* 3 · Cases */}
+      <SetupSection step={3} title="The cases you'll review">
+        <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
+          You'll review realistic cases and make routing calls — never a blank page. We reuse cases
+          already validated for {subspecialty.trim() ? subspecialty.trim().toLowerCase() : 'your subspecialty'} and
+          draft the rest for you to check.
         </p>
-        <label className="mb-3 block">
-          <span className="mb-1 block text-[11px] font-medium text-muted">How many cases (~5 min each pass)</span>
+        <label className="block">
+          <span className="mb-1 block text-[11px] font-medium text-muted">How many cases</span>
           <input
             type="range"
             min={3}
@@ -421,20 +471,85 @@ function SetupStage({
             onChange={(e) => setCaseCount(Number(e.target.value))}
             className="w-full accent-[#2c56b8]"
           />
-          <span className="text-[12px] font-medium text-ink">{caseCount} cases</span>
+          <span className="text-[12px] font-medium text-ink">{caseCount} cases · roughly a minute each</span>
         </label>
-        <label className="mb-4 flex items-center gap-2 text-[13px] text-ink">
-          <input type="checkbox" checked={useAI} onChange={(e) => setUseAI(e.target.checked)} className="accent-[#2c56b8]" />
-          Generate missing cases with AI
-        </label>
+        <details className="mt-3" open={letters.length > 0}>
+          <summary className="cursor-pointer text-[11.5px] font-medium text-accent-strong hover:underline">
+            Import from your own referral letters (recommended)
+          </summary>
+          <p className="mb-1.5 mt-2 text-[11.5px] leading-snug text-muted">
+            Paste <span className="font-medium text-ink">de-identified</span> referral letters —
+            no names, dates of birth, MRNs, or identifying details. Each is rewritten into a
+            fresh case carrying your clinic's real presentations, which makes the elicited
+            tree far richer than drafted cases alone.
+          </p>
+          <textarea
+            value={letters}
+            onChange={(e) => setLetters(e.target.value)}
+            rows={5}
+            placeholder={'Paste one or more de-identified referral letters, separated by blank lines…'}
+            className="w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-[12.5px] text-ink placeholder:text-muted/60 focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent-strong/15"
+          />
+        </details>
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11px] font-medium text-muted hover:text-ink">
+            Advanced
+          </summary>
+          <label className="mt-2 flex items-center gap-2 text-[12.5px] text-ink">
+            <input
+              type="checkbox"
+              checked={useAI}
+              onChange={(e) => setUseAI(e.target.checked)}
+              className="accent-[#2c56b8]"
+            />
+            Draft missing cases automatically (you review every one before it's used)
+          </label>
+        </details>
+      </SetupSection>
+
+      {/* Expectations + the gated CTA */}
+      <div className="rounded-xl border border-line bg-canvas p-4 shadow-[0_1px_2px_rgba(22,32,46,0.05)]">
+        <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
+          About 15 minutes. You'll produce a draft tree that <span className="font-medium text-ink">you review and sign</span> —
+          your logic, your sign-off.
+        </p>
         <button
           onClick={start}
-          className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#24489c]"
+          disabled={!canStart}
+          className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#24489c] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Start elicitation →
+          Start session →
         </button>
-      </Card>
+        {startHint && <p className="mt-2 text-center text-[11.5px] text-muted">{startHint}</p>}
+      </div>
     </div>
+  )
+}
+
+/** Numbered, sentence-case section for the setup column (calmer than the
+ * all-caps Card used in the working stages). */
+function SetupSection({
+  step,
+  title,
+  why,
+  children,
+}: {
+  step: number
+  title: string
+  why?: string
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-xl border border-line bg-canvas p-4 shadow-[0_1px_2px_rgba(22,32,46,0.05)]">
+      <div className="mb-1 flex items-center gap-2">
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent-strong/10 font-display text-[11px] font-semibold text-accent-strong">
+          {step}
+        </span>
+        <h2 className="font-display text-[14px] font-semibold text-ink">{title}</h2>
+      </div>
+      {why && <p className="mb-3 ml-7 text-[12px] leading-snug text-muted">{why}</p>}
+      <div className={why ? '' : 'mt-2.5'}>{children}</div>
+    </section>
   )
 }
 
@@ -448,6 +563,7 @@ function HighlightStage({
   highlights,
   candidates,
   onHighlight,
+  onHighlightUpdated,
   onDone,
   setError,
 }: {
@@ -458,6 +574,7 @@ function HighlightStage({
   highlights: GenHighlight[]
   candidates: GenCandidateVariable[]
   onHighlight: (h: GenHighlight) => Promise<void>
+  onHighlightUpdated: (h: GenHighlight) => Promise<void>
   onDone: () => void
   setError: (e: string | null) => void
 }) {
@@ -501,6 +618,17 @@ function HighlightStage({
     }
   }
 
+  // Chip removal — the surgeon curates what a loose highlight actually meant.
+  const removeObservation = async (h: GenHighlight, index: number) => {
+    try {
+      const next = h.observations.filter((_, i) => i !== index)
+      const updated = await updateHighlightObservations(h.id, next)
+      await onHighlightUpdated(updated)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   if (!current) return null
 
   return (
@@ -531,20 +659,48 @@ function HighlightStage({
           {caseHighlights.length > 0 && (
             <div className="mt-3">
               <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
-                Highlights on this case
+                What we heard in your highlights — remove anything you didn't mean
               </p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="space-y-2">
                 {caseHighlights.map((h) => (
-                  <span
-                    key={h.id}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] ${AXIS_META[h.axis].cls}`}
-                  >
-                    “{h.spanText.slice(0, 40)}
-                    {h.spanText.length > 40 ? '…' : ''}”
-                    {h.mappedVariableKey && (
-                      <span className="font-mono text-[9.5px] opacity-70">→ {h.mappedVariableKey}</span>
+                  <div key={h.id} className="rounded-lg border border-line/70 bg-canvas px-2.5 py-1.5">
+                    <p className="mb-1 text-[11px] italic text-muted">
+                      “{h.spanText.slice(0, 90)}
+                      {h.spanText.length > 90 ? '…' : ''}”
+                    </p>
+                    {h.observations.length === 0 ? (
+                      <p className="text-[10.5px] text-muted">
+                        Nothing kept from this highlight.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {h.observations.map((o, i) => (
+                          <span
+                            key={`${o.key}-${i}`}
+                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${AXIS_META[o.axis]?.cls ?? AXIS_META[h.axis].cls}`}
+                            title={o.source === 'llm' ? 'Suggested — remove if not what you meant' : 'Matched from the case'}
+                          >
+                            <span className="max-w-[140px] truncate">
+                              {String(o.value ?? o.spanText)}
+                            </span>
+                            <span className="font-mono text-[9.5px] opacity-70">
+                              · {(o.label ?? o.key).toString().replace(/_/g, ' ')}
+                            </span>
+                            {o.source === 'llm' && (
+                              <span className="text-[8.5px] uppercase tracking-wide opacity-60">ai</span>
+                            )}
+                            <button
+                              onClick={() => removeObservation(h, i)}
+                              className="ml-0.5 rounded-full px-0.5 leading-none opacity-60 hover:opacity-100"
+                              aria-label={`Remove ${o.key}`}
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        ))}
+                      </div>
                     )}
-                  </span>
+                  </div>
                 ))}
               </div>
             </div>
@@ -649,21 +805,42 @@ function DecideStage({
   const [specialist, setSpecialist] = useState<string | null>(null)
   const [escalate, setEscalate] = useState(false)
   const [urgency, setUrgency] = useState<Urgency>('routine')
-  const [workup, setWorkup] = useState<{ name: string; protocol: string }[]>([])
+  const [workup, setWorkup] = useState<{ name: string; protocol: string; conditionalHint?: string }[]>([])
   const [wouldNot, setWouldNot] = useState<string[]>([])
   const [wouldNotDraft, setWouldNotDraft] = useState('')
   const [counterfactual, setCounterfactual] = useState('')
   const [saving, setSaving] = useState(false)
+  // Manual test entry drafts (chips are added, not edited in place).
+  const [testDraft, setTestDraft] = useState({ name: '', protocol: '' })
+  // Free-text workup → structured proposal (LLM job 6; surgeon edits everything).
+  const [workupText, setWorkupText] = useState('')
+  const [structuring, setStructuring] = useState(false)
+  // Advisory consistency flags (LLM job 5); dismissed ones stay dismissed locally.
+  const [flags, setFlags] = useState<ConsistencyFlag[]>([])
+  const [dismissedFlags, setDismissedFlags] = useState<Set<string>>(new Set())
+  const [checkingConsistency, setCheckingConsistency] = useState(false)
+  // Skip-with-reason menu + the latest derived threshold involving this case.
+  const [skipMenuOpen, setSkipMenuOpen] = useState(false)
+  const [justDiscovered, setJustDiscovered] = useState<DiscoveredThreshold | null>(null)
 
   // Reset the form when the case changes (pre-fill from an earlier decision).
   useEffect(() => {
     setSpecialist(existing?.routedSpecialistName ?? null)
     setEscalate(existing?.escalated ?? false)
     setUrgency((existing?.urgency as Urgency) ?? 'routine')
-    setWorkup(existing?.workup.map((w) => ({ name: w.name, protocol: w.protocol ?? '' })) ?? [])
+    setWorkup(
+      existing?.workup.map((w) => ({
+        name: w.name,
+        protocol: w.protocol ?? '',
+        conditionalHint: w.conditionalHint,
+      })) ?? [],
+    )
     setWouldNot(existing?.wouldNotOrder ?? [])
     setCounterfactual(existing?.workupCounterfactual ?? '')
     setWouldNotDraft('')
+    setTestDraft({ name: '', protocol: '' })
+    setSkipMenuOpen(false)
+    setJustDiscovered(null)
   }, [current?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const previouslyUsedTests = useMemo(() => {
@@ -688,15 +865,38 @@ function DecideStage({
       routedSpecialistName: escalate ? undefined : (specialist ?? undefined),
       escalated: escalate,
       urgency,
-      workup: workup.filter((w) => w.name.trim()).map((w) => ({ name: w.name.trim(), protocol: w.protocol.trim() })),
+      workup: workup
+        .filter((w) => w.name.trim())
+        .map((w) => ({
+          name: w.name.trim(),
+          protocol: w.protocol.trim(),
+          ...(w.conditionalHint ? { conditionalHint: w.conditionalHint } : {}),
+        })),
       workupCounterfactual: counterfactual.trim() || undefined,
       wouldNotOrder: wouldNot,
       caseVariables: {},
     }
     try {
       await submitDecision(session.id, decision)
-      setDecisions({ ...decisions, [current.id]: decision })
-      if (advance && caseIdx < cases.length - 1) setCaseIdx(caseIdx + 1)
+      const nextDecisions = { ...decisions, [current.id]: decision }
+      setDecisions(nextDecisions)
+      // Threshold discovery — DERIVED via the same comparison induction uses
+      // (one function, two consumers). If this decision completed a minimal
+      // pair whose outcome flipped, tell the surgeon the boundary was found.
+      const found = discoverThresholds(cases, Object.values(nextDecisions)).find(
+        (t) => t.variantCaseId === current.id || t.parentCaseId === current.id,
+      )
+      setJustDiscovered(found ?? null)
+      if (advance && !found && caseIdx < cases.length - 1) setCaseIdx(caseIdx + 1)
+      // Live coaching (advisory): with 3+ decisions, look for similar cases
+      // decided differently. Fire-and-forget — never blocks the flow.
+      if (Object.keys(nextDecisions).length >= 3) {
+        setCheckingConsistency(true)
+        void checkConsistency(session.id)
+          .then(setFlags)
+          .catch(() => undefined)
+          .finally(() => setCheckingConsistency(false))
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -704,15 +904,84 @@ function DecideStage({
     }
   }
 
+  // Skip-with-reason: handled, not decided. Excluded from induction by the
+  // shared joinDecidedCases filter; the reason itself is signal.
+  const saveSkip = async (reason: string) => {
+    if (!current) return
+    setSkipMenuOpen(false)
+    setSaving(true)
+    const decision: GenDecision = {
+      caseId: current.id,
+      escalated: false,
+      skipped: true,
+      skipReason: reason,
+      workup: [],
+      wouldNotOrder: [],
+      caseVariables: {},
+    }
+    try {
+      await submitDecision(session.id, decision)
+      setDecisions({ ...decisions, [current.id]: decision })
+      if (caseIdx < cases.length - 1) setCaseIdx(caseIdx + 1)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // "Structure my words" — transcribe free text into workup rows the surgeon edits.
+  const structureWorkup = async () => {
+    if (!workupText.trim()) return
+    setStructuring(true)
+    try {
+      const known = [...new Set(Object.values(decisions).flatMap((d) => d.workup.map((w) => w.name)))]
+      const out = await structureWorkupText(workupText, known)
+      if (out.items.length > 0) {
+        setWorkup((prev) => [
+          ...prev,
+          ...out.items
+            .filter((i) => i.name && !prev.some((w) => w.name.toLowerCase() === i.name.toLowerCase()))
+            .map((i: any) => ({
+              name: i.name,
+              protocol: i.protocol ?? '',
+              // Stated condition = a LEAD for induction to confirm, surfaced
+              // in Review; never binding logic.
+              conditionalHint: i.conditionalHint || undefined,
+            })),
+        ])
+      }
+      if (out.wouldNotOrder.length > 0) {
+        setWouldNot((prev) => [...prev, ...out.wouldNotOrder.filter((t) => !prev.includes(t))])
+      }
+      setWorkupText('')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setStructuring(false)
+    }
+  }
+
   const makeMinimalPairs = async () => {
     if (!current) return
-    setBusy('Writing minimal-pair variants (one variable flipped each)…')
+    const parentDecision = decisions[current.id]
+    setBusy('Writing boundary probes (same case, one variable flipped)…')
     try {
       const fresh = await generateCases({
         subspecialty: session.subspecialty,
         count: 2,
         roster: session.roster,
         minimalPairOf: current.id,
+        // Boundary-targeting: how the surgeon decided the seed steers WHICH
+        // variable gets flipped — the LLM never predicts the new decision.
+        parentDecision:
+          parentDecision && !parentDecision.skipped
+            ? {
+                routedTo: parentDecision.routedSpecialistName,
+                escalated: parentDecision.escalated,
+                workup: parentDecision.workup.map((w) => w.name),
+              }
+            : undefined,
       })
       setCases([...cases, ...fresh])
     } catch (e) {
@@ -727,51 +996,145 @@ function DecideStage({
   const input =
     'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted/60 focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent-strong/15'
 
+  const visibleFlags = flags.filter((f) => !dismissedFlags.has(f.concern))
+  const caseNumberById = new Map(cases.map((c, i) => [c.id, i]))
+
   return (
     <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
       <div>
+        {visibleFlags.length > 0 && (
+          <div className="mb-3 space-y-2">
+            {visibleFlags.map((f) => (
+              <div
+                key={f.concern}
+                className="rounded-lg border border-nodeesc/40 bg-nodeesc/8 px-3 py-2"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 shrink-0 rounded bg-nodeesc/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-nodeesc">
+                    Worth a look
+                  </span>
+                  <p className="flex-1 text-[12.5px] leading-snug text-ink">{f.concern}</p>
+                  <button
+                    onClick={() => setDismissedFlags((s) => new Set(s).add(f.concern))}
+                    className="shrink-0 text-[11px] font-medium text-muted hover:text-ink"
+                  >
+                    It's intentional
+                  </button>
+                </div>
+                <div className="mt-1 flex gap-1.5 pl-1">
+                  {f.caseIds
+                    .filter((id) => caseNumberById.has(id))
+                    .map((id) => (
+                      <button
+                        key={id}
+                        onClick={() => setCaseIdx(caseNumberById.get(id)!)}
+                        className="rounded border border-line bg-canvas px-1.5 py-0.5 text-[10.5px] font-medium text-accent-strong hover:border-accent/50"
+                      >
+                        Review case {caseNumberById.get(id)! + 1}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <Card
-          title={`Case ${caseIdx + 1} of ${cases.length} · ${decidedCount} decided`}
+          title={`Case ${caseIdx + 1} of ${cases.length} · ${decidedCount} handled${checkingConsistency ? ' · checking consistency…' : ''}`}
           right={
-            <button onClick={makeMinimalPairs} className="text-[11px] font-medium text-accent-strong hover:underline">
-              + minimal pairs of this case
-            </button>
+            current.minimalPairOf ? (
+              <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-accent-strong">
+                boundary probe · {String(current.variedVariable ?? 'variant').replace(/_/g, ' ')}
+              </span>
+            ) : undefined
           }
         >
+          {/* Salient-fact strip — DETERMINISTIC, straight from the case's
+              human-reviewed ground truth (no live summarization to slip).
+              Shows what exists; never fabricates completeness. It supplements
+              the narrative below, which remains what the surgeon decides on. */}
+          {Object.keys(current.groundTruth).length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {Object.entries(current.groundTruth).map(([k, v]) => (
+                <span
+                  key={k}
+                  className="rounded-full border border-line bg-bg px-2 py-0.5 text-[10.5px] text-muted"
+                  title={k}
+                >
+                  <span className="font-medium text-ink">{k.replace(/_/g, ' ')}:</span> {String(v).replace(/_/g, ' ')}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="whitespace-pre-wrap rounded-lg border border-line bg-canvas px-4 py-3 text-[13.5px] leading-relaxed text-ink">
             {current.narrative}
           </div>
-          {Object.keys(current.groundTruth).length > 0 && (
-            <details className="mt-2">
-              <summary className="cursor-pointer text-[11px] font-medium text-muted">
-                The facts this case establishes (what the tree will learn from)
-              </summary>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {Object.entries(current.groundTruth).map(([k, v]) => (
-                  <span key={k} className="rounded-full border border-line bg-bg px-2 py-0.5 font-mono text-[10.5px] text-muted">
-                    {k} = {String(v)}
-                  </span>
-                ))}
-              </div>
-            </details>
-          )}
         </Card>
 
+        {justDiscovered && (
+          <div className="mt-3 rounded-lg border border-accent/40 bg-sky/60 px-3 py-2">
+            <p className="text-[12.5px] leading-snug text-ink">
+              <span className="font-semibold text-accent-strong">Threshold discovered:</span>{' '}
+              your decision {justDiscovered.routingFlip && justDiscovered.workupFlip
+                ? 'and workup both flip'
+                : justDiscovered.routingFlip
+                  ? 'flips'
+                  : 'keeps routing but the workup changes'}{' '}
+              on <span className="font-mono text-[11.5px]">{justDiscovered.variedVariable.replace(/_/g, ' ')}</span>
+              {justDiscovered.parentValue !== undefined && (
+                <> ({String(justDiscovered.parentValue)} → {String(justDiscovered.variantValue)})</>
+              )}
+              : {justDiscovered.parentOutcome} → {justDiscovered.variantOutcome}. This boundary
+              feeds the tree.
+            </p>
+          </div>
+        )}
+
         <div className="mt-3 flex items-center justify-between">
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <NavButton disabled={caseIdx === 0} onClick={() => setCaseIdx(caseIdx - 1)}>
               ← Previous
             </NavButton>
             <NavButton disabled={caseIdx >= cases.length - 1} onClick={() => setCaseIdx(caseIdx + 1)}>
-              Skip →
+              Next case →
             </NavButton>
+            {/* Skip is quiet and captures WHY — the reason is signal
+                ("not my subspecialty" ≠ "too ambiguous"). Skipped cases count
+                as handled but never shape the tree. */}
+            {!existing?.skipped && (
+              <span className="relative">
+                <button
+                  onClick={() => setSkipMenuOpen((v) => !v)}
+                  className="px-1.5 text-[11.5px] font-medium text-muted underline-offset-2 hover:text-ink hover:underline"
+                >
+                  Skip this case
+                </button>
+                {skipMenuOpen && (
+                  <span className="absolute left-0 top-full z-20 mt-1 flex w-56 flex-col rounded-lg border border-line bg-canvas p-1 shadow-[0_10px_30px_rgba(22,32,46,0.14)]">
+                    {SKIP_REASONS.map((r) => (
+                      <button
+                        key={r.value}
+                        onClick={() => void saveSkip(r.value)}
+                        className="rounded-md px-2 py-1.5 text-left text-[12px] text-ink hover:bg-bg"
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </span>
+                )}
+              </span>
+            )}
+            {existing?.skipped && (
+              <span className="text-[11px] text-muted">
+                Skipped — {SKIP_REASONS.find((r) => r.value === existing.skipReason)?.label ?? existing.skipReason}
+              </span>
+            )}
           </div>
           {allDecided && (
             <button
               onClick={onBuild}
               className="rounded-md bg-accent-strong px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-[#24489c]"
             >
-              All cases decided — build the draft tree →
+              All cases handled — build the draft tree →
             </button>
           )}
         </div>
@@ -787,29 +1150,35 @@ function DecideStage({
                   setSpecialist(r.name)
                   setEscalate(false)
                 }}
-                className={`rounded-lg border px-2.5 py-1.5 text-left text-[12.5px] transition-colors ${
+                className={`rounded-lg border px-2.5 py-1.5 text-left text-[12.5px] normal-case transition-colors ${
                   specialist === r.name && !escalate
                     ? 'border-accent-strong bg-sky font-semibold text-accent-strong'
                     : 'border-line bg-canvas text-ink hover:border-accent/50'
                 }`}
               >
-                {r.name}
+                <span className="block whitespace-nowrap font-medium">{r.name}</span>
                 {r.specialty && <span className="block text-[10.5px] font-normal text-muted">{r.specialty}</span>}
               </button>
             ))}
+          </div>
+          {/* Escalation is "no clean answer" — not a third specialist. It sits
+              apart, below the roster, deliberately quieter. */}
+          <div className="mt-3 border-t border-line pt-2.5">
             <button
               onClick={() => {
                 setEscalate(true)
                 setSpecialist(null)
               }}
-              className={`rounded-lg border px-2.5 py-1.5 text-[12.5px] transition-colors ${
+              className={`w-full rounded-lg border border-dashed px-2.5 py-1.5 text-left text-[12px] transition-colors ${
                 escalate
                   ? 'border-nodeesc bg-nodeesc/10 font-semibold text-nodeesc'
-                  : 'border-line bg-canvas text-ink hover:border-nodeesc/50'
+                  : 'border-line bg-transparent text-muted hover:border-nodeesc/50 hover:text-ink'
               }`}
             >
-              ⚠ I'd want to see this myself
-              <span className="block text-[10.5px] font-normal text-muted">genuine ambiguity → human review</span>
+              No clean answer — I'd want to see this myself
+              <span className="block text-[10.5px] font-normal text-muted">
+                genuine ambiguity → human review
+              </span>
             </button>
           </div>
           {!escalate && (
@@ -833,49 +1202,109 @@ function DecideStage({
         {!escalate && (
           <Card title="2 · What must be done BEFORE they arrive?">
             <p className="mb-2 text-[11.5px] leading-snug text-muted">
-              …or the first visit is wasted. Name the tests; skip anything you'd only order later.
+              …or the first visit is wasted. Say it in your own words, or add tests directly below.
             </p>
-            <div className="space-y-2">
-              {workup.map((w, i) => (
-                <div key={i} className="flex gap-1.5">
-                  <input
-                    className={input}
-                    placeholder="Test (e.g. EMG/NCS)"
-                    value={w.name}
-                    onChange={(e) => setWorkup(workup.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
-                  />
-                  <input
-                    className={input}
-                    placeholder="Protocol (optional)"
-                    value={w.protocol}
-                    onChange={(e) => setWorkup(workup.map((x, j) => (j === i ? { ...x, protocol: e.target.value } : x)))}
-                  />
-                  <button
-                    onClick={() => setWorkup(workup.filter((_, j) => j !== i))}
-                    className="shrink-0 rounded px-1.5 text-[12px] text-muted hover:bg-danger/10 hover:text-danger"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <div className="mb-3 flex gap-1.5">
+              <input
+                className={input}
+                placeholder={'e.g. "get nerves tested, and imaging only if there\'s a mass"'}
+                value={workupText}
+                onChange={(e) => setWorkupText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && workupText.trim()) void structureWorkup()
+                }}
+              />
               <button
-                onClick={() => setWorkup([...workup, { name: '', protocol: '' }])}
-                className="rounded-md border border-dashed border-line px-2 py-0.5 text-[11.5px] font-medium text-muted hover:border-accent/50 hover:text-accent-strong"
+                onClick={() => void structureWorkup()}
+                disabled={structuring || !workupText.trim()}
+                className="shrink-0 rounded-md border border-accent-strong/50 bg-sky px-2.5 text-[12px] font-semibold text-accent-strong hover:border-accent-strong disabled:opacity-50"
               >
-                + Add test
+                {structuring ? 'Structuring…' : 'Structure it'}
               </button>
-              {previouslyUsedTests.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setWorkup([...workup, { name: t, protocol: '' }])}
-                  className="rounded-full border border-line bg-bg px-2 py-0.5 text-[10.5px] text-muted hover:border-accent/40 hover:text-ink"
-                >
-                  + {t}
-                </button>
-              ))}
             </div>
+            {/* The order list as removable chips — the WorkupSpec visibly
+                taking shape. Chips are added (typed, structured, or from the
+                palette), reviewed, and removed; never edited silently. */}
+            {workup.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {workup.map((w, i) => (
+                  <span
+                    key={`${w.name}-${i}`}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-nodespec/40 bg-nodespec/8 px-2.5 py-1 text-[11.5px] text-ink"
+                    title={w.protocol || undefined}
+                  >
+                    <span className="font-medium">{w.name}</span>
+                    {w.protocol && <span className="text-[10px] text-muted">· {w.protocol}</span>}
+                    {w.conditionalHint ? (
+                      <span
+                        className="rounded bg-nodeesc/15 px-1 py-0.5 text-[8.5px] font-semibold uppercase tracking-wide text-nodeesc"
+                        title={`You said: "${w.conditionalHint}" — a lead for induction to confirm from your case decisions.`}
+                      >
+                        conditional: {w.conditionalHint}
+                      </span>
+                    ) : (
+                      <span className="rounded bg-line/60 px-1 py-0.5 text-[8.5px] font-semibold uppercase tracking-wide text-muted">
+                        ordered here
+                      </span>
+                    )}
+                    <button
+                      onClick={() => setWorkup(workup.filter((_, j) => j !== i))}
+                      className="ml-0.5 rounded-full px-0.5 leading-none opacity-60 hover:opacity-100"
+                      aria-label={`Remove ${w.name}`}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-1.5">
+              <input
+                className={input}
+                placeholder="Test (e.g. EMG/NCS)"
+                value={testDraft.name}
+                onChange={(e) => setTestDraft({ ...testDraft, name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && testDraft.name.trim()) {
+                    setWorkup([...workup, { name: testDraft.name.trim(), protocol: testDraft.protocol.trim() }])
+                    setTestDraft({ name: '', protocol: '' })
+                  }
+                }}
+              />
+              <input
+                className={input}
+                placeholder="Protocol (optional)"
+                value={testDraft.protocol}
+                onChange={(e) => setTestDraft({ ...testDraft, protocol: e.target.value })}
+              />
+              <button
+                onClick={() => {
+                  if (!testDraft.name.trim()) return
+                  setWorkup([...workup, { name: testDraft.name.trim(), protocol: testDraft.protocol.trim() }])
+                  setTestDraft({ name: '', protocol: '' })
+                }}
+                disabled={!testDraft.name.trim()}
+                className="shrink-0 rounded-md border border-line px-2.5 text-[12px] font-medium text-muted hover:text-ink disabled:opacity-40"
+              >
+                Add
+              </button>
+            </div>
+            {previouslyUsedTests.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                  Your earlier tests — options, not recommendations:
+                </span>
+                {previouslyUsedTests.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setWorkup([...workup, { name: t, protocol: '' }])}
+                    className="rounded-full border border-line bg-bg px-2 py-0.5 text-[10.5px] text-muted hover:border-accent/40 hover:text-ink"
+                  >
+                    + {t}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <label className="mt-3 block">
               <span className="mb-1 block text-[11px] font-medium text-muted">
@@ -937,12 +1366,31 @@ function DecideStage({
           onClick={() => save(true)}
           className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#24489c] disabled:opacity-50"
         >
-          {existing ? 'Update decision' : 'Save decision'} {caseIdx < cases.length - 1 ? '& next case →' : ''}
+          {existing && !existing.skipped ? 'Update decision' : 'Save decision'}{' '}
+          {caseIdx < cases.length - 1 ? '& next case →' : ''}
         </button>
+
+        {/* The core loop: decide, then probe the decision's boundary. The
+            model manufactures the probes; the surgeon decides every one. */}
+        {existing && !existing.skipped && (
+          <button
+            onClick={makeMinimalPairs}
+            className="w-full rounded-md border border-accent-strong/50 bg-sky px-3 py-2 text-[13px] font-semibold text-accent-strong transition-colors hover:border-accent-strong"
+          >
+            Probe this decision → same case, one variable flipped
+          </button>
+        )}
       </div>
     </div>
   )
 }
+
+/** One-tap skip reasons — each is distinct signal about the CASE, not the patient. */
+const SKIP_REASONS = [
+  { value: 'not_my_subspecialty', label: 'Not my subspecialty' },
+  { value: 'unrealistic_case', label: 'Case is unrealistic — needs rewriting' },
+  { value: 'cannot_decide_from_this', label: "Can't decide from what's written" },
+]
 
 /* ───────────────────────────── review stage ────────────────────────────── */
 
@@ -952,6 +1400,8 @@ function ReviewStage({
   report,
   gaps,
   setGaps,
+  cases,
+  decisions,
   onBack,
   onRebuild,
   onSave,
@@ -961,6 +1411,8 @@ function ReviewStage({
   report: ValidationReport
   gaps: PersistedGap[]
   setGaps: (g: PersistedGap[]) => void
+  cases: GenCase[]
+  decisions: Record<string, GenDecision>
   onBack: () => void
   onRebuild: () => void
   onSave: () => void
@@ -970,6 +1422,36 @@ function ReviewStage({
   const mismatches = report.results.filter(
     (r) => !r.routingMatch || r.underOrdered.length > 0 || r.overOrdered.length > 0,
   )
+
+  // Derived (never stored) — same flip semantics induction uses.
+  const thresholds = useMemo(
+    () => discoverThresholds(cases, Object.values(decisions)),
+    [cases, decisions],
+  )
+
+  // Stated-condition LEADS: things the surgeon SAID were conditional, checked
+  // against what induction actually produced. Surfaced for the surgeon to
+  // pursue (decide more cases) — never injected into the tree.
+  const conditionLeads = useMemo(() => {
+    const inducedConditionalTests = new Set(
+      draft.tree.nodes
+        .filter((n) => n.type === 'specialist')
+        .flatMap((n) => (n.type === 'specialist' ? n.workup.conditional.map((c) => c.item.name.toLowerCase()) : [])),
+    )
+    const leads: { test: string; hint: string; induced: boolean }[] = []
+    for (const d of Object.values(decisions)) {
+      for (const w of d.workup) {
+        if (w.conditionalHint && !leads.some((l) => l.test.toLowerCase() === w.name.toLowerCase())) {
+          leads.push({
+            test: w.name,
+            hint: w.conditionalHint,
+            induced: inducedConditionalTests.has(w.name.toLowerCase()),
+          })
+        }
+      }
+    }
+    return leads
+  }, [decisions, draft])
 
   const resolveGap = async (gap: PersistedGap, status: 'resolved' | 'dismissed') => {
     try {
@@ -1046,6 +1528,64 @@ function ReviewStage({
               </ul>
             )}
           </Card>
+
+          {thresholds.length > 0 && (
+            <Card title={`Boundaries you discovered · ${thresholds.length}`}>
+              <p className="mb-2 text-[11.5px] leading-snug text-muted">
+                Minimal pairs where your decision flipped — derived from your own case decisions
+                with the same comparison the tree induction uses.
+              </p>
+              <ul className="space-y-1.5">
+                {thresholds.map((t) => (
+                  <li
+                    key={`${t.parentCaseId}-${t.variantCaseId}`}
+                    className="rounded-lg border border-line bg-canvas px-3 py-2 text-[12px] leading-snug"
+                  >
+                    <span className="font-mono text-[11px] font-medium text-accent-strong">
+                      {t.variedVariable.replace(/_/g, ' ')}
+                    </span>
+                    {t.parentValue !== undefined && (
+                      <span className="text-muted">
+                        {' '}({String(t.parentValue)} → {String(t.variantValue)})
+                      </span>
+                    )}
+                    <span className="text-ink">
+                      {' '}· {t.parentOutcome} <span className="text-muted">→</span> {t.variantOutcome}
+                    </span>
+                    <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted">
+                      {t.routingFlip && t.workupFlip ? 'routing + workup' : t.routingFlip ? 'routing' : 'workup'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          {conditionLeads.length > 0 && (
+            <Card title={`Conditions you stated · ${conditionLeads.length} lead${conditionLeads.length === 1 ? '' : 's'}`}>
+              <p className="mb-2 text-[11.5px] leading-snug text-muted">
+                You phrased these tests conditionally while deciding. Stated conditions are leads —
+                the tree only encodes a condition when your case decisions demonstrate it.
+              </p>
+              <ul className="space-y-1.5">
+                {conditionLeads.map((l) => (
+                  <li key={l.test} className="rounded-lg border border-line bg-canvas px-3 py-2 text-[12px] leading-snug">
+                    <span className="font-medium text-ink">{l.test}</span>
+                    <span className="text-muted"> — “{l.hint}”</span>
+                    {l.induced ? (
+                      <span className="ml-1.5 rounded bg-accent/10 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-accent-strong">
+                        ✓ demonstrated in your decisions
+                      </span>
+                    ) : (
+                      <span className="ml-1.5 rounded bg-nodeesc/12 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-nodeesc">
+                        not yet demonstrated — decide cases on both sides of it
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           {mismatches.length > 0 && (
             <Card title={`Disagreements with your decisions · ${mismatches.length}`}>
