@@ -151,8 +151,11 @@ export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void 
 
   return (
     <div className="h-full overflow-y-auto bg-bg">
-      <div className="mx-auto max-w-6xl px-6 py-6">
-        <header className="mb-5">
+      {/* The setup wizard is a single narrow column — center IT (header included)
+          rather than leaving a 2xl column stranded inside a 6xl container. The
+          working stages (highlight/decide/review) keep the wide canvas. */}
+      <div className={`mx-auto px-6 py-8 ${stage === 'setup' ? 'max-w-3xl' : 'max-w-6xl'}`}>
+        <header className="mb-6">
           <p className="font-display text-[11px] font-semibold uppercase tracking-[0.14em] text-accent-strong">
             Tree generator
           </p>
@@ -380,7 +383,7 @@ function SetupStage({
     'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted/60 focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent-strong/15'
 
   return (
-    <div className="max-w-2xl space-y-4">
+    <div className="space-y-5">
       {/* 1 · Session basics */}
       <SetupSection step={1} title="Your session">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -540,15 +543,17 @@ function SetupSection({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-line bg-canvas p-4 shadow-[0_1px_2px_rgba(22,32,46,0.05)]">
+    <section className="rounded-xl border border-line bg-canvas p-5 shadow-[0_1px_2px_rgba(22,32,46,0.05)]">
       <div className="mb-1 flex items-center gap-2">
         <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent-strong/10 font-display text-[11px] font-semibold text-accent-strong">
           {step}
         </span>
         <h2 className="font-display text-[14px] font-semibold text-ink">{title}</h2>
       </div>
+      {/* Everything below the title shares ONE left edge (indented past the
+          step number) so the card reads as a single aligned column. */}
       {why && <p className="mb-3 ml-7 text-[12px] leading-snug text-muted">{why}</p>}
-      <div className={why ? '' : 'mt-2.5'}>{children}</div>
+      <div className={`ml-7 ${why ? '' : 'mt-2.5'}`}>{children}</div>
     </section>
   )
 }

@@ -949,6 +949,14 @@ class AnthropicService:
         "Chen?', 'where is no workup specified?'). Answer ONLY from the tree JSON "
         "and structural warnings provided — describing what the tree already says "
         "is fine; recommending what it should say is not.\n\n"
+        "FOLLOW-THROUGH: when your previous turn asked about a specific node, "
+        "bucket, or gap and the clinician's next message answers it, draft the "
+        "change for THAT node — do not re-ask which one they mean.\n\n"
+        "BRAIN-DUMPS: messages may be long, rambling dictation (clinicians can "
+        "talk instead of type). Extract EVERY edit they actually stated and "
+        "draft them as one ordered proposal; ignore filler and asides. Clarify "
+        "only the clinical decisions genuinely missing — never one question per "
+        "sentence of rambling.\n\n"
         "Operations reference existing nodes by their exact `id` from the tree JSON. "
         "For nodes you add, use a short placeholder id like 'new_1' and reference it "
         "in later operations; the app assigns real ids. Locate branches by "
@@ -1020,6 +1028,7 @@ class AnthropicService:
         message: str,
         history: Optional[list[dict[str, str]]] = None,
         warnings: Optional[list[str]] = None,
+        selected_node_ids: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         """Builder assistant turn. Returns {mode, message, operations} —
         operations are PROPOSALS the Builder validates, diffs, and gates on
@@ -1034,6 +1043,14 @@ class AnthropicService:
         if warnings:
             context += "\n\nCurrent structural warnings (deterministic checks):\n" + "\n".join(
                 f"- {w}" for w in warnings[:30]
+            )
+        if selected_node_ids:
+            context += (
+                "\n\nSELECTION: the clinician has selected these nodes on the canvas: "
+                + ", ".join(selected_node_ids[:40])
+                + ". Words like 'these', 'this one', 'the selected nodes' refer to "
+                "them. Scope answers and edits to the selection unless the message "
+                "clearly reaches beyond it — no need to ask which nodes they mean."
             )
 
         messages: list[dict[str, Any]] = []

@@ -458,6 +458,19 @@ textarea:focus-visible {
   transition: opacity 150ms ease;
 }
 
+/* Sprout proposal PREVIEW: the canvas shows the candidate tree read-only.
+   Nodes the proposal would add/change get a dashed blue outline; nodes it
+   would delete stay visible but faded with a dashed red outline. */
+.react-flow__node.omari-node-ghost {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: 4px;
+  border-radius: 16px;
+}
+.react-flow__node.omari-node-removed {
+  outline-color: #dc2626;
+  opacity: 0.45;
+}
+
 /* Edge label pill: white fill + hairline border + ink text. */
 .react-flow__edge-text {
   font-family: var(--font-sans);

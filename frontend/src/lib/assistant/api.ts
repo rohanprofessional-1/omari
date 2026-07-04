@@ -29,6 +29,8 @@ export async function sendTreeChat(input: {
   message: string
   history: AssistantTurn[]
   warnings: string[]
+  /** Canvas selection scoping the conversation ("these nodes"). */
+  selectedNodeIds?: string[]
 }): Promise<TreeChatResponse> {
   const res = await fetch('/api/v1/assistant/tree-chat', {
     method: 'POST',
@@ -38,6 +40,7 @@ export async function sendTreeChat(input: {
       message: input.message,
       history: input.history,
       warnings: input.warnings,
+      selectedNodeIds: input.selectedNodeIds ?? [],
     }),
   })
   if (!res.ok) {

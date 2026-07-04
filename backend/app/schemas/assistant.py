@@ -21,6 +21,7 @@ class TreeChatRequest(BaseModel):
     message: str                    # the clinician's latest instruction/question
     history: List[AssistantTurn] = []
     warnings: List[str] = []        # current validateTreeGraph warnings, for gap questions
+    selectedNodeIds: List[str] = [] # nodes the clinician selected on the canvas — scopes "these"/"this"
 
 
 class TreeChatResponse(BaseModel):

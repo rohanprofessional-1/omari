@@ -307,6 +307,23 @@ function BuilderCanvas() {
   // Nodes Sprout's latest reply refers to — highlighted so "which of these
   // two nodes?" points at them. VIEW-ONLY, cleared by any canvas interaction.
   const [assistantFocus, setAssistantFocus] = useState<Set<string> | null>(null)
+  // Sprout proposal PREVIEW: the canvas temporarily shows the candidate tree
+  // (ghosted additions, faded removals) while editing is locked. The snapshot
+  // restores the real tree on exit; Apply commits and drops the snapshot.
+  const previewSnapshotRef = useRef<{
+    nodes: BuilderFlowNode[]
+    collapsed: Set<string>
+    rootId: string
+  } | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const previewingRef = useRef(false)
+  useEffect(() => {
+    previewingRef.current = previewing
+  }, [previewing])
+
+  // Live multi-selection (click, shift-click, shift-drag box) — scopes the
+  // Sprout conversation to "these nodes".
+  const selectedNodeIds = useMemo(() => nodes.filter((n) => n.selected).map((n) => n.id), [nodes])
   const { fitView, screenToFlowPosition } = useReactFlow()
   
   // The library trees available to open, and which one is currently on the canvas.
@@ -611,6 +628,7 @@ function BuilderCanvas() {
 
   const addNode = useCallback(
     (kind: NodeKind, position: { x: number; y: number }) => {
+      if (previewingRef.current) return // canvas is read-only during a Sprout preview
       const treeNode = createTreeNode(kind)
       const flowNode: BuilderFlowNode = {
         id: treeNode.id,
@@ -893,6 +911,13 @@ function BuilderCanvas() {
   const pendingWarningsRef = useRef<TreeWarning[]>([])
 
   const validateForLibrary = useCallback((): boolean => {
+    if (previewSnapshotRef.current) {
+      setSaveResult({
+        ok: false,
+        warnings: [{ id: 'preview', message: 'Exit the Sprout preview (apply or dismiss the proposal) before saving.' }],
+      })
+      return false
+    }
     const tree = flowNodesToTree(nodesRef.current, activeMeta.treeId, rootIdRef.current)
     const warnings = validateTreeGraph(tree)
     const parsed = TreeSchema.safeParse(tree)
@@ -945,10 +970,108 @@ function BuilderCanvas() {
   /* --------------------------- Assistant --------------------------------- */
 
   // The canvas as a Tree for the assistant — wiring/data only, no geometry.
-  const getAssistantTree = useCallback(
-    () => flowNodesToTree(nodesRef.current, activeMeta.treeId, rootIdRef.current),
-    [activeMeta.treeId],
+  // During a preview this returns the REAL (snapshotted) tree, never the
+  // ghosted candidate, so proposals always apply against reality.
+  const getAssistantTree = useCallback(() => {
+    const snap = previewSnapshotRef.current
+    return snap
+      ? flowNodesToTree(snap.nodes, activeMeta.treeId, snap.rootId)
+      : flowNodesToTree(nodesRef.current, activeMeta.treeId, rootIdRef.current)
+  }, [activeMeta.treeId])
+
+  // Collapsed nodes that hide any of `ids` (walk parents up), given a tree.
+  const collapsedAncestorsOf = (treeNodes: TreeNode[], ids: string[]): Set<string> => {
+    const existing = new Set(treeNodes.map((n) => n.id))
+    const reverse = new Map<string, string[]>()
+    for (const tn of treeNodes) {
+      if (tn.type !== 'variable') continue
+      for (const b of tn.branches) {
+        if (!b.nextNodeId || !existing.has(b.nextNodeId)) continue
+        const arr = reverse.get(b.nextNodeId)
+        if (arr) arr.push(tn.id)
+        else reverse.set(b.nextNodeId, [tn.id])
+      }
+    }
+    const ancestors = new Set<string>()
+    const stack = [...ids]
+    while (stack.length) {
+      const cur = stack.pop()!
+      for (const p of reverse.get(cur) ?? []) {
+        if (!ancestors.has(p)) {
+          ancestors.add(p)
+          stack.push(p)
+        }
+      }
+    }
+    return ancestors
+  }
+
+  /**
+   * VISUAL DIFF: render Sprout's candidate tree on the real canvas without
+   * applying it. Added/changed nodes render ghosted (dashed blue), nodes the
+   * proposal would delete stay visible but faded (dashed red). Editing is
+   * locked until the preview ends; Apply in the chat commits it for real.
+   */
+  const previewAssistantTree = useCallback(
+    (tree: Tree, affectedIds: string[], removedIds: string[]) => {
+      if (!previewSnapshotRef.current) {
+        previewSnapshotRef.current = {
+          nodes: nodesRef.current,
+          collapsed: new Set(collapsedRef.current),
+          rootId: rootIdRef.current,
+        }
+      }
+      const snap = previewSnapshotRef.current
+      const prevById = new Map(snap.nodes.map((n) => [n.id, n]))
+      const affected = new Set(affectedIds)
+      const flow: BuilderFlowNode[] = tree.nodes.map((tn) => {
+        const existing = prevById.get(tn.id)
+        const ghost = affected.has(tn.id) ? 'omari-node-ghost' : undefined
+        return existing
+          ? { ...existing, selected: false, className: ghost, data: { treeNode: tn } }
+          : { id: tn.id, type: tn.type, position: { x: 0, y: 0 }, className: ghost, data: { treeNode: tn } }
+      })
+      // Nodes the proposal deletes: keep them on screen, faded, so the
+      // removal itself is visible in the preview.
+      for (const id of removedIds) {
+        const existing = prevById.get(id)
+        if (existing)
+          flow.push({ ...existing, selected: false, className: 'omari-node-ghost omari-node-removed' })
+      }
+      setNodes(flow)
+      nodesRef.current = flow
+      rootIdRef.current = tree.rootNodeId
+      setSelectedId(null)
+      setSelectedEdge(null)
+      setTracedDestId(null)
+      const highlight = [...affectedIds, ...removedIds]
+      setAssistantFocus(highlight.length > 0 ? new Set(highlight) : null)
+      const ancestors = collapsedAncestorsOf(tree.nodes, highlight)
+      const nextCollapsed = new Set(
+        [...snap.collapsed].filter((c) => !ancestors.has(c) && !highlight.includes(c)),
+      )
+      setCollapsed(nextCollapsed)
+      collapsedRef.current = nextCollapsed
+      setPreviewing(true)
+      void runLayout(nextCollapsed)
+    },
+    [setNodes, runLayout],
   )
+
+  /** Exit the preview and restore the real tree exactly as it was. */
+  const endAssistantPreview = useCallback(() => {
+    const snap = previewSnapshotRef.current
+    if (!snap) return
+    previewSnapshotRef.current = null
+    setPreviewing(false)
+    setNodes(snap.nodes)
+    nodesRef.current = snap.nodes
+    rootIdRef.current = snap.rootId
+    setCollapsed(snap.collapsed)
+    collapsedRef.current = snap.collapsed
+    setAssistantFocus(null)
+    void runLayout(snap.collapsed)
+  }, [setNodes, runLayout])
 
   // Highlight the nodes Sprout's reply refers to: expand any collapsed
   // ancestors hiding them, isolate them (dim the rest), and frame them.
@@ -1013,6 +1136,16 @@ function BuilderCanvas() {
   // untouched until a manual "Save to library".
   const applyAssistantTree = useCallback(
     (tree: Tree, affectedIds: string[]) => {
+      // Committing while previewing: drop back to the REAL tree first so
+      // surviving nodes keep their true positions and no ghost styling leaks.
+      const snap = previewSnapshotRef.current
+      if (snap) {
+        previewSnapshotRef.current = null
+        setPreviewing(false)
+        nodesRef.current = snap.nodes
+        rootIdRef.current = snap.rootId
+        collapsedRef.current = snap.collapsed
+      }
       const prevById = new Map(nodesRef.current.map((n) => [n.id, n]))
       const flow: BuilderFlowNode[] = tree.nodes.map((tn) => {
         const existing = prevById.get(tn.id)
@@ -1064,6 +1197,12 @@ function BuilderCanvas() {
     [setNodes, runLayout],
   )
 
+  // Deselect everything on the canvas (the × on the chat's "Editing" chip).
+  const clearCanvasSelection = useCallback(() => {
+    setNodes((cur) => cur.map((n) => (n.selected ? { ...n, selected: false } : n)))
+    setSelectedId(null)
+  }, [setNodes])
+
   const onBucketHover = useCallback(
     (key: { nodeId: string; branchIndex: number } | null) => setHoveredBucket(key),
     [],
@@ -1114,7 +1253,16 @@ function BuilderCanvas() {
               edgeTypes={edgeTypes}
               onConnect={onConnect}
               isValidConnection={isValidConnection}
-              onNodeClick={(_, node) => {
+              onNodeClick={(event, node) => {
+                // Shift/Cmd-click grows a multi-selection (React Flow manages
+                // the set) — that scopes Sprout, and must NOT open the editor.
+                if (event.shiftKey || event.metaKey || event.ctrlKey) {
+                  setSelectedId(null)
+                  setSelectedEdge(null)
+                  setTracedDestId(null)
+                  setAssistantFocus(null)
+                  return
+                }
                 setSelectedId(node.id)
                 setSelectedEdge(null)
                 setTracedDestId(null)
@@ -1138,6 +1286,9 @@ function BuilderCanvas() {
                 setAssistantFocus(null)
               }}
               deleteKeyCode={null}
+              nodesDraggable={!previewing}
+              nodesConnectable={!previewing}
+              elementsSelectable={!previewing}
               fitView
               fitViewOptions={{ padding: 0.18 }}
               minZoom={0.2}
@@ -1158,6 +1309,23 @@ function BuilderCanvas() {
               )}
             </ReactFlow>
 
+            {/* Preview banner — the canvas is showing Sprout's CANDIDATE tree,
+                read-only, until the proposal is applied or dismissed. */}
+            {previewing && (
+              <div className="omari-reveal absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-accent/40 bg-sky px-4 py-1.5 shadow-[0_4px_14px_rgba(37,99,235,0.18)]">
+                <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden />
+                <span className="text-[12px] font-medium text-accent-strong">
+                  Previewing Sprout’s proposal — nothing is applied, editing is paused
+                </span>
+                <button
+                  onClick={endAssistantPreview}
+                  className="rounded-full border border-accent/40 px-2.5 py-0.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent hover:text-white"
+                >
+                  Exit preview
+                </button>
+              </div>
+            )}
+
             {/* Floating Sprout launcher — the AI assistant lives bottom-right,
                 like a chat bubble, so it reads as "talk to something" rather
                 than another toolbar action. Hidden while the panel is open. */}
@@ -1165,7 +1333,7 @@ function BuilderCanvas() {
               <button
                 onClick={() => setAssistantOpen(true)}
                 title="Sprout — AI assistant. Drafts tree edits you approve, answers questions about the tree."
-                className="omari-reveal absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-full bg-[#16294e] py-1.5 pl-1.5 pr-4 shadow-[0_4px_18px_rgba(22,41,78,0.4)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_8px_26px_rgba(22,41,78,0.5)] active:translate-y-0"
+                className="omari-reveal absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-full bg-accent-strong py-1.5 pl-1.5 pr-4 shadow-[0_4px_18px_rgba(30,58,138,0.4)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_8px_26px_rgba(30,58,138,0.5)] active:translate-y-0"
               >
                 <img src={sproutLogo} alt="" aria-hidden className="h-9 w-9 rounded-full" />
                 <span className="font-display text-[13px] font-semibold text-white">Ask Sprout</span>
@@ -1186,10 +1354,15 @@ function BuilderCanvas() {
         {assistantOpen && (
           <BuilderChatPanel
             getTree={getAssistantTree}
+            selectedNodeIds={selectedNodeIds}
+            onClearSelection={clearCanvasSelection}
             onApply={applyAssistantTree}
+            onPreview={previewAssistantTree}
+            onEndPreview={endAssistantPreview}
             onFocusNodes={focusAssistantNodes}
             onClose={() => {
               setAssistantOpen(false)
+              endAssistantPreview()
               setAssistantFocus(null)
             }}
           />

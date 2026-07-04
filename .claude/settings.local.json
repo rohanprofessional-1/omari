@@ -112,7 +112,10 @@
       "Bash(cp \"/Users/shivankkancharla/Desktop/Screenshot 2026-07-03 at 6.13.48 PM.png\" \"/Users/shivankkancharla/Project Omari/frontend/src/assets/sprout-logo.png\")",
       "Bash(sips -g pixelWidth -g pixelHeight \"/Users/shivankkancharla/Project Omari/frontend/src/assets/sprout-logo.png\")",
       "Bash(sips -s format bmp src/assets/sprout-logo.png --out /tmp/sprout.bmp)",
-      "Bash(python3 -)"
+      "Bash(python3 -)",
+      "Bash(python3 -m pip install pillow --quiet --user)",
+      "Bash(python3 -c \"import PIL; print\\('PIL ok'\\)\")",
+      "Bash(awk '{print $1, $9}')"
     ]
   }
 }

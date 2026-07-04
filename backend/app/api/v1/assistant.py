@@ -35,6 +35,7 @@ async def tree_chat(body: TreeChatRequest) -> Any:
             message=body.message,
             history=[t.model_dump() for t in body.history],
             warnings=body.warnings,
+            selected_node_ids=body.selectedNodeIds,
         )
     except Exception as e:
         logger.exception("tree chat failed")
