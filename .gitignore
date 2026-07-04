@@ -1,27 +1,50 @@
-# Node.js
-node_modules/
-dist/
-build/
-.npm/
+# Logs
+logs
+*.log
+npm-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Secrets — never commit the API key
+.env
+.env.*
+!.env.example
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.pyo
 backend/venv/
-venv/
-env/
+backend/.venv/
+*.egg-info/
 .pytest_cache/
+.vite
+# Docker
+pgdata/
 
-# Environment Variables
-.env
-.env.local
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Editor/IDE
-.vscode/
-.idea/
-.claude/
+#Duke-knowledge
+/Duke-Sample/

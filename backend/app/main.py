@@ -1,52 +1,58 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
-from uuid import uuid4
+from sqlalchemy import text
 
-from app.services.tree.state_manager import TreeStateManager
-from app.services.tree.sample_trees import knee_pain_tree
-from app.services.orchestrator import IntakeOrchestrator
-
-app = FastAPI(title="Clinical Decision Engine API")
-
-# Configure CORS for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins in development
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+from app.core.config import settings
+from app.core.database import engine
+from app.api.v1 import (
+    clinics,
+    trees,
+    nodes,
+    variables,
+    specialists,
+    patients,
+    conversations,
+    knowledge_bases,
 )
 
-# In-memory session store for testing purposes
-sessions: Dict[str, TreeStateManager] = {}
 
-class ChatRequest(BaseModel):
-    session_id: Optional[str] = None
-    message: Optional[str] = None
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Application startup
+    yield
+    # Application shutdown
+    await engine.dispose()
 
-@app.post("/chat")
-def chat_endpoint(request: ChatRequest):
-    # 1. Retrieve or create session
-    session_id = request.session_id
-    if not session_id or session_id not in sessions:
-        session_id = str(uuid4())
-        sessions[session_id] = TreeStateManager(knee_pain_tree)
-    
-    manager = sessions[session_id]
-    
-    # 2. Run the orchestrator
-    orchestrator = IntakeOrchestrator(manager)
-    try:
-        result = orchestrator.process_turn(request.message)
-    except Exception as e:
-        return {"error": str(e), "session_id": session_id}
-        
-    # 3. Append the session ID to the response so the client can keep the state
-    result["session_id"] = session_id
-    return result
 
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
+    lifespan=lifespan,
+)
+
+# CORS Middleware
+if settings.BACKEND_CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# Routers
+app.include_router(clinics.router, prefix=settings.API_V1_PREFIX, tags=["clinics"])
+app.include_router(trees.router, prefix=settings.API_V1_PREFIX, tags=["trees"])
+app.include_router(nodes.router, prefix=settings.API_V1_PREFIX, tags=["nodes"])
+app.include_router(variables.router, prefix=settings.API_V1_PREFIX, tags=["variables"])
+app.include_router(specialists.router, prefix=settings.API_V1_PREFIX, tags=["specialists"])
+app.include_router(patients.router, prefix=settings.API_V1_PREFIX, tags=["patients"])
+app.include_router(conversations.router, prefix=settings.API_V1_PREFIX, tags=["conversations"])
+app.include_router(knowledge_bases.router, prefix=settings.API_V1_PREFIX, tags=["knowledge-bases"])
+
+
+@app.get(f"{settings.API_V1_PREFIX}/health", tags=["health"])
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "ok", "app": settings.PROJECT_NAME}

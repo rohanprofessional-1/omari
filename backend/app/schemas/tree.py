@@ -1,42 +1,50 @@
-from typing import List, Dict, Any, Literal, Union, Optional
 from pydantic import BaseModel, Field
+from datetime import datetime
+from typing import Optional, List
 
-class BaseNode(BaseModel):
+
+class TreeCreate(BaseModel):
+    name: str = Field(..., max_length=255)
+    clinic_id: Optional[str] = None
+    description: Optional[str] = None
+    root_node_id: Optional[str] = None
+    version: int = 1
+    is_active: bool = True
+    authored_by: Optional[str] = None
+
+
+class TreeUpdate(BaseModel):
+    name: Optional[str] = Field(None, max_length=255)
+    clinic_id: Optional[str] = None
+    description: Optional[str] = None
+    root_node_id: Optional[str] = None
+    version: Optional[int] = None
+    is_active: Optional[bool] = None
+    authored_by: Optional[str] = None
+
+
+class TreeRead(BaseModel):
     id: str
-    type: str
+    clinic_id: Optional[str] = None
+    name: str
+    description: Optional[str] = None
+    root_node_id: Optional[str] = None
+    version: int
+    is_active: bool
+    authored_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
-class VariableNode(BaseNode):
-    type: Literal["variable"] = "variable"
-    label: str
-    variable_name: str
-    valid_values: List[str]
-    value_definitions: Dict[str, str]
-    few_shot_examples: List[Dict[str, str]]
-    next_node_id: Optional[str] = None
+    model_config = {"from_attributes": True}
 
-class BranchCondition(BaseModel):
-    variable_name: str
-    operator: Literal["==", "!=", "<", ">", "<=", ">="]
-    value: Any
-    next_node_id: str
 
-class BranchNode(BaseNode):
-    type: Literal["branch"] = "branch"
-    conditions: List[BranchCondition]
-    default_next_node_id: str
+class TreeReadFull(TreeRead):
+    """Tree with all nested nodes, branches, conditions for engine consumption."""
+    nodes: List["NodeRead"] = []
 
-class ActionNode(BaseNode):
-    type: Literal["action"] = "action"
-    action_type: str
-    payload: Dict[str, Any]
-    next_node_id: Optional[str] = None
+    model_config = {"from_attributes": True}
 
-class EndNode(BaseNode):
-    type: Literal["end"] = "end"
 
-# A discriminated union for type-safe parsing
-TreeNode = Union[VariableNode, BranchNode, ActionNode, EndNode]
-
-class Tree(BaseModel):
-    nodes: Dict[str, TreeNode]
-    root_node_id: str
+# Forward reference resolution
+from app.schemas.node import NodeRead  # noqa: E402
+TreeReadFull.model_rebuild()
