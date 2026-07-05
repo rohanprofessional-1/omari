@@ -22,6 +22,7 @@ class ChatResponse(BaseModel):
     options: Optional[List[str]] = None
     specialist: Optional[dict] = None  # When routed
     escalation_reason: Optional[str] = None  # When escalated
+    path_taken: Optional[List[str]] = None
 
 
 class ConversationTurnRead(BaseModel):

@@ -1,32 +1,19 @@
 import { useMemo, useState } from 'react'
 import dagre from 'dagre'
 import { evaluateCondition } from '../lib/engine'
-import { confidenceBand, type Extraction, type OrchestratorStep } from '../lib/orchestrator'
-import { coreIntakeKeys } from '../lib/escalation'
 import { nodeDisplayName } from '../lib/treeToFlow'
-import type { FilledVariables, Tree } from '../types/tree'
+import type { Tree } from '../types/tree'
 
-/**
- * Omari — live decision-tree mini-visualization (DEMO/PRESENTER aid only).
- *
- * Presentation-only: reads the tree the engine is already using + the
- * variables/result the orchestrator already produced, and renders them. It
- * changes NOTHING — no engine, extraction, routing, or intake logic.
- *
- * Reflects the current architecture (intake → decision):
- *   • INTAKE  — core-intake variables light up as answers are captured.
- *   • DECISION — once the engine routes/escalates, the taken PATH is highlighted.
- * It deliberately does NOT depict routing node-by-node during questioning.
- *
- * Gating (visible only in Demo mode AND not Presentation mode) is enforced by
- * the caller — this component is only mounted in the behind-the-scenes panel.
- */
+function confidenceBand(conf: number) {
+  if (conf >= 0.8) return 'high'
+  if (conf >= 0.5) return 'medium'
+  return 'low'
+}
 
-// Builder node colours (kept in sync with the design tokens / Builder cards).
 const COLOR = {
-  variable: '#2563EB', // --color-nodevar
-  specialist: '#4B9CD3', // --color-nodespec
-  escalation: '#6CB4EE', // --color-nodeesc
+  variable: '#2563EB',
+  specialist: '#4B9CD3',
+  escalation: '#6CB4EE',
   dimEdge: '#CBD5E1',
   takenEdge: '#2563EB',
   line: '#E2E8F0',
@@ -34,17 +21,15 @@ const COLOR = {
   ink: '#16202E',
 }
 
-const VIEW_KEY = 'omari:treeviz' // remembers path vs tree across the session
+const VIEW_KEY = 'omari:treeviz'
 
 type View = 'path' | 'tree'
 
-/** Prettify a camelCase variable key into a short readable label. */
 function prettyKey(key: string): string {
   const words = key.replace(/([A-Z])/g, ' $1').trim()
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-/** The human branch label for a captured value at a variable (its matching branch). */
 function branchLabel(tree: Tree, key: string, value: unknown): string {
   for (const node of tree.nodes) {
     if (node.type !== 'variable' || node.variableKey !== key) continue
@@ -55,21 +40,21 @@ function branchLabel(tree: Tree, key: string, value: unknown): string {
 }
 
 interface VizState {
-  litHigh: Set<string> // variable keys captured at high confidence (filled)
-  litMed: Set<string> // variable keys captured but unconfirmed (candidates)
+  litHigh: Set<string>
+  litMed: Set<string>
   resolved: boolean
-  pathSet: Set<string> // node ids on the decided path (only when resolved)
-  takenEdges: Set<string> // "source->target" pairs on the decided path
+  pathSet: Set<string>
+  takenEdges: Set<string>
   outcomeId: string | null
 }
 
 function deriveVizState(
-  filled: FilledVariables,
-  candidates: Record<string, Extraction>,
-  step: OrchestratorStep | null,
+  filled: Record<string, any>,
+  candidates: Record<string, any>,
+  step: any,
 ): VizState {
   const resolved = step?.kind === 'route' || step?.kind === 'escalate'
-  const path = resolved ? step!.pathTaken : []
+  const path = step?.pathTaken || []
   const takenEdges = new Set<string>()
   for (let i = 0; i < path.length - 1; i++) takenEdges.add(`${path[i]}->${path[i + 1]}`)
   return {
@@ -82,10 +67,6 @@ function deriveVizState(
   }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Top-level: header + view toggle + body                                      */
-/* -------------------------------------------------------------------------- */
-
 export default function TreeMiniViz({
   tree,
   filled,
@@ -93,9 +74,9 @@ export default function TreeMiniViz({
   step,
 }: {
   tree: Tree
-  filled: FilledVariables
-  candidates: Record<string, Extraction>
-  step: OrchestratorStep | null
+  filled: Record<string, any>
+  candidates: Record<string, any>
+  step: any
 }) {
   const [view, setView] = useState<View>(() => {
     try {
@@ -108,9 +89,7 @@ export default function TreeMiniViz({
     setView(v)
     try {
       sessionStorage.setItem(VIEW_KEY, v)
-    } catch {
-      /* ignore */
-    }
+    } catch {}
   }
 
   const viz = deriveVizState(filled, candidates, step)
@@ -147,10 +126,6 @@ export default function TreeMiniViz({
   )
 }
 
-/* -------------------------------------------------------------------------- */
-/* PATH STRIP (default) — core-intake chips that fill in, then the outcome      */
-/* -------------------------------------------------------------------------- */
-
 function PathStrip({
   tree,
   filled,
@@ -159,12 +134,12 @@ function PathStrip({
   viz,
 }: {
   tree: Tree
-  filled: FilledVariables
-  candidates: Record<string, Extraction>
-  step: OrchestratorStep | null
+  filled: Record<string, any>
+  candidates: Record<string, any>
+  step: any
   viz: VizState
 }) {
-  const coreKeys = useMemo(() => coreIntakeKeys(tree), [tree])
+  const coreKeys = useMemo(() => Array.from(new Set(tree.nodes.filter(n => n.type === 'variable').map(n => n.variableKey as string))), [tree])
 
   return (
     <div className="flex flex-wrap items-stretch gap-1.5">
@@ -224,7 +199,6 @@ function IntakeChip({
         <span className="truncate text-[9.5px] font-medium uppercase tracking-wide text-muted">{label}</span>
       </div>
       {valueLabel !== undefined ? (
-        // Keyed on the value so it animates in the moment the answer is captured.
         <div key={valueLabel} className="omari-msg mt-0.5">
           <p className="truncate text-[11px] leading-tight text-ink" title={valueLabel}>
             {valueLabel}
@@ -242,13 +216,13 @@ function IntakeChip({
   )
 }
 
-function OutcomeChip({ step, resolved }: { step: OrchestratorStep | null; resolved: boolean }) {
+function OutcomeChip({ step, resolved }: { step: any; resolved: boolean }) {
   if (resolved && step?.kind === 'route') {
     return (
       <div key="routed" className="omari-reveal flex min-w-[88px] flex-col justify-center rounded-md border border-nodespec bg-nodespec/10 px-2 py-1">
         <span className="text-[9px] font-semibold uppercase tracking-wide text-carolina-deep">Routed</span>
-        <span className="truncate text-[11px] font-medium leading-tight text-ink" title={step.specialist.specialistName}>
-          {step.specialist.specialistName}
+        <span className="truncate text-[11px] font-medium leading-tight text-ink">
+          Done
         </span>
       </div>
     )
@@ -267,10 +241,6 @@ function OutcomeChip({ step, resolved }: { step: OrchestratorStep | null; resolv
     </div>
   )
 }
-
-/* -------------------------------------------------------------------------- */
-/* FULL TREE MINI-MAP — the actual tree, taken path highlighted                */
-/* -------------------------------------------------------------------------- */
 
 interface MiniNode {
   id: string
@@ -325,7 +295,7 @@ function computeMiniLayout(tree: Tree): {
         ? n.specialistName.replace(/^Dr\.\s*/, '')
         : n.type === 'escalation'
           ? 'Review'
-          : prettyKey(n.variableKey)
+          : prettyKey(n.variableKey as string)
     return {
       id: n.id,
       cx: gn.x,
@@ -378,7 +348,6 @@ function TreeMiniMap({ tree, viz }: { tree: Tree; viz: VizState }) {
     <div>
       <div className="overflow-hidden rounded-md border border-line bg-bg/50" style={{ height: 240 }}>
         <svg viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
-          {/* edges first (under nodes) */}
           {edges.map((e) => {
             const taken = viz.takenEdges.has(`${e.source}->${e.target}`)
             return (
@@ -395,7 +364,6 @@ function TreeMiniMap({ tree, viz }: { tree: Tree; viz: VizState }) {
               />
             )
           })}
-          {/* nodes */}
           {nodes.map((n) => {
             const lit = nodeLit(n)
             const base = COLOR[n.type]

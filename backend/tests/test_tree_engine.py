@@ -1,72 +1,93 @@
 import pytest
-from app.schemas.tree import Tree, VariableNode, BranchNode, BranchCondition, ActionNode, EndNode
-from app.services.tree.state_manager import TreeStateManager
-from app.services.tree.sample_trees import knee_pain_tree
+from app.services.tree_engine import run_engine, RoutingResult, evaluate_condition
+from app.schemas.tree import TreeReadFull
+from app.schemas.node import NodeRead
+from app.schemas.branch import BranchRead
+from app.schemas.condition import ConditionRead
 
-def test_variable_collection():
-    manager = TreeStateManager(knee_pain_tree)
-    manager.collect_variable("pain_duration", "1-4 weeks")
-    
-    assert manager.collected_variables["pain_duration"] == "1-4 weeks"
-    assert manager.get_current_node().id == "v_duration"
+def test_evaluate_condition_equals():
+    cond = ConditionRead(id="c1", branch_id="b1", condition_type="equals", value_string="yes", created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z")
+    assert evaluate_condition(cond, "yes") == True
+    assert evaluate_condition(cond, "no") == False
 
-def test_branch_evaluation_gt():
-    # Test operator >= 8
-    manager = TreeStateManager(knee_pain_tree)
-    manager.advance_node("b_evaluate")
-    manager.collect_variable("pain_level", "8") # Should trigger >= 8
-    manager.collect_variable("swelling", "no")
-    manager.collect_variable("popping_sound", "no")
-    
-    next_node = manager.evaluate_branch()
-    assert next_node == "a_urgent_xray"
+def test_evaluate_condition_range():
+    cond = ConditionRead(id="c1", branch_id="b1", condition_type="range", min_value=5, max_value=10, created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z")
+    assert evaluate_condition(cond, 7) == True
+    assert evaluate_condition(cond, "7") == True
+    assert evaluate_condition(cond, 4) == False
+    assert evaluate_condition(cond, 11) == False
 
-def test_branch_evaluation_eq():
-    # Test operator == 'yes'
-    manager = TreeStateManager(knee_pain_tree)
-    manager.advance_node("b_evaluate")
-    manager.collect_variable("pain_level", "5")
-    manager.collect_variable("swelling", "yes") # Should trigger == yes
-    manager.collect_variable("popping_sound", "no")
-    
-    next_node = manager.evaluate_branch()
-    assert next_node == "a_urgent_xray"
+def test_evaluate_condition_in():
+    cond = ConditionRead(id="c1", branch_id="b1", condition_type="in", values_list='["apple", "banana"]', created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z")
+    assert evaluate_condition(cond, "apple") == True
+    assert evaluate_condition(cond, "banana") == True
+    assert evaluate_condition(cond, "orange") == False
 
-def test_branch_evaluation_default():
-    # Test fallback
-    manager = TreeStateManager(knee_pain_tree)
-    manager.advance_node("b_evaluate")
-    manager.collect_variable("pain_level", "5")
-    manager.collect_variable("swelling", "no")
-    manager.collect_variable("popping_sound", "no")
-    
-    next_node = manager.evaluate_branch()
-    assert next_node == "a_recommend_rest"
 
-def test_action_ordering():
-    manager = TreeStateManager(knee_pain_tree)
-    manager.add_action({"action_type": "order_xray", "urgency": "high"})
-    manager.add_action({"action_type": "schedule_followup", "days": 7})
+def test_run_engine_incomplete():
+    node1 = NodeRead(
+        id="n1", tree_id="t1", node_type="variable", variable_key="symptom",
+        created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z",
+        branches=[]
+    )
+    tree = TreeReadFull(
+        id="t1", name="Test Tree", version=1, is_active=True, root_node_id="n1",
+        created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z",
+        nodes=[node1]
+    )
     
-    assert len(manager.ordered_actions) == 2
-    assert manager.ordered_actions[0]["action_type"] == "order_xray"
-    assert manager.ordered_actions[1]["action_type"] == "schedule_followup"
+    # Missing variable "symptom"
+    result = run_engine(tree, {})
+    assert result.outcome == "incomplete"
+    assert result.missing_variables == ["symptom"]
+    assert result.path_taken == ["n1"]
 
-def test_conversation_history_capping():
-    manager = TreeStateManager(knee_pain_tree)
-    for i in range(10):
-        manager.append_history("user", f"Turn {i}")
-        
-    assert len(manager.conversation_history) == 8
-    assert manager.conversation_history[0]["text"] == "Turn 2"
-    assert manager.conversation_history[-1]["text"] == "Turn 9"
+def test_run_engine_routed():
+    # Setup
+    branch = BranchRead(
+        id="b1", node_id="n1", tree_id="t1", label="b1", next_node_id="n2", branch_order=0,
+        condition=ConditionRead(id="c1", branch_id="b1", condition_type="equals", value_string="pain", created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z"),
+        created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z"
+    )
+    node1 = NodeRead(
+        id="n1", tree_id="t1", node_type="variable", variable_key="symptom", branches=[branch],
+        created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z"
+    )
+    node2 = NodeRead(
+        id="n2", tree_id="t1", node_type="specialist", specialist_name="Dr. Smith",
+        created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z"
+    )
+    tree = TreeReadFull(
+        id="t1", name="Test Tree", version=1, is_active=True, root_node_id="n1",
+        created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z",
+        nodes=[node1, node2]
+    )
+    
+    # Variable is provided, should route to n2
+    result = run_engine(tree, {"symptom": "pain"})
+    assert result.outcome == "routed"
+    assert result.specialist.specialist_name == "Dr. Smith"
+    assert result.path_taken == ["n1", "n2"]
 
-def test_advance_node():
-    manager = TreeStateManager(knee_pain_tree)
-    assert manager.current_node_id == "v_duration"
+def test_run_engine_escalated_no_branch_match():
+    # Setup
+    branch = BranchRead(
+        id="b1", node_id="n1", tree_id="t1", label="b1", next_node_id="n2", branch_order=0,
+        condition=ConditionRead(id="c1", branch_id="b1", condition_type="equals", value_string="pain", created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z"),
+        created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z"
+    )
+    node1 = NodeRead(
+        id="n1", tree_id="t1", node_type="variable", variable_key="symptom", branches=[branch],
+        created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z"
+    )
+    tree = TreeReadFull(
+        id="t1", name="Test Tree", version=1, is_active=True, root_node_id="n1",
+        created_at="2020-01-01T00:00:00Z", updated_at="2020-01-01T00:00:00Z",
+        nodes=[node1]
+    )
     
-    manager.advance_node("v_level")
-    assert manager.current_node_id == "v_level"
-    
-    with pytest.raises(ValueError):
-        manager.advance_node("non_existent_node")
+    # Variable provided does NOT match the branch
+    result = run_engine(tree, {"symptom": "itching"})
+    assert result.outcome == "escalated"
+    assert "No branch matched" in result.escalation_reason
+    assert result.path_taken == ["n1"]
