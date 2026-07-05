@@ -25,9 +25,8 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-import { sampleTree } from '../data/sampleTree'
-import { dukeNerveTree } from '../data/dukeNerveTree'
-import { fetchTrees, fetchTree } from '../lib/api'
+
+import { fetchTrees, fetchTree, saveTreeToBackend } from '../lib/api'
 import {
   createTreeNode,
   deriveEdges,
@@ -277,12 +276,7 @@ function BuilderCanvas() {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const addCascade = useRef(0)
 
-  const initialNodes = useMemo(() => {
-    const nodes = treeToFlowNodes(sampleTree)
-    return layoutWithDagre(nodes, deriveEdges(nodes))
-  }, [])
-
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
+  const [nodes, setNodes, onNodesChange] = useNodesState<BuilderFlowNode>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<SelectedEdge | null>(null)
   // Transient hover targets that drive single-path isolation (highlight + dim).
@@ -306,10 +300,7 @@ function BuilderCanvas() {
   const { saveTree } = useTreeStore()
   
   const [dbTrees, setDbTrees] = useState<{ id: string; name: string }[]>([])
-
-  useEffect(() => {
-    fetchTrees().then(setDbTrees).catch(console.error)
-  }, [])
+  const [initialLoaded, setInitialLoaded] = useState(false)
 
   // Keep a ref to the latest nodes for event handlers (keydown) that must read
   // current state without being re-bound on every change.
@@ -325,13 +316,13 @@ function BuilderCanvas() {
   }, [collapsed])
 
   // Which tree is currently loaded on the canvas (drives save id/root + the
-  // top-bar tag). Starts as the simple sample; the load buttons swap it.
+  // top-bar tag). Loaded from the DB on mount.
   const [activeMeta, setActiveMeta] = useState({
-    treeId: sampleTree.treeId,
-    rootNodeId: sampleTree.rootNodeId,
+    treeId: '',
+    rootNodeId: '',
   })
   // Latest root id for event handlers that must read it without re-binding.
-  const rootIdRef = useRef(sampleTree.rootNodeId)
+  const rootIdRef = useRef('')
   useEffect(() => {
     rootIdRef.current = activeMeta.rootNodeId
   }, [activeMeta])
@@ -845,21 +836,24 @@ function BuilderCanvas() {
     [loadTree],
   )
 
-  const onLoadSimple = useCallback(() => {
-    const t = dbTrees.find(t => t.name === 'Sample Tree')
-    if (t) loadTreeFromDb(t.id)
-    else loadTree(sampleTree)
-  }, [dbTrees, loadTreeFromDb, loadTree])
-  
-  const onLoadDuke = useCallback(() => {
-    const t = dbTrees.find(t => t.name === 'Duke Nerve Tree')
-    if (t) loadTreeFromDb(t.id)
-    else loadTree(dukeNerveTree)
-  }, [dbTrees, loadTreeFromDb, loadTree])
+  // On mount: fetch the tree list and load the first tree onto the canvas.
+  useEffect(() => {
+    if (initialLoaded) return
+    fetchTrees()
+      .then(async (trees) => {
+        setDbTrees(trees)
+        if (trees.length > 0) {
+          const tree = await fetchTree(trees[0].id)
+          loadTree(tree)
+        }
+        setInitialLoaded(true)
+      })
+      .catch(console.error)
+  }, [initialLoaded, loadTree])
 
   // Convert the canvas back into a Tree, validate with Zod + soft graph checks,
   // log the serialized schema, and store it for the Runner.
-  const onSave = useCallback(() => {
+  const onSave = useCallback(async () => {
     const tree = flowNodesToTree(nodesRef.current, activeMeta.treeId, rootIdRef.current)
     const warnings = validateTreeGraph(tree)
 
@@ -879,11 +873,25 @@ function BuilderCanvas() {
       return
     }
 
-    // Proof it's the real schema, not raw React Flow geometry.
-    console.log('[Blume] Saved Tree JSON:\n' + JSON.stringify(parsed.data, null, 2))
-
-    saveTree(parsed.data)
-    setSaveResult({ ok: true, warnings })
+    try {
+      // Save full tree to backend first
+      await saveTreeToBackend(parsed.data)
+      // Then update local state
+      saveTree(parsed.data)
+      setSaveResult({ ok: true, warnings })
+    } catch (err: any) {
+      console.error('[Blume] Failed to save tree to backend:', err)
+      setSaveResult({
+        ok: false,
+        warnings: [
+          {
+            id: 'backend',
+            message: `Backend error: ${err.message}`,
+          },
+          ...warnings,
+        ],
+      })
+    }
   }, [saveTree, activeMeta])
 
   const onBucketHover = useCallback(
@@ -903,14 +911,15 @@ function BuilderCanvas() {
           destinations={destinations}
           tracedDestId={tracedDestId}
           onTraceDest={onTraceDest}
+          dbTrees={dbTrees}
+          activeTreeId={activeMeta.treeId}
+          onLoadTree={loadTreeFromDb}
         />
 
         {/* Canvas region: a document-style toolbar sits above the surface (like
             the toolbar above a page in Word / Google Docs). */}
         <div className="flex min-w-0 flex-1 flex-col gap-2 p-3">
           <CanvasToolbar
-            onLoadSimple={onLoadSimple}
-            onLoadDuke={onLoadDuke}
             onSave={onSave}
             onExpandAll={onExpandAll}
             onCollapseAll={onCollapseAll}
@@ -1086,11 +1095,17 @@ function LeftColumn({
   destinations,
   tracedDestId,
   onTraceDest,
+  dbTrees,
+  activeTreeId,
+  onLoadTree,
 }: {
   onAdd: (kind: NodeKind) => void
   destinations: Destination[]
   tracedDestId: string | null
   onTraceDest: (id: string) => void
+  dbTrees: { id: string; name: string }[]
+  activeTreeId: string
+  onLoadTree: (id: string) => void
 }) {
   const onDragStart = (event: DragEvent<HTMLDivElement>, kind: NodeKind) => {
     event.dataTransfer.setData(DRAG_MIME, kind)
@@ -1099,8 +1114,39 @@ function LeftColumn({
 
   return (
     <aside className="omari-enter-side flex w-[260px] shrink-0 flex-col border-r border-line bg-canvas">
-      {/* ── Add node ────────────────────────────────────────────────────── */}
+      {/* ── Trees ──────────────────────────────────────────────────────── */}
       <div className="shrink-0 px-4 pb-2 pt-4">
+        <p className="font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-accent-strong">
+          Trees
+        </p>
+      </div>
+      <ul className="shrink-0 space-y-0.5 px-2.5 pb-2">
+        {dbTrees.length === 0 && (
+          <li className="px-2 py-1 text-[11px] text-muted">No trees in database.</li>
+        )}
+        {dbTrees.map((t) => {
+          const active = t.id === activeTreeId
+          return (
+            <li key={t.id}>
+              <button
+                onClick={() => onLoadTree(t.id)}
+                aria-pressed={active}
+                className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-all duration-150 ${
+                  active
+                    ? 'border-accent bg-sky font-medium text-accent-strong shadow-sm'
+                    : 'border-transparent font-normal text-ink hover:border-line hover:bg-bg'
+                }`}
+              >
+                <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${active ? 'bg-accent' : 'bg-line'}`} />
+                <span className="truncate">{t.name}</span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+
+      {/* ── Add node ────────────────────────────────────────────────────── */}
+      <div className="shrink-0 border-t border-line px-4 pb-2 pt-3">
         <p className="font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-accent-strong">
           Add node
         </p>
@@ -1254,16 +1300,12 @@ function TBIcon({ children }: { children: ReactNode }) {
  * the labels can stay short.
  */
 function CanvasToolbar({
-  onLoadSimple,
-  onLoadDuke,
   onSave,
   onExpandAll,
   onCollapseAll,
   onAutoLayout,
   onClear,
 }: {
-  onLoadSimple: () => void
-  onLoadDuke: () => void
   onSave: () => void
   onExpandAll: () => void
   onCollapseAll: () => void
@@ -1276,26 +1318,6 @@ function CanvasToolbar({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-[10px] border border-line bg-canvas px-2 py-1.5 shadow-[0_1px_2px_rgba(31,36,33,0.04)]">
-      <button className={btn} onClick={onLoadSimple} title="Load the simple seeded sample tree">
-        <TBIcon>
-          <circle cx="12" cy="5" r="2" />
-          <circle cx="6" cy="19" r="2" />
-          <circle cx="18" cy="19" r="2" />
-          <path d="M12 7v3M12 10l-5 6M12 10l5 6" />
-        </TBIcon>
-        Sample
-      </button>
-      <button className={btn} onClick={onLoadDuke} title="Load the deep Duke Nerve Center tree">
-        <TBIcon>
-          <path d="M12 2 2 7l10 5 10-5-10-5z" />
-          <path d="M2 17l10 5 10-5" />
-          <path d="M2 12l10 5 10-5" />
-        </TBIcon>
-        Duke
-      </button>
-
-      <Divider />
-
       <button className={btn} onClick={onSave} title="Save this tree">
         <TBIcon>
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />

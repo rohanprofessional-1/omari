@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTreeStore } from '../store/treeStore'
-import { sampleTree } from '../data/sampleTree'
 import { fetchTrees, fetchTree, startConversation, sendChatMessage } from '../lib/api'
 import TreeMiniViz from '../components/TreeMiniViz'
 import type { Tree } from '../types/tree'
@@ -54,29 +53,64 @@ export interface ChatMessage {
 function Runner() {
   const { savedTree, savedAt, saveTree } = useTreeStore()
   const [dbTree, setDbTree] = useState<Tree | null>(null)
+  const [dbTrees, setDbTrees] = useState<{ id: string; name: string }[]>([])
+  const [selectedTreeId, setSelectedTreeId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!savedTree && !dbTree) {
-      fetchTrees()
-        .then(async (trees) => {
-          if (trees.length > 0) {
-            const fetched = await fetchTree(trees[0].id)
-            setDbTree(fetched)
-            saveTree(fetched)
-          }
-        })
-        .catch(console.error)
-    }
-  }, [savedTree, dbTree, saveTree])
+    fetchTrees()
+      .then(async (trees) => {
+        setDbTrees(trees)
+        if (!savedTree && trees.length > 0) {
+          const fetched = await fetchTree(trees[0].id)
+          setDbTree(fetched)
+          saveTree(fetched)
+          setSelectedTreeId(trees[0].id)
+        }
+      })
+      .catch(console.error)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  const tree = savedTree ?? dbTree ?? sampleTree
+  const handleSelectTree = async (id: string) => {
+    setSelectedTreeId(id)
+    try {
+      const fetched = await fetchTree(id)
+      setDbTree(fetched)
+      saveTree(fetched)
+    } catch (err) {
+      console.error('Failed to load tree:', err)
+    }
+  }
+
+  const tree = savedTree ?? dbTree
+  if (!tree) {
+    return <div className="p-8 text-center text-muted">Loading tree...</div>
+  }
 
   return (
-    <RunnerSession
-      key={tree.treeId + (savedAt || 0)}
-      tree={tree}
-      usingFallback={!savedTree}
-    />
+    <div className="flex h-full flex-col">
+      {/* Tree picker */}
+      {dbTrees.length > 1 && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-line bg-canvas px-4 py-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">Tree</span>
+          <select
+            id="runner-tree-select"
+            value={selectedTreeId ?? ''}
+            onChange={(e) => handleSelectTree(e.target.value)}
+            className="rounded-md border border-line bg-bg px-2 py-1 text-[13px] text-ink focus:border-accent focus:outline-none"
+          >
+            {dbTrees.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+      <RunnerSession
+        key={tree.treeId + (savedAt || 0)}
+        tree={tree}
+        usingFallback={!savedTree}
+      />
+    </div>
   )
 }
 
@@ -282,20 +316,12 @@ function PresenterBar({
       </div>
 
       <div className="mt-3 border-t border-line/70 pt-2.5">
-        {usingFallback ? (
-          <p className="text-[11px] text-muted">
-            <span className="font-medium text-ink">No saved tree yet</span> — using the seeded
-            sample. Build &amp; save one in the Builder to route against your own logic.
-          </p>
-        ) : (
-          <p className="text-[11px] text-muted">
-            Routing against your saved tree{' '}
-            <span className="rounded border border-line bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-ink">
-              {treeId}
-            </span>
-            .
-          </p>
-        )}
+        <p className="text-[11px] text-muted">
+          Routing against your saved tree{' '}
+          <span className="rounded border border-line bg-canvas px-1.5 py-0.5 font-mono text-[10px] text-ink">
+            {treeId}
+          </span>
+        </p>
       </div>
     </div>
   )

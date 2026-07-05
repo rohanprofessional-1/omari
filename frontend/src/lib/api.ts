@@ -177,3 +177,16 @@ export async function getConversation(conversationId: string) {
   if (!res.ok) throw new Error('Failed to fetch conversation')
   return res.json()
 }
+
+export async function saveTreeToBackend(tree: Tree) {
+  const res = await fetch(`${API_BASE}/trees/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tree)
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to save tree: ${text}`)
+  }
+  return res.json()
+}
