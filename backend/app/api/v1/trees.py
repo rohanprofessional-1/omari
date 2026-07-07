@@ -29,6 +29,39 @@ async def list_trees(
     return result.scalars().all()
 
 
+from app.services.tree_import import import_tree_from_json
+from app.models.clinic import Clinic
+
+@router.post("/import", response_model=TreeReadFull, status_code=status.HTTP_201_CREATED)
+async def import_tree(
+    *,
+    db: AsyncSession = Depends(get_db),
+    payload: dict,
+) -> Any:
+    """
+    Imports a full nested tree structure from JSON, upserting the Tree and completely
+    replacing its nested children.
+    """
+    # Just get the first clinic for now (as demo environment)
+    clinic = (await db.execute(select(Clinic).limit(1))).scalars().first()
+    if not clinic:
+        raise HTTPException(status_code=400, detail="No clinic found in database.")
+        
+    tree = await import_tree_from_json(db, clinic.id, payload)
+    
+    # Reload tree with full nested relationships to return TreeReadFull
+    query = (
+        select(Tree)
+        .where(Tree.id == tree.id)
+        .options(
+            selectinload(Tree.nodes).selectinload(getattr(Tree.nodes.property.mapper.class_, "branches")).selectinload(getattr(Tree.nodes.property.mapper.class_, "branches").property.mapper.class_.condition),
+            selectinload(Tree.nodes).selectinload(getattr(Tree.nodes.property.mapper.class_, "workup_items")),
+        )
+    )
+    result = await db.execute(query)
+    full_tree = result.scalars().first()
+    return full_tree
+
 @router.post("", response_model=TreeRead, status_code=status.HTTP_201_CREATED)
 async def create_tree(
     *,
@@ -40,7 +73,6 @@ async def create_tree(
     await db.commit()
     await db.refresh(tree)
     return tree
-
 
 @router.get("/{id}", response_model=TreeReadFull)
 async def get_tree(

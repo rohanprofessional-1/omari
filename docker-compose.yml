@@ -34,7 +34,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-blume}:${POSTGRES_PASSWORD:-blume_dev}@postgres:5432/${POSTGRES_DB:-blume}
     volumes:
       - ./backend:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "alembic upgrade head && PYTHONPATH=/app python alembic/seed.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   frontend:
     build:
@@ -49,7 +49,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://backend:8000
 
   pgadmin:
     image: dpage/pgadmin4

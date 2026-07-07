@@ -66,11 +66,7 @@ async def chat(
 
     chat_service = ChatService(db)
     
-    # In a real implementation, the frontend would pass the extraction tool schema
-    # based on the current tree evaluation, and the current question text.
-    # For now, we process the message without the tool (pure triage/store).
-    # The frontend will be updated to send the tool schema if needed, but 
-    # since we want zero UI changes, we might need to handle it.
+    # The backend now handles extraction tools and routing natively.
     
     # Process turn
     result_dict = await chat_service.process_message(
