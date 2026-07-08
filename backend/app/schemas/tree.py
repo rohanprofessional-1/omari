@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 
 class TreeCreate(BaseModel):
@@ -48,3 +48,45 @@ class TreeReadFull(TreeRead):
 # Forward reference resolution
 from app.schemas.node import NodeRead  # noqa: E402
 TreeReadFull.model_rebuild()
+
+
+class BranchCondition(BaseModel):
+    variable_name: str
+    operator: str
+    value: Any
+    next_node_id: Optional[str] = None
+
+
+class VariableNode(BaseModel):
+    id: str
+    label: str
+    variable_name: str
+    valid_values: List[str] = Field(default_factory=list)
+    value_definitions: Dict[str, Any] = Field(default_factory=dict)
+    few_shot_examples: List[Dict[str, Any]] = Field(default_factory=list)
+    next_node_id: Optional[str] = None
+
+
+class BranchNode(BaseModel):
+    id: str
+    conditions: List[BranchCondition] = Field(default_factory=list)
+    default_next_node_id: Optional[str] = None
+
+
+class ActionNode(BaseModel):
+    id: str
+    action_type: str
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    next_node_id: Optional[str] = None
+
+
+class EndNode(BaseModel):
+    id: str
+
+
+class Tree(BaseModel):
+    root_node_id: str
+    nodes: Dict[str, Any] = Field(default_factory=dict)
+
+
+TreeNode = VariableNode | BranchNode | ActionNode | EndNode
