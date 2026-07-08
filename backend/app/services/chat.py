@@ -40,6 +40,7 @@ class ChatService:
 
     async def build_extraction_tool(self, tree_id: str) -> dict[str, Any]:
         """Dynamically build an Anthropic tool schema for the variables in this tree."""
+        import json as json_mod
         from app.models.node import Node, NodeType
         from app.models.variable import Variable
 
@@ -66,10 +67,26 @@ class ChatService:
             else:
                 val_schema = {"type": "string", "description": "The extracted value as a short string."}
 
+            # Build the description with domain knowledge context
+            desc_parts = []
+            if var.clinical_prompt:
+                desc_parts.append(var.clinical_prompt)
+            if var.extraction_hints:
+                desc_parts.append(f"Recognise this variable from cues such as: {var.extraction_hints}")
+            if var.synonyms:
+                synonyms_str = ", ".join(var.synonyms) if isinstance(var.synonyms, list) else json_mod.dumps(var.synonyms)
+                desc_parts.append(f"Known synonyms and related terms: {synonyms_str}")
+            if var.patient_examples:
+                examples_str = json_mod.dumps(var.patient_examples)
+                desc_parts.append(f"Patient language examples (patient_says → maps_to): {examples_str}")
+            if var.clinical_mappings:
+                mappings_str = json_mod.dumps(var.clinical_mappings)
+                desc_parts.append(f"Clinical term mappings: {mappings_str}")
+
             # Build the full variable schema (value + confidence)
             properties[var.key] = {
                 "type": "object",
-                "description": f"{var.clinical_prompt or ''} Recognise this variable from cues such as: {var.extraction_hints or ''}",
+                "description": " ".join(desc_parts) if desc_parts else f"Extract the value for {var.key}.",
                 "properties": {
                     "value": val_schema,
                     "confidence": {
@@ -85,7 +102,7 @@ class ChatService:
 
         input_schema = {
             "type": "object",
-            "description": "Clinical variables extracted from the patient's free-text description. Include a key ONLY when the text gives evidence for it; omit anything not mentioned. You are extracting information only — never infer routing, specialists, or a destination.",
+            "description": "Clinical variables extracted from the patient's free-text description. Include a key ONLY when the text gives evidence for it; omit anything not mentioned. You are extracting information only — never infer routing, specialists, or a destination. Extract ALL variables you can identify, not just the one currently being asked about.",
             "properties": properties,
             "required": [],
             "additionalProperties": False,
@@ -93,7 +110,7 @@ class ChatService:
 
         return {
             "name": "record_extracted_variables",
-            "description": "Record the clinical variables you can identify in the patient's message. You ONLY extract information from what the patient said. You never decide where the patient is routed, never see or name specialists, and never recommend a destination.",
+            "description": "Record the clinical variables you can identify in the patient's message. You ONLY extract information from what the patient said. You never decide where the patient is routed, never see or name specialists, and never recommend a destination. Extract ALL identifiable variables, even if you were not explicitly asked about them.",
             "input_schema": input_schema,
         }
 
@@ -176,13 +193,38 @@ class ChatService:
                 from fastapi import HTTPException
                 raise HTTPException(status_code=500, detail=f"Anthropic API Error: {str(e)}")
 
-        # 4. Extract variables if we have symptom content
+        # 4. Retrieve relevant knowledge context (RAG) for better extraction
+        knowledge_context = ""
+        if conversation.tree_id:
+            try:
+                from app.services.retrieval import retrieve_relevant_chunks, format_knowledge_context
+                chunks = await retrieve_relevant_chunks(
+                    db=self.db,
+                    tree_id=conversation.tree_id,
+                    query=patient_message,
+                    top_k=3,
+                )
+                knowledge_context = format_knowledge_context(chunks)
+            except Exception as e:
+                logger.debug(f"Knowledge retrieval skipped: {e}")
+
+        # 5. Extract variables if we have symptom content
         extracted_variables: dict[str, Any] = {}
         if anthropic_service.is_available and conversation.tree_id:
             try:
                 extraction_tool = await self.build_extraction_tool(conversation.tree_id)
+
+                # Prepend knowledge context to patient text if available
+                extraction_text = patient_message
+                if knowledge_context:
+                    extraction_text = (
+                        f"{knowledge_context}\n\n"
+                        f"---\n\n"
+                        f"Patient message: {patient_message}"
+                    )
+
                 extracted_variables = await anthropic_service.extract(
-                    patient_text=patient_message,
+                    patient_text=extraction_text,
                     tool=extraction_tool,
                 )
                 result["filled_variables"] = extracted_variables

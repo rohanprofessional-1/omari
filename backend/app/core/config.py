@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     ANTHROPIC_MODEL: str = "claude-sonnet-4-6"
     ANTHROPIC_EXTRACT_MODEL: str = "claude-sonnet-4-6"
 
+    # Voyage AI (embeddings for knowledge base RAG)
+    VOYAGE_API_KEY: str = ""
+
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:5173"]
 

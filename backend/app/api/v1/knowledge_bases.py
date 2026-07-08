@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, List
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -15,6 +16,8 @@ from app.models.node import Node
 from app.models.tree import Tree
 from app.schemas.knowledge_base import KnowledgeBaseFileSummary, KnowledgeBasePreviewResponse
 from app.services.knowledge_base import _collect_tree_context, knowledge_base_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/clinics")
 
@@ -53,13 +56,17 @@ async def preview_knowledge_base(
 
     context = _collect_tree_context(tree)
     file_summaries: list[KnowledgeBaseFileSummary] = []
+    # Keep raw data for persist_chunks if needed
+    file_data_cache: list[tuple[str, str | None, bytes]] = []
 
     for upload in files:
         data = await upload.read()
         if not data:
             continue
+        fname = upload.filename or "untitled"
+        file_data_cache.append((fname, upload.content_type, data))
         summary = await knowledge_base_service.analyze_document(
-            filename=upload.filename or "untitled",
+            filename=fname,
             content_type=upload.content_type,
             data=data,
             context=context,
@@ -90,9 +97,32 @@ async def preview_knowledge_base(
     )
 
     if persist:
+        # Persist the JSON summary to the clinic record
         clinic.knowledge_base = json.dumps(response.model_dump(mode="json"), indent=2)
         await db.flush()
+
+        # Also embed and persist document chunks for RAG retrieval
+        total_chunks = 0
+        for fname, ctype, data in file_data_cache:
+            try:
+                count = await knowledge_base_service.persist_chunks(
+                    db=db,
+                    tree_id=tree_id,
+                    clinic_id=clinic_id,
+                    filename=fname,
+                    content_type=ctype,
+                    data=data,
+                    context=context,
+                )
+                total_chunks += count
+            except Exception as e:
+                logger.warning(f"Failed to persist chunks for {fname}: {e}")
+
+        if total_chunks > 0:
+            logger.info(f"Persisted {total_chunks} total chunks across {len(file_data_cache)} files")
+
         response.persisted = True
         response.updated_at = clinic.updated_at
 
     return response
+

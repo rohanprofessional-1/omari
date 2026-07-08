@@ -20,3 +20,11 @@ class Variable(Base, TimestampMixin):
     answer_type: Mapped[AnswerType] = mapped_column(Enum(AnswerType, name="answer_type_enum"), nullable=False)
     options_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     extraction_hints: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Domain knowledge fields for improved extraction
+    # e.g. ["weakness", "can't grip", "drop things"] for a "motor_deficit" option
+    synonyms: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # e.g. [{"patient_says": "my grip is weak", "maps_to": "motor_deficit"}, ...]
+    patient_examples: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # e.g. {"motor_deficit": {"definition": "Loss of motor function", "patient_terms": ["weakness", "can't grip"]}}
+    clinical_mappings: Mapped[dict | None] = mapped_column(JSON, nullable=True)

@@ -19,11 +19,19 @@ logger = logging.getLogger(__name__)
 
 EXTRACTION_SYSTEM_PROMPT = (
     "You extract clinical intake variables from how a patient describes their "
-    "problem. You do NOT diagnose, route, or decide anything. For each variable, "
-    "provide a value ONLY if the patient's words support it, plus a confidence "
-    "0–1 reflecting how clearly they indicated it. If the patient did not mention "
-    "something, OMIT it or set confidence 0. Never guess to seem helpful — a "
-    "missing value is correct and expected."
+    "problem. You have access to clinical domain knowledge — including synonyms, "
+    "patient language examples, and clinical term mappings — for each variable. "
+    "Use this knowledge to bridge everyday patient language to clinical terms. "
+    "For example, if a patient says 'my grip is weak' and the variable maps "
+    "'weakness' to 'motor_deficit', extract 'motor_deficit'.\n\n"
+    "Extract ALL variables you can identify from the patient's message — not "
+    "just the one currently being asked about. If the patient's opening message "
+    "mentions duration, location, and symptom type, extract all three. This "
+    "lets the system skip questions the patient has already answered.\n\n"
+    "For each variable, provide a value ONLY if the patient's words support it, "
+    "plus a confidence 0–1 reflecting how clearly they indicated it. If the "
+    "patient did not mention something, OMIT it or set confidence 0. Never "
+    "guess to seem helpful — a missing value is correct and expected."
 )
 
 PHRASE_SYSTEM_PROMPT = (

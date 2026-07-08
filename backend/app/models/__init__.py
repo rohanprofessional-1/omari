@@ -10,6 +10,7 @@ from app.models.specialist import Specialist
 from app.models.workup_item import WorkupItem
 from app.models.patient import Patient, PatientClinic
 from app.models.conversation import Conversation, ConversationTurn, PatientVariable, Action
+from app.models.knowledge_chunk import KnowledgeChunk
 
 __all__ = [
     "Base",
@@ -27,4 +28,6 @@ __all__ = [
     "ConversationTurn",
     "PatientVariable",
     "Action",
+    "KnowledgeChunk",
 ]
+

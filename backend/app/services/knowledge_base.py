@@ -485,5 +485,123 @@ class KnowledgeBaseService:
             "Return the JSON object now."
         )
 
+    def extract_all_chunks(
+        self,
+        *,
+        filename: str,
+        content_type: str | None,
+        data: bytes,
+    ) -> tuple[str, list[str]]:
+        """Extract text from a document and chunk it for embedding.
+
+        Args:
+            filename: Name of the uploaded file.
+            content_type: MIME content type.
+            data: Raw file bytes.
+
+        Returns:
+            Tuple of (file_type, list of text chunks).
+        """
+        file_type, raw_text = _extract_text_from_bytes(filename, content_type, data)
+        chunks = _chunk_text(raw_text)
+        return file_type, chunks
+
+    async def persist_chunks(
+        self,
+        *,
+        db: "AsyncSession",
+        tree_id: str,
+        clinic_id: str | None,
+        filename: str,
+        content_type: str | None,
+        data: bytes,
+        context: TreeContext,
+    ) -> int:
+        """Extract, embed, and persist document chunks for RAG retrieval.
+
+        This is the ingestion pipeline:
+        1. Extract text from the uploaded document
+        2. Chunk the text
+        3. Score chunks against tree context for matched_terms metadata
+        4. Embed all chunks via Voyage
+        5. Insert KnowledgeChunk rows into Postgres
+
+        Args:
+            db: Async database session (caller manages commit).
+            tree_id: ID of the tree these chunks are associated with.
+            clinic_id: Optional clinic ID.
+            filename: Name of the uploaded file.
+            content_type: MIME content type.
+            data: Raw file bytes.
+            context: TreeContext for relevance scoring.
+
+        Returns:
+            Number of chunks persisted.
+        """
+        from sqlalchemy import delete
+        from app.models.knowledge_chunk import KnowledgeChunk
+        from app.services.embedding import embedding_service
+
+        if not embedding_service.is_available:
+            logger.warning("Embedding service not available, skipping chunk persistence")
+            return 0
+
+        # 1. Extract and chunk
+        _, chunks = self.extract_all_chunks(
+            filename=filename,
+            content_type=content_type,
+            data=data,
+        )
+        if not chunks:
+            logger.info(f"No chunks extracted from {filename}")
+            return 0
+
+        # 2. Score each chunk for metadata
+        chunk_metadata: list[list[str]] = []
+        for chunk in chunks:
+            _, matched = _score_chunk(chunk, context.focus_terms)
+            chunk_metadata.append(matched)
+
+        # 3. Embed all chunks
+        try:
+            embeddings = await embedding_service.embed_texts(chunks)
+        except Exception as e:
+            logger.error(f"Failed to embed chunks from {filename}: {e}")
+            return 0
+
+        if len(embeddings) != len(chunks):
+            logger.error(
+                f"Embedding count mismatch: {len(embeddings)} embeddings for {len(chunks)} chunks"
+            )
+            return 0
+
+        # 4. Delete any existing chunks for this tree + filename (re-upload replaces)
+        await db.execute(
+            delete(KnowledgeChunk).where(
+                KnowledgeChunk.tree_id == tree_id,
+                KnowledgeChunk.filename == filename,
+            )
+        )
+
+        # 5. Insert new chunks
+        for i, (chunk_text, embedding, matched_terms) in enumerate(
+            zip(chunks, embeddings, chunk_metadata)
+        ):
+            chunk_row = KnowledgeChunk(
+                tree_id=tree_id,
+                clinic_id=clinic_id,
+                filename=filename,
+                chunk_index=i,
+                content=chunk_text,
+                embedding=embedding,
+                matched_terms=matched_terms if matched_terms else None,
+            )
+            db.add(chunk_row)
+
+        await db.flush()
+        logger.info(f"[knowledge-base] Persisted {len(chunks)} chunks from {filename} for tree={tree_id}")
+        return len(chunks)
+
 
 knowledge_base_service = KnowledgeBaseService()
+
