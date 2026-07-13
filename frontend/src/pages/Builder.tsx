@@ -26,7 +26,7 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import { sampleTree } from '../data/sampleTree'
-import { fetchTrees, fetchTree, createTreeFull, type TreeSummary } from '../lib/api'
+import { fetchTrees, fetchTree, createTreeFull, updateTreeFull, type TreeSummary } from '../lib/api'
 import {
   createTreeNode,
   deriveEdges,
@@ -40,6 +40,7 @@ import {
   type NodeKind,
 } from '../lib/treeToFlow'
 import { TreeSchema, type Node as TreeNode, type Tree } from '../types/tree'
+import type { NodeMove } from '../lib/assistant/ops'
 import { flowNodesToTree, validateTreeGraph, type TreeWarning } from '../lib/buildTree'
 import VariableNodeCard from '../components/nodes/VariableNodeCard'
 import SpecialistNodeCard from '../components/nodes/SpecialistNodeCard'
@@ -62,9 +63,9 @@ const edgeTypes = {
 
 // Minimap dot colours mirror the node accent tokens.
 const MINIMAP_COLORS: Record<string, string> = {
-  variable: '#2563EB',
-  specialist: '#4B9CD3',
-  escalation: '#6CB4EE',
+  variable: '#205EA6',
+  specialist: '#4385BE',
+  escalation: '#7FABCD',
 }
 
 function prefersReducedMotion(): boolean {
@@ -866,6 +867,9 @@ function BuilderCanvas() {
       setSelectedEdge(null)
       setTracedDestId(null)
       setAssistantFocus(null)
+      // A lingering Sprout preview belongs to the PREVIOUS tree — drop it.
+      previewSnapshotRef.current = null
+      setPreviewing(false)
       setSaveResult(null)
       setActiveMeta({ treeId: tree.treeId, rootNodeId: tree.rootNodeId })
       rootIdRef.current = tree.rootNodeId
@@ -966,6 +970,37 @@ function BuilderCanvas() {
       return false
     }
   }, [refreshDbTrees])
+
+  // Update the OPEN library tree in place (same row, version bumped) — the
+  // coherent end of the open → edit → save loop. "Save a copy" stays available
+  // for genuine forks.
+  const commitUpdateToLibrary = useCallback(async (): Promise<boolean> => {
+    const tree = pendingTreeRef.current
+    if (!tree || !openTreeId) return false
+    try {
+      const updated = await updateTreeFull(openTreeId, tree)
+      void refreshDbTrees()
+      setSaveResult({
+        ok: true,
+        warnings: [
+          {
+            id: 'lib',
+            message: `Updated “${updated.name}” (now v${updated.version}) — same tree everywhere it's used.`,
+          },
+          ...pendingWarningsRef.current,
+        ],
+      })
+      return true
+    } catch (err) {
+      setSaveResult({
+        ok: false,
+        warnings: [
+          { id: 'lib', message: err instanceof Error ? err.message : 'Failed to update the tree.' },
+        ],
+      })
+      return false
+    }
+  }, [openTreeId, refreshDbTrees])
 
   /* --------------------------- Assistant --------------------------------- */
 
@@ -1129,13 +1164,73 @@ function BuilderCanvas() {
     [runLayout, fitView],
   )
 
+  /**
+   * Confirmed layout moves from Sprout: park the moved cards just beyond the
+   * rest of the visible graph on the requested edge. Deterministic geometry
+   * computed here — the model only ever names WHICH nodes and WHICH edge.
+   * Same contract as a manual drag: tree data and wiring are untouched.
+   */
+  const applyNodeMoves = useCallback(
+    (moves: NodeMove[]) => {
+      const GAP = 140 // clearance between the graph and the moved row/column
+      const SPACING = 48 // gap between moved cards
+      setNodes((current) => {
+        let next = current
+        const vis = computeVisibility(next, rootIdRef.current, collapsedRef.current)
+        for (const move of moves) {
+          const movedSet = new Set(move.nodeIds)
+          const movedNodes = next.filter((n) => movedSet.has(n.id))
+          const rest = next.filter((n) => !movedSet.has(n.id) && vis.visibleIds.has(n.id))
+          if (movedNodes.length === 0 || rest.length === 0) continue // nothing to anchor against
+          const w = (n: BuilderFlowNode) => n.measured?.width ?? NODE_WIDTH
+          const h = (n: BuilderFlowNode) => n.measured?.height ?? 140
+          const minX = Math.min(...rest.map((n) => n.position.x))
+          const maxX = Math.max(...rest.map((n) => n.position.x + w(n)))
+          const minY = Math.min(...rest.map((n) => n.position.y))
+          const maxY = Math.max(...rest.map((n) => n.position.y + h(n)))
+          const pos = new Map<string, { x: number; y: number }>()
+          if (move.placement === 'top' || move.placement === 'bottom') {
+            // A centred horizontal row, keeping the cards' left-to-right order.
+            const row = [...movedNodes].sort((a, b) => a.position.x - b.position.x)
+            const total = row.reduce((s, n) => s + w(n), 0) + SPACING * (row.length - 1)
+            let x = (minX + maxX) / 2 - total / 2
+            const rowH = Math.max(...row.map(h))
+            const y = move.placement === 'bottom' ? maxY + GAP : minY - GAP - rowH
+            for (const n of row) {
+              pos.set(n.id, { x, y })
+              x += w(n) + SPACING
+            }
+          } else {
+            // A centred vertical column, keeping top-to-bottom order.
+            const col = [...movedNodes].sort((a, b) => a.position.y - b.position.y)
+            const total = col.reduce((s, n) => s + h(n), 0) + SPACING * (col.length - 1)
+            let y = (minY + maxY) / 2 - total / 2
+            for (const n of col) {
+              pos.set(n.id, { x: move.placement === 'right' ? maxX + GAP : minX - GAP - w(n), y })
+              y += h(n) + SPACING
+            }
+          }
+          next = next.map((n) => {
+            const p = pos.get(n.id)
+            return p ? { ...n, position: p } : n
+          })
+        }
+        return next
+      })
+      window.requestAnimationFrame(() =>
+        fitView({ duration: prefersReducedMotion() ? 0 : 400, padding: 0.15 }),
+      )
+    },
+    [setNodes, fitView],
+  )
+
   // Commit a clinician-CONFIRMED assistant proposal to the canvas. Surviving
   // nodes keep their positions/measurements; new nodes get placed by the next
   // layout pass. Collapsed ancestors of touched nodes are expanded so every
   // approved change is actually visible. Canvas-only — the library is
   // untouched until a manual "Save to library".
   const applyAssistantTree = useCallback(
-    (tree: Tree, affectedIds: string[]) => {
+    (tree: Tree, affectedIds: string[], moves?: NodeMove[]) => {
       // Committing while previewing: drop back to the REAL tree first so
       // surviving nodes keep their true positions and no ghost styling leaks.
       const snap = previewSnapshotRef.current
@@ -1174,8 +1269,9 @@ function BuilderCanvas() {
           else reverse.set(b.nextNodeId, [tn.id])
         }
       }
+      const movedIds = (moves ?? []).flatMap((m) => m.nodeIds).filter((id) => surviving.has(id))
       const ancestors = new Set<string>()
-      const stack = [...affectedIds]
+      const stack = [...affectedIds, ...movedIds]
       while (stack.length) {
         const cur = stack.pop()!
         for (const p of reverse.get(cur) ?? []) {
@@ -1186,15 +1282,28 @@ function BuilderCanvas() {
         }
       }
       const nextCollapsed = new Set(
-        [...collapsedRef.current].filter((c) => surviving.has(c) && !ancestors.has(c) && !affectedIds.includes(c)),
+        [...collapsedRef.current].filter(
+          (c) => surviving.has(c) && !ancestors.has(c) && !affectedIds.includes(c) && !movedIds.includes(c),
+        ),
       )
       setCollapsed(nextCollapsed)
       collapsedRef.current = nextCollapsed
       // Light up what just changed so the applied edit is easy to spot.
-      setAssistantFocus(affectedIds.length > 0 ? new Set(affectedIds) : null)
-      void runLayout(nextCollapsed)
+      const highlight = [...new Set([...affectedIds, ...movedIds])]
+      setAssistantFocus(highlight.length > 0 ? new Set(highlight) : null)
+      if (movedIds.length === 0) {
+        void runLayout(nextCollapsed)
+      } else if (affectedIds.length > 0) {
+        // Data changed too: tidy first so new nodes get placed, then park the
+        // moved cards on their edge on top of the fresh layout.
+        void runLayout(nextCollapsed, { fit: false }).then(() => applyNodeMoves(moves!))
+      } else {
+        // Layout-only proposal: every other card keeps its position — moving
+        // the named nodes must not re-tidy work arranged by hand.
+        applyNodeMoves(moves!)
+      }
     },
-    [setNodes, runLayout],
+    [setNodes, runLayout, applyNodeMoves],
   )
 
   // Deselect everything on the canvas (the × on the chat's "Editing" chip).
@@ -1234,6 +1343,7 @@ function BuilderCanvas() {
             suggestedName={activeMeta.treeId}
             onValidateForLibrary={validateForLibrary}
             onCommitToLibrary={commitSaveToLibrary}
+            onCommitUpdate={commitUpdateToLibrary}
             onExpandAll={onExpandAll}
             onCollapseAll={onCollapseAll}
             onAutoLayout={onAutoLayout}
@@ -1292,10 +1402,10 @@ function BuilderCanvas() {
               fitView
               fitViewOptions={{ padding: 0.18 }}
               minZoom={0.2}
-              connectionLineStyle={{ stroke: '#3B82F6', strokeWidth: 2 }}
+              connectionLineStyle={{ stroke: '#4385BE', strokeWidth: 2 }}
               proOptions={{ hideAttribution: true }}
             >
-              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#E5EAF1" />
+              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#E3E1DA" />
               <Controls showInteractive={false} />
               {/* MiniMap lives in the left column now (see LeftColumn), not here. */}
 
@@ -1312,7 +1422,7 @@ function BuilderCanvas() {
             {/* Preview banner — the canvas is showing Sprout's CANDIDATE tree,
                 read-only, until the proposal is applied or dismissed. */}
             {previewing && (
-              <div className="omari-reveal absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-accent/40 bg-sky px-4 py-1.5 shadow-[0_4px_14px_rgba(37,99,235,0.18)]">
+              <div className="omari-reveal absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-accent/40 bg-sky px-4 py-1.5 shadow-[0_4px_14px_rgba(27,58,107,0.15)]">
                 <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden />
                 <span className="text-[12px] font-medium text-accent-strong">
                   Previewing Sprout’s proposal — nothing is applied, editing is paused
@@ -1333,7 +1443,7 @@ function BuilderCanvas() {
               <button
                 onClick={() => setAssistantOpen(true)}
                 title="Sprout — AI assistant. Drafts tree edits you approve, answers questions about the tree."
-                className="omari-reveal absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-full bg-accent-strong py-1.5 pl-1.5 pr-4 shadow-[0_4px_18px_rgba(30,58,138,0.4)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_8px_26px_rgba(30,58,138,0.5)] active:translate-y-0"
+                className="omari-reveal absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-full bg-accent-strong py-1.5 pl-1.5 pr-4 shadow-[0_4px_18px_rgba(27,58,107,0.38)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_8px_26px_rgba(27,58,107,0.5)] active:translate-y-0"
               >
                 <img src={sproutLogo} alt="" aria-hidden className="h-9 w-9 rounded-full" />
                 <span className="font-display text-[13px] font-semibold text-white">Ask Sprout</span>
@@ -1353,6 +1463,8 @@ function BuilderCanvas() {
 
         {assistantOpen && (
           <BuilderChatPanel
+            key={openTreeId ?? 'unsaved'}
+            threadKey={openTreeId ?? 'unsaved'}
             getTree={getAssistantTree}
             selectedNodeIds={selectedNodeIds}
             onClearSelection={clearCanvasSelection}
@@ -1447,7 +1559,7 @@ function OverviewMap() {
           width={r.w}
           height={r.h}
           rx={10}
-          fill={MINIMAP_COLORS[r.type] ?? '#C9CCC4'}
+          fill={MINIMAP_COLORS[r.type] ?? '#D9D8D3'}
           fillOpacity={0.9}
         />
       ))}
@@ -1457,8 +1569,8 @@ function OverviewMap() {
         width={visW}
         height={visH}
         rx={2}
-        fill="rgba(37,99,235,0.10)"
-        stroke="#2563EB"
+        fill="rgba(32,94,166,0.10)"
+        stroke="#205EA6"
         strokeWidth={1.5}
         vectorEffect="non-scaling-stroke"
       />
@@ -1647,6 +1759,7 @@ function CanvasToolbar({
   suggestedName,
   onValidateForLibrary,
   onCommitToLibrary,
+  onCommitUpdate,
   onExpandAll,
   onCollapseAll,
   onAutoLayout,
@@ -1660,6 +1773,7 @@ function CanvasToolbar({
   suggestedName: string
   onValidateForLibrary: () => boolean
   onCommitToLibrary: (name: string) => Promise<boolean>
+  onCommitUpdate: () => Promise<boolean>
   onExpandAll: () => void
   onCollapseAll: () => void
   onAutoLayout: () => void
@@ -1680,8 +1794,10 @@ function CanvasToolbar({
 
       <SaveToLibraryButton
         suggestedName={suggestedName}
+        updateName={trees.find((t) => t.id === openTreeId)?.name ?? null}
         onValidate={onValidateForLibrary}
         onCommit={onCommitToLibrary}
+        onCommitUpdate={onCommitUpdate}
       />
 
       <button className={btn} onClick={onExpandAll} title="Reveal every collapsed branch at once">
@@ -1720,12 +1836,17 @@ function CanvasToolbar({
  */
 function SaveToLibraryButton({
   suggestedName,
+  updateName,
   onValidate,
   onCommit,
+  onCommitUpdate,
 }: {
   suggestedName: string
+  /** Name of the OPEN library tree, when one is open — enables update-in-place. */
+  updateName: string | null
   onValidate: () => boolean
   onCommit: (name: string) => Promise<boolean>
+  onCommitUpdate: () => Promise<boolean>
 }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
@@ -1754,7 +1875,7 @@ function SaveToLibraryButton({
       return
     }
     if (!onValidate()) return // invalid tree → parent shows the error banner
-    setName(suggestedName)
+    setName(updateName ? `${updateName} copy` : suggestedName)
     setOpen(true)
   }
 
@@ -1764,6 +1885,16 @@ function SaveToLibraryButton({
     setSaving(true)
     try {
       if (await onCommit(n)) setOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const commitUpdate = async () => {
+    if (saving) return
+    setSaving(true)
+    try {
+      if (await onCommitUpdate()) setOpen(false)
     } finally {
       setSaving(false)
     }
@@ -1786,8 +1917,27 @@ function SaveToLibraryButton({
 
       {open && (
         <div className="absolute left-0 top-full z-50 mt-1.5 w-72 rounded-lg border border-line bg-canvas p-3 shadow-[0_10px_30px_rgba(31,36,33,0.18)]">
+          {updateName && (
+            <>
+              <button
+                disabled={saving}
+                onClick={() => void commitUpdate()}
+                className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : `Update “${updateName}”`}
+              </button>
+              <p className="mt-1 text-[10.5px] leading-snug text-muted">
+                Same tree, new version — updates it everywhere it's used.
+              </p>
+              <div className="my-2.5 flex items-center gap-2">
+                <span className="h-px flex-1 bg-line" aria-hidden />
+                <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted">or</span>
+                <span className="h-px flex-1 bg-line" aria-hidden />
+              </div>
+            </>
+          )}
           <label className="mb-1.5 block font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-            Save to library as
+            {updateName ? 'Save a copy as' : 'Save to library as'}
           </label>
           <input
             autoFocus

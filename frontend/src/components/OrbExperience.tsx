@@ -28,12 +28,12 @@ import { Orb, type AgentState } from './Orb'
  *  - BLUE  (--grad-blue family): the default presence through the conversation.
  *  - GREEN (--color-success family): the referral-sent success beat. The orb
  *    lerps its colours, so switching the prop EASES blue → green, never snaps. */
-const ORB_COLORS_BLUE: [string, string] = ['#2f6dee', '#9dc0ff']
-// [deeper companion, friendly light #88E788]. The shader ramp is
-// [black → colors[0] → colors[1] → white], so #88E788 sits in the upper/highlight
+const ORB_COLORS_BLUE: [string, string] = ['#2f66b0', '#a9c8e8']
+// [deeper sage companion, soft sage highlight]. The shader ramp is
+// [black → colors[0] → colors[1] → white], so the soft sage sits in the upper/highlight
 // slot (dominates the highlight) while the deeper companion gives shadow depth —
 // dimensional, not a flat single light tone.
-const ORB_COLORS_GREEN: [string, string] = ['#2e9e5b', '#88e788']
+const ORB_COLORS_GREEN /* muted sage */: [string, string] = ['#4c7a5c', '#b9d8bf']
 
 /** Calm the orb when the OS asks for reduced motion (stable, minimal volume). */
 function usePrefersReducedMotion(): boolean {
@@ -58,7 +58,7 @@ const pillBtn =
   'transition-all hover:-translate-y-0.5 hover:border-accent hover:bg-sky hover:text-accent'
 const primaryBtn =
   'omari-grad omari-grad-hover rounded-full px-6 py-2.5 text-sm font-semibold text-white ' +
-  'shadow-[0_2px_10px_rgba(37,99,235,0.3)] transition-all active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40'
+  'shadow-[0_2px_10px_rgba(27,58,107,0.30)] transition-all active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40'
 
 // Boxed input — extra bottom padding leaves room for the mic + send buttons that
 // sit INSIDE the box at the bottom-right. `omari-quiet-focus` replaces the bright
@@ -395,7 +395,7 @@ function OrbExperience({
         <p
           role="status"
           aria-live="polite"
-          className="max-w-2xl text-balance font-display text-[19px] leading-relaxed text-ink sm:text-[21px]"
+          className="max-w-2xl text-balance font-serif text-[19px] leading-relaxed text-ink sm:text-[21px]"
         >
           {displayText}
         </p>
@@ -406,7 +406,7 @@ function OrbExperience({
   return (
     <div
       className="omari-orb-stage fixed inset-0 z-40 flex flex-col"
-      style={{ background: '#ffffff' }}
+      style={{ background: '#f8f8f6' }}
     >
       {/* Soft, ambient green edge glow — referral-sent success beat ONLY. */}
       {done && <div className="omari-success-glow pointer-events-none absolute inset-0 z-0" aria-hidden />}
@@ -507,18 +507,18 @@ function DoneSuccess({
         className="flex flex-col items-center gap-3"
       >
         {/* Beat 1 — warm headline (largest). */}
-        <h2 className="font-display text-[26px] font-semibold tracking-tight text-ink sm:text-[30px]">
+        <h2 className="font-serif text-[26px] font-normal text-ink sm:text-[30px]">
           You’re all set.
         </h2>
 
         {/* Beat 2 — the focal point: the matched specialist (name bold). */}
         {escalation ? (
-          <p className="font-display text-[18px] font-semibold text-ink sm:text-[20px]">
+          <p className="font-serif text-[18px] text-ink sm:text-[20px]">
             Sent to our clinical team for review
           </p>
         ) : (
           <div className="flex flex-col items-center gap-1">
-            <p className="font-display text-[18px] text-ink sm:text-[20px]">
+            <p className="font-serif text-[18px] text-ink sm:text-[20px]">
               Routed to <span className="font-semibold">{specialistName}’s team</span>
             </p>
             {specialty && <p className="text-sm text-muted">{specialty}</p>}

@@ -14,11 +14,13 @@
     "test:conversation": "node scripts/test-conversation.mjs",
     "test:phrase": "node scripts/test-phrase.mjs",
     "test:demo": "node scripts/test-demo-mode.mjs",
-    "eval": "node eval/run-eval.mjs"
+    "eval": "node eval/run-eval.mjs",
+    "eval:sprout": "node eval/sprout-eval.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.2",
     "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/source-serif-4": "^5.2.9",
     "@react-three/drei": "^9.114.0",
     "@react-three/fiber": "^8.17.10",
     "@types/dagre": "^0.7.54",

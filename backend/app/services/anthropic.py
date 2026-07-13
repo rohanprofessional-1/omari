@@ -282,8 +282,62 @@ _TREE_CHAT_OP_ITEMS = {
             "nodeId": _NODE_ID,
             "itemName": {"type": "string"},
         }, ("nodeId", "itemName")),
+        _op("move_nodes", {
+            "nodeIds": {
+                "type": "array",
+                "items": _NODE_ID,
+                "minItems": 1,
+                "description": "exact ids of the nodes to reposition on the canvas",
+            },
+            "placement": {
+                "type": "string",
+                "enum": ["top", "bottom", "left", "right"],
+                "description": "which edge of the canvas to park them on, relative to the rest of the tree",
+            },
+        }, ("nodeIds", "placement")),
     ]
 }
+
+
+def _extract_streaming_message(buf: str) -> str:
+    """Pull the (possibly unterminated) `message` string out of a PARTIAL
+    tool-call JSON buffer, unescaping as we go. Lets the UI stream the reply
+    text while the rest of the structured payload is still generating."""
+    i = buf.find('"message"')
+    if i == -1:
+        return ""
+    colon = buf.find(":", i + len('"message"'))
+    if colon == -1:
+        return ""
+    j = buf.find('"', colon + 1)
+    if j == -1:
+        return ""
+    out: list[str] = []
+    k = j + 1
+    escapes = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\", "/": "/", "b": "\b", "f": "\f"}
+    while k < len(buf):
+        c = buf[k]
+        if c == "\\":
+            if k + 1 >= len(buf):
+                break  # escape split across chunks — wait for more
+            nxt = buf[k + 1]
+            if nxt == "u":
+                if k + 5 >= len(buf):
+                    break
+                try:
+                    out.append(chr(int(buf[k + 2 : k + 6], 16)))
+                except ValueError:
+                    pass
+                k += 6
+                continue
+            out.append(escapes.get(nxt, nxt))
+            k += 2
+            continue
+        if c == '"':
+            break  # message value complete
+        out.append(c)
+        k += 1
+    return "".join(out)
 
 
 class AnthropicService:
@@ -962,6 +1016,16 @@ class AnthropicService:
         "in later operations; the app assigns real ids. Locate branches by "
         "branchLabel (exact label text) or branchIndex. Follow the operation "
         "schemas exactly — workup items are always objects with a `name`.\n\n"
+        "LAYOUT: rearranging the canvas ('move the escalation nodes to the bottom', "
+        "'put Dr. Chen on the right') is box-dragging, not a clinical decision — "
+        "propose it directly with move_nodes, naming the exact node ids and one "
+        "placement edge (top, bottom, left, right — relative to the rest of the "
+        "tree). It repositions cards ONLY: wiring, routing, and every clinical "
+        "field are untouched, so never pair it with other operations the "
+        "clinician didn't ask for. The tree JSON carries no coordinates; for "
+        "layout requests beyond parking nodes on an edge (exact positions, "
+        "alignment, spacing), say the clinician can drag cards or use the "
+        "Auto-layout button.\n\n"
         "focusNodeIds: whenever your message refers to specific nodes — asking "
         "which of two you meant, listing the paths that reach someone, pointing "
         "at a dead end — put those nodes' exact ids here. The app highlights them "
@@ -1022,20 +1086,15 @@ class AnthropicService:
         },
     }
 
-    async def tree_chat(
+    def _tree_chat_messages(
         self,
         tree: dict[str, Any],
         message: str,
         history: Optional[list[dict[str, str]]] = None,
         warnings: Optional[list[str]] = None,
         selected_node_ids: Optional[list[str]] = None,
-    ) -> dict[str, Any]:
-        """Builder assistant turn. Returns {mode, message, operations} —
-        operations are PROPOSALS the Builder validates, diffs, and gates on
-        the clinician's confirm. This method never mutates anything."""
-        if not self.client:
-            raise RuntimeError("Anthropic API key not configured.")
-
+    ) -> list[dict[str, Any]]:
+        """Build the messages array shared by tree_chat and tree_chat_stream."""
         context = (
             "The clinician's current tree (JSON):\n"
             f"{json.dumps(tree, separators=(',', ':'))[:60000]}"
@@ -1069,7 +1128,40 @@ class AnthropicService:
         if merged and merged[0]["role"] == "assistant":
             merged.pop(0)
         merged.append({"role": "user", "content": f"{context}\n\nThe clinician says: {message.strip()[:4000]}"})
+        return merged
 
+    @staticmethod
+    def _tree_chat_payload(out: dict[str, Any]) -> dict[str, Any]:
+        """Normalize the tool output into the pinned response shape."""
+        mode = out.get("mode", "answer")
+        operations = out.get("operations") or []
+        if mode != "propose":
+            operations = []  # no back-channel: only an explicit proposal carries ops
+        # Presentation-only: ids the reply talks about, for canvas highlighting.
+        # The frontend drops any that don't exist on the canvas.
+        focus = [x for x in (out.get("focusNodeIds") or []) if isinstance(x, str)]
+        return {
+            "mode": mode,
+            "message": (out.get("message") or "").strip(),
+            "operations": operations,
+            "focusNodeIds": focus,
+        }
+
+    async def tree_chat(
+        self,
+        tree: dict[str, Any],
+        message: str,
+        history: Optional[list[dict[str, str]]] = None,
+        warnings: Optional[list[str]] = None,
+        selected_node_ids: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """Builder assistant turn. Returns {mode, message, operations} —
+        operations are PROPOSALS the Builder validates, diffs, and gates on
+        the clinician's confirm. This method never mutates anything."""
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        merged = self._tree_chat_messages(tree, message, history, warnings, selected_node_ids)
         logger.info(f"[blume/tree-chat] → model={settings.ANTHROPIC_MODEL} · {len(merged)} turns")
         response = await self.client.messages.create(
             model=settings.ANTHROPIC_MODEL,
@@ -1081,21 +1173,55 @@ class AnthropicService:
             messages=merged,
         )
         tool_use = next((b for b in response.content if b.type == "tool_use"), None)
-        out = tool_use.input if tool_use else {}
-        mode = out.get("mode", "answer")
-        operations = out.get("operations") or []
-        if mode != "propose":
-            operations = []  # no back-channel: only an explicit proposal carries ops
-        # Presentation-only: ids the reply talks about, for canvas highlighting.
-        # The frontend drops any that don't exist on the canvas.
-        focus = [x for x in (out.get("focusNodeIds") or []) if isinstance(x, str)]
-        logger.info(f"[blume/tree-chat] ✓ mode={mode} · {len(operations)} ops · {len(focus)} focus")
-        return {
-            "mode": mode,
-            "message": (out.get("message") or "").strip(),
-            "operations": operations,
-            "focusNodeIds": focus,
-        }
+        payload = self._tree_chat_payload(tool_use.input if tool_use else {})
+        logger.info(
+            f"[blume/tree-chat] ✓ mode={payload['mode']} · {len(payload['operations'])} ops · {len(payload['focusNodeIds'])} focus"
+        )
+        return payload
+
+    async def tree_chat_stream(
+        self,
+        tree: dict[str, Any],
+        message: str,
+        history: Optional[list[dict[str, str]]] = None,
+        warnings: Optional[list[str]] = None,
+        selected_node_ids: Optional[list[str]] = None,
+    ):
+        """Streaming tree_chat. Yields {'type':'delta','text':…} increments of
+        the reply's `message` field as the model generates it (extracted from
+        the partial tool-call JSON), then {'type':'done', …payload…}. Same
+        confirm-gate payload as tree_chat — streaming changes latency, not
+        authority."""
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        merged = self._tree_chat_messages(tree, message, history, warnings, selected_node_ids)
+        logger.info(f"[blume/tree-chat-stream] → model={settings.ANTHROPIC_MODEL} · {len(merged)} turns")
+        partial = ""
+        emitted = 0
+        async with self.client.messages.stream(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=3000,
+            temperature=0,
+            system=self.TREE_CHAT_SYSTEM,
+            tools=[self.TREE_CHAT_TOOL],
+            tool_choice={"type": "tool", "name": "tree_chat_turn", "disable_parallel_tool_use": True},
+            messages=merged,
+        ) as stream:
+            async for event in stream:
+                if event.type == "content_block_delta" and getattr(event.delta, "type", "") == "input_json_delta":
+                    partial += event.delta.partial_json
+                    msg = _extract_streaming_message(partial)
+                    if len(msg) > emitted:
+                        yield {"type": "delta", "text": msg[emitted:]}
+                        emitted = len(msg)
+            final = await stream.get_final_message()
+        tool_use = next((b for b in final.content if b.type == "tool_use"), None)
+        payload = self._tree_chat_payload(tool_use.input if tool_use else {})
+        logger.info(
+            f"[blume/tree-chat-stream] ✓ mode={payload['mode']} · {len(payload['operations'])} ops"
+        )
+        yield {"type": "done", **payload}
 
     async def phrase_gap(self, kind: str, detail: dict[str, Any]) -> str:
         """Job 3 — phrase a deterministically-detected gap as one plain-language

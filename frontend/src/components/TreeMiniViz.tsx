@@ -22,14 +22,14 @@ import type { FilledVariables, Tree } from '../types/tree'
 
 // Builder node colours (kept in sync with the design tokens / Builder cards).
 const COLOR = {
-  variable: '#2563EB', // --color-nodevar
-  specialist: '#4B9CD3', // --color-nodespec
-  escalation: '#6CB4EE', // --color-nodeesc
-  dimEdge: '#CBD5E1',
-  takenEdge: '#2563EB',
-  line: '#E2E8F0',
-  muted: '#64748B',
-  ink: '#16202E',
+  variable: '#205EA6', // --color-nodevar
+  specialist: '#4385BE', // --color-nodespec
+  escalation: '#7FABCD', // --color-nodeesc
+  dimEdge: '#DAD9D3',
+  takenEdge: '#205EA6',
+  line: '#E7E6E1',
+  muted: '#7B7974',
+  ink: '#121212',
 }
 
 /** Prettify a camelCase variable key into a short readable label. */

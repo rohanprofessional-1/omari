@@ -158,6 +158,26 @@ export async function createTreeFull(
   return res.json()
 }
 
+/** Replace an existing tree's draft IN PLACE (same library row, version bumped). */
+export async function updateTreeFull(
+  id: string,
+  tree: Tree,
+  opts: { name?: string; description?: string } = {},
+): Promise<TreeSummary> {
+  const res = await fetch(`${API_BASE}/trees/${id}/full`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: opts.name,
+      description: opts.description,
+      rootNodeId: tree.rootNodeId,
+      nodes: tree.nodes,
+    }),
+  })
+  if (!res.ok) throw new Error(`Failed to update tree: ${await res.text()}`)
+  return res.json()
+}
+
 /** Rename a stored tree. */
 export async function renameTree(id: string, name: string): Promise<TreeSummary> {
   const res = await fetch(`${API_BASE}/trees/${id}`, {

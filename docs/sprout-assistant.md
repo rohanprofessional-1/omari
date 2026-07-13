@@ -42,7 +42,7 @@ node) are fine to leave; clinical blanks are never filled with defaults.
 ### How the invariant is enforced (not just intended)
 
 1. **Bounded operations, not tree JSON.** The LLM never writes a tree. It
-   emits a list of 18 typed operations (see §4). A pure, deterministic applier
+   emits a list of 19 typed operations (see §4). A pure, deterministic applier
    turns them into a candidate tree — all-or-nothing.
 2. **Propose → diff → confirm.** The backend endpoint is stateless and returns
    *proposals only*. Nothing touches the canvas until the clinician reviews
@@ -137,7 +137,7 @@ forced tool-use (`tool_choice` on `tree_chat_turn`,
 the final user turn (60k char cap), history merged defensively for role
 alternation.
 
-The tool's `operations` items schema is a full JSON-Schema `anyOf` over all 18
+The tool's `operations` items schema is a full JSON-Schema `anyOf` over all 19
 ops (`_TREE_CHAT_OP_ITEMS`, built by the `_op()` helper from shared `_COND` /
 `_KEYED_COND` / `_WORKUP_ITEM` / `_BRANCH` fragments). This mirrors the
 frontend Zod union — which remains the authoritative gate — and exists so the
@@ -167,6 +167,10 @@ Key sections, in order:
 - **Operations mechanics**: exact ids from the tree JSON; placeholder ids
   (`new_1`) for additions, referenced by later ops; branches located by
   `branchLabel` or `branchIndex`.
+- **LAYOUT**: rearranging the canvas is box-dragging, not a clinical decision —
+  propose `move_nodes` directly (exact ids + one placement edge), never paired
+  with unasked-for ops; requests beyond edge-parking get pointed at dragging
+  or Auto-layout.
 - **focusNodeIds**: whenever the message refers to specific nodes, list their
   ids so the app can highlight them; existing ids only; empty otherwise.
 - **SELECTION** (injected per-request): the selected node ids, with "'these'
@@ -186,7 +190,7 @@ Key sections, in order:
 
 ## 4. The operation contract (frontend `lib/assistant/ops.ts`)
 
-`TreeOpSchema` — a Zod discriminated union of 18 ops:
+`TreeOpSchema` — a Zod discriminated union of 19 ops:
 
 | Category | Ops |
 |---|---|
@@ -196,6 +200,25 @@ Key sections, in order:
 | Structure | `delete_node`, `set_root` |
 | Workup (always) | `add_workup_item`, `update_workup_item`, `remove_workup_item` |
 | Workup (conditional / guards) | `add_workup_conditional`, `remove_workup_conditional`, `add_workup_guard`, `remove_workup_guard` |
+| Layout (canvas-only) | `move_nodes` (node ids + a placement edge: `top` / `bottom` / `left` / `right`) |
+
+**Layout moves** ("move the escalation nodes to the bottom") are box-dragging —
+squarely Sprout's job (§13) and never a clinical decision. The op is still
+bounded: the model names WHICH nodes and WHICH canvas edge; it never emits
+coordinates (the tree JSON carries none). `applyOps` validates every id
+(all-or-nothing, aliases resolve so a just-added node can be parked) and
+returns the moves separately in `ApplyResult.moves` — the tree itself is
+byte-identical, so the clinical diff and routing impact are provably empty.
+The proposal card shows a `describeMoves` line instead ("Move Human review to
+the bottom of the canvas — layout only, wiring and routing unchanged"), and
+the same propose → confirm flow gates it. On Apply, the Builder computes the
+geometry deterministically (`applyNodeMoves`): a centred row beyond the
+visible graph's bounding box for top/bottom, a centred column for left/right.
+A layout-only apply skips the auto-layout pass so every other card keeps its
+position; a mixed proposal tidies first, then parks the moved cards. Like a
+manual drag, positions live on the canvas only (auto-layout or reload
+re-tidies) — requests beyond edge-parking (exact coordinates, alignment) get
+pointed at dragging or the Auto-layout button.
 
 Leniencies at the boundary (tolerate, then normalize): a bare string workup
 item coerces to `{name}` (`WorkupItemInputSchema`); branch `nextNodeId` may be
@@ -221,7 +244,7 @@ Pure and deterministic:
   bucket) — matching the Builder's manual-delete behavior.
 - The result must pass `TreeSchema` or the proposal is rejected.
 
-Tests: `ops.test.ts` — 9 self-asserting checks (alias resolution,
+Tests: `ops.test.ts` — 11 self-asserting checks (alias resolution,
 label-located reroute + clinical diff, delete-unwire, workup add/conditional/
 guard/remove with case-insensitive matching, all-or-nothing rejection,
 wrong-type and ambiguity errors, collision regeneration, input immutability,
@@ -499,7 +522,7 @@ clean one-line questions.
 **Frontend**
 | File | Role |
 |---|---|
-| `frontend/src/lib/assistant/ops.ts` | `TreeOpSchema` (18 ops, authoritative gate) + `applyOps` |
+| `frontend/src/lib/assistant/ops.ts` | `TreeOpSchema` (19 ops, authoritative gate) + `applyOps` |
 | `frontend/src/lib/assistant/diff.ts` | clinical-consequence diff |
 | `frontend/src/lib/assistant/impact.ts` | path enumeration + routing impact |
 | `frontend/src/lib/assistant/gaps.ts` | deterministic gap detector + template questions |
@@ -508,7 +531,7 @@ clean one-line questions.
 | `frontend/src/pages/Builder.tsx` | launcher, `assistantFocus` highlighting, preview machinery, apply, selection plumbing |
 | `frontend/src/assets/sprout-logo.png` | the leaf mark, recolored to accent-strong |
 | `frontend/src/index.css` | `.omari-node-ghost` / `.omari-node-removed` preview styles |
-| `frontend/src/lib/assistant/ops.test.ts` | 9 applier checks |
+| `frontend/src/lib/assistant/ops.test.ts` | 11 applier checks |
 | `frontend/src/lib/assistant/impact.test.ts` | 6 impact/gap checks |
 | `frontend/scripts/run-tests.mjs` | both test files registered |
 
@@ -516,7 +539,7 @@ clean one-line questions.
 
 ## 10. Testing & verification
 
-- **Frontend** (`npm test`, self-asserting style, no framework): 9 applier
+- **Frontend** (`npm test`, self-asserting style, no framework): 11 applier
   checks + 6 impact/gap checks, alongside the existing engine/workup/
   generator/orchestrator suites.
 - **Backend** (`docker compose exec backend python -m pytest tests -q`):
@@ -530,21 +553,62 @@ clean one-line questions.
 
 ---
 
-## 11. Deliberate deferrals & known limits
+## 11. The completion pass (2026-07-08)
 
-- **No persistence of assistant edits** beyond the canvas: "Save to library"
-  still CREATEs a new tree row (no update-in-place endpoint yet), and there is
-  no `audit_log` (deferred project-wide). When auditing lands, the intended
-  record is "edited via assistant: <instruction> → <operations>".
+Six upgrades that closed the half-open loops:
+
+- **Undo for applied proposals.** Apply records the resulting tree JSON
+  (`appliedJson`); applied cards get an Undo button that restores the exact
+  before-tree — but ONLY while the canvas still matches what Apply produced
+  (the staleness guard pointed the other way). Otherwise Sprout explains and
+  refuses. New status: `undone`.
+- **Save-in-place.** `PUT /trees/{id}/full` (`update_tree_full` in trees.py,
+  sharing `_insert_tree_nodes` with create) replaces the draft rows of the
+  SAME tree row and bumps `version`; published `tree_versions` snapshots are
+  untouched. The Save popover now leads with "Update “<name>”" when a library
+  tree is open, with "save a copy as" beneath — the edit → save loop no longer
+  spawns near-duplicates.
+- **Conversation persistence.** Threads persist to localStorage per tree
+  (`omari:sproutThread:<treeId>`, last 50 messages; the panel remounts via a
+  React key when the open tree changes so threads never cross). The stored
+  thread doubles as a change log — applied proposals keep their instruction,
+  diff, and outcome. Mid-flight step-throughs freeze to `stopped` on restore;
+  restored pending proposals are protected by the staleness guard. A trash
+  icon in the header clears the thread.
+- **Retry / redraft.** `send` was refactored into `sendText(text)`; failed
+  turns carry their instruction and render a ↻ Retry button; stale and
+  dismissed proposal cards carry ↻ Redraft, which re-sends the original
+  instruction (`sourceText`) against the current tree.
+- **Streaming (SSE).** `POST /assistant/tree-chat/stream` streams the reply:
+  the backend extracts the `message` field incrementally from the partial
+  tool-call JSON (`_extract_streaming_message` — escape-aware, chunk-safe) and
+  emits `delta` events, then one `done` event with the exact non-streaming
+  payload. The panel renders deltas into a placeholder bubble that the final
+  payload upgrades in place (proposal card and all); any stream failure falls
+  back to the non-streaming endpoint. Streaming changes latency, not
+  authority — the confirm gate is identical.
+- **The bright-line eval** (`frontend/eval/sprout-eval.mjs`, `npm run
+  eval:sprout`). Thirteen canned prompts against the live endpoint asserting
+  MODES and op targets: four decline probes (workup choice, specialist
+  choice, threshold blessing, medical knowledge) plus the critical
+  "scoped selection must NOT weaken the line" probe; stated-edit proposes
+  (including selection-scoped disambiguation); underspecified and
+  ambiguous-reference clarifies (with focusNodeIds pointing at both
+  candidates); a read answer; and the follow-through "both" resolution.
+  Spends real tokens, so it's a separate script from `npm test` — run it
+  after ANY edit to `TREE_CHAT_SYSTEM`.
+
+## 12. Remaining deferrals & known limits
+
+- **No `audit_log` table** (deferred project-wide); the persisted thread is
+  the interim change record.
 - **No automatic re-validation**: applying edits stales any prior
-  "N% agreement" validation metric. The apply message reminds the clinician;
-  auto re-running held-out cases through the engine is the natural next step.
+  "N% agreement" metric; the apply message reminds the clinician.
 - **Impact is path-level, not patient-level**: linking Builder trees to
   generator-session cases would enable "this moves 4 of your 12 test patients
   to Dr. Chen" via the real engine.
-- **No streaming** (whole app is request/response), **no server-side
-  conversation state**, **no hover-a-message-to-highlight** (auto-focus on
-  reply arrival covers the need for now).
+- **No hover-a-message-to-highlight** (auto-focus on reply arrival covers the
+  need for now).
 - **Extending Sprout safely**: any new capability must keep — ops
   proposals-only server-side; the Zod gate + all-or-nothing applier
   client-side; diff review before apply; and the decline rule (mechanics from
@@ -554,7 +618,7 @@ clean one-line questions.
 
 ---
 
-## 12. The test to apply to every future feature
+## 13. The test to apply to every future feature
 
 If Sprout went silent mid-session, would a **clinical decision** go unmade
 (forbidden — that means Sprout was making it), or just some **typing and

@@ -546,7 +546,7 @@ function PresenterBar({
       <TreePicker library={library} currentTree={currentTree} usingSample={usingSample} />
       <button
         onClick={onEnterPresentation}
-        className="omari-grad omari-grad-hover ml-auto inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(37,99,235,0.35)] transition-all hover:shadow-[0_2px_10px_rgba(37,99,235,0.35)] active:translate-y-px"
+        className="omari-grad omari-grad-hover ml-auto inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(27,58,107,0.30)] transition-all hover:shadow-[0_2px_10px_rgba(27,58,107,0.30)] active:translate-y-px"
         title="Hide all demo + clinician scaffolding for a pure patient view"
       >
         <span aria-hidden>▶</span> Presentation mode
@@ -560,7 +560,7 @@ function ExitPresentation({ onExit }: { onExit: () => void }) {
   return (
     <button
       onClick={onExit}
-      className="omari-msg fixed bottom-4 right-4 z-50 inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas/90 px-3 py-1.5 text-xs font-medium text-muted shadow-[0_2px_10px_rgba(22,32,46,0.12)] backdrop-blur transition-colors hover:text-ink"
+      className="omari-msg fixed bottom-4 right-4 z-50 inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas/90 px-3 py-1.5 text-xs font-medium text-muted shadow-[0_2px_10px_rgba(24,20,16,0.12)] backdrop-blur transition-colors hover:text-ink"
       title="Leave Presentation mode and show the demo + clinician panels again"
     >
       <span aria-hidden>✕</span> Exit presentation
@@ -608,7 +608,7 @@ function PatientApp({
   const showFooter = phase === 'intro' || phase === 'awaiting'
 
   return (
-    <div className="omari-msg flex flex-col overflow-hidden rounded-2xl border border-line bg-canvas shadow-[0_1px_3px_rgba(22,32,46,0.07)] lg:h-full lg:flex-1">
+    <div className="omari-msg flex flex-col overflow-hidden rounded-2xl border border-line bg-canvas shadow-[0_1px_3px_rgba(24,20,16,0.07)] lg:h-full lg:flex-1">
       {/* Product header — reads like a real clinic intake widget */}
       <div className="flex items-center gap-2.5 border-b border-line px-5 py-3">
         <img src="/omari-logo.png" alt="" aria-hidden className="h-8 w-8 shrink-0 object-contain" />
@@ -703,7 +703,7 @@ function SendButton({ onClick, disabled }: { onClick: () => void; disabled?: boo
     <button
       onClick={onClick}
       disabled={disabled}
-      className="omari-grad omari-grad-hover rounded-md px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(37,99,235,0.3)] transition-all hover:shadow-[0_2px_10px_rgba(37,99,235,0.3)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+      className="omari-grad omari-grad-hover rounded-md px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(24,20,16,0.22)] transition-all hover:shadow-[0_2px_10px_rgba(24,20,16,0.22)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
     >
       Send
     </button>
@@ -722,7 +722,7 @@ function ChatBubble({ from, text }: { from: 'bot' | 'patient'; text: string }) {
         className={`max-w-[82%] px-3.5 py-2 text-sm leading-snug ${
           isBot
             ? 'rounded-2xl rounded-tl-sm border border-line bg-bg text-ink'
-            : 'omari-grad rounded-2xl rounded-tr-sm text-white shadow-[0_1px_3px_rgba(37,99,235,0.25)]'
+            : 'omari-grad rounded-2xl rounded-tr-sm text-white shadow-[0_1px_3px_rgba(27,58,107,0.25)]'
         }`}
       >
         {text}
@@ -846,7 +846,7 @@ function ConfirmInput({ onYes, onNo }: { onYes: () => void; onNo: () => void }) 
       <div className="flex gap-2">
         <button
           onClick={onYes}
-          className="omari-grad omari-grad-hover rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(37,99,235,0.3)] transition-all hover:shadow-[0_2px_10px_rgba(37,99,235,0.3)] active:translate-y-px"
+          className="omari-grad omari-grad-hover rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(24,20,16,0.22)] transition-all hover:shadow-[0_2px_10px_rgba(24,20,16,0.22)] active:translate-y-px"
         >
           Yes, that's right
         </button>
@@ -874,7 +874,7 @@ function ConfirmInput({ onYes, onNo }: { onYes: () => void; onNo: () => void }) 
  */
 function ReferralSentCard({ specialist }: { specialist: Specialist }) {
   return (
-    <div className="omari-reveal overflow-hidden rounded-2xl border border-line bg-canvas shadow-[0_2px_12px_rgba(22,32,46,0.08)]">
+    <div className="omari-reveal overflow-hidden rounded-2xl border border-line bg-canvas shadow-[0_2px_12px_rgba(24,20,16,0.08)]">
       {/* Calm, "in progress" header — a soft tint, not a solid "done" banner */}
       <div className="flex items-center gap-2 border-b border-line bg-nodespec/8 px-5 py-3">
         <span

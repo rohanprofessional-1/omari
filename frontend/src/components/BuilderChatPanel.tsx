@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import sproutLogo from '../assets/sprout-logo.png'
 import type { Node as TreeNode, Tree } from '../types/tree'
 import { validateTreeGraph } from '../lib/buildTree'
-import { sendTreeChat, type AssistantTurn } from '../lib/assistant/api'
-import { applyOps, TreeOpsSchema, type TreeOp } from '../lib/assistant/ops'
+import { sendTreeChat, sendTreeChatStream, type AssistantTurn, type TreeChatResponse } from '../lib/assistant/api'
+import { applyOps, describeMoves, TreeOpsSchema, type ApplyResult, type NodeMove, type TreeOp } from '../lib/assistant/ops'
 import { diffTrees, type DiffEntry } from '../lib/assistant/diff'
 import { diffRouting, type RoutingImpact } from '../lib/assistant/impact'
 import { detectBuilderGaps, type BuilderGap } from '../lib/assistant/gaps'
@@ -27,13 +27,19 @@ interface Proposal {
   affectedIds: string[]
   /** Nodes the proposal deletes — shown faded in the canvas preview. */
   removedIds: string[]
+  /** Layout-only canvas moves (never touch tree data or wiring). */
+  moves: NodeMove[]
   /** Deterministic "who ends up somewhere else" analysis (path enumeration). */
   impact: RoutingImpact
-  status: 'pending' | 'stepping' | 'applied' | 'dismissed' | 'stale' | 'stopped'
+  status: 'pending' | 'stepping' | 'applied' | 'dismissed' | 'stale' | 'stopped' | 'undone'
   /** Step-through state (multi-op proposals reviewed one op at a time). */
   stepIndex?: number
   stepsApplied?: number
   stepDiff?: DiffEntry[]
+  /** Tree JSON right after a full Apply — undo is only safe while this matches. */
+  appliedJson?: string
+  /** The clinician instruction that produced this proposal — powers Redraft. */
+  sourceText: string
 }
 
 interface PanelMsg {
@@ -41,6 +47,8 @@ interface PanelMsg {
   role: 'user' | 'assistant'
   text: string
   proposal?: Proposal
+  /** Set on error bubbles: the instruction that failed — powers Retry. */
+  failedText?: string
 }
 
 const INTRO =
@@ -55,8 +63,65 @@ const SUGGESTIONS = [
 
 let nextMsgId = 1
 
+/** Everything the clinician is confirming: the clinical diff plus any layout-move lines. */
+function fullDiff(before: Tree, result: ApplyResult): DiffEntry[] {
+  return [
+    ...diffTrees(before, result.tree),
+    ...describeMoves(before, result.moves).map((text): DiffEntry => ({ kind: 'change', text })),
+  ]
+}
+
+/** Threads restored from localStorage may predate layout moves. */
+const movesOf = (p: Proposal): NodeMove[] => p.moves ?? []
+const movedIdsOf = (p: Proposal): string[] => movesOf(p).flatMap((m) => m.nodeIds)
+
+/**
+ * Per-tree thread persistence (localStorage v1). The saved thread doubles as
+ * a change log: applied proposals keep their instruction, diff, and outcome.
+ * Live-only states can't survive a reload — a mid-flight step-through is
+ * frozen to 'stopped'; the staleness guard already protects restored pending
+ * proposals from applying against a tree that has since changed.
+ */
+function threadStorageKey(treeKey: string): string {
+  return `omari:sproutThread:${treeKey}`
+}
+
+function loadThread(treeKey: string): PanelMsg[] {
+  try {
+    const raw = localStorage.getItem(threadStorageKey(treeKey))
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    let maxId = 0
+    const msgs: PanelMsg[] = []
+    for (const m of parsed) {
+      if (!m || (m.role !== 'user' && m.role !== 'assistant') || typeof m.text !== 'string') continue
+      maxId = Math.max(maxId, typeof m.id === 'number' ? m.id : 0)
+      msgs.push(
+        m.proposal?.status === 'stepping'
+          ? { ...m, proposal: { ...m.proposal, status: 'stopped' } }
+          : m,
+      )
+    }
+    nextMsgId = Math.max(nextMsgId, maxId + 1)
+    return msgs
+  } catch {
+    return []
+  }
+}
+
+function saveThread(treeKey: string, messages: PanelMsg[]): void {
+  try {
+    if (messages.length === 0) localStorage.removeItem(threadStorageKey(treeKey))
+    else localStorage.setItem(threadStorageKey(treeKey), JSON.stringify(messages.slice(-50)))
+  } catch {
+    /* storage full/unavailable — the chat still works, it just won't persist */
+  }
+}
+
 export default function BuilderChatPanel({
   getTree,
+  threadKey,
   selectedNodeIds,
   onClearSelection,
   onApply,
@@ -67,11 +132,13 @@ export default function BuilderChatPanel({
 }: {
   /** The canvas as a Tree, read fresh (positions don't matter, wiring does). */
   getTree: () => Tree
+  /** Persistence key for the thread — the open library tree's id. */
+  threadKey: string
   /** Live canvas selection — scopes the conversation to "these nodes". */
   selectedNodeIds: string[]
   onClearSelection: () => void
-  /** Commit a confirmed proposal to the canvas. */
-  onApply: (tree: Tree, affectedIds: string[]) => void
+  /** Commit a confirmed proposal to the canvas (moves are layout-only). */
+  onApply: (tree: Tree, affectedIds: string[], moves?: NodeMove[]) => void
   /** Show a proposal's candidate tree on the canvas without applying it. */
   onPreview: (tree: Tree, affectedIds: string[], removedIds: string[]) => void
   onEndPreview: () => void
@@ -79,8 +146,13 @@ export default function BuilderChatPanel({
   onFocusNodes: (ids: string[]) => void
   onClose: () => void
 }) {
-  // Starts empty: the welcome hero fills the thread until the first message.
-  const [messages, setMessages] = useState<PanelMsg[]>([])
+  // Restored from localStorage per tree; the welcome hero fills an empty
+  // thread. The PARENT remounts this panel (React key) when the open tree
+  // changes, so this state always belongs to exactly one thread key.
+  const [messages, setMessages] = useState<PanelMsg[]>(() => loadThread(threadKey))
+  useEffect(() => {
+    saveThread(threadKey, messages)
+  }, [threadKey, messages])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   // Which message's proposal is being previewed on the canvas, if any.
@@ -188,8 +260,11 @@ export default function BuilderChatPanel({
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight })
   }, [messages, busy])
 
-  const push = (msg: Omit<PanelMsg, 'id'>) =>
-    setMessages((cur) => [...cur, { ...msg, id: nextMsgId++ }])
+  const push = (msg: Omit<PanelMsg, 'id'>): number => {
+    const id = nextMsgId++
+    setMessages((cur) => [...cur, { ...msg, id }])
+    return id
+  }
 
   /** Chat history for the model — proposal outcomes included so it knows what stuck. */
   const historyFor = (msgs: PanelMsg[]): AssistantTurn[] =>
@@ -202,8 +277,9 @@ export default function BuilderChatPanel({
           : m.text,
       }))
 
-  const send = useCallback(async () => {
-    const text = draft.trim()
+  // The full turn pipeline — used by the composer, Retry, and Redraft.
+  const sendText = useCallback(async (raw: string) => {
+    const text = raw.trim()
     if (!text || busy) return
     if (listening) stopListening() // sending ends the recording
     // A new message ends any canvas preview — the conversation moves on.
@@ -211,10 +287,22 @@ export default function BuilderChatPanel({
       onEndPreview()
       setPreviewMsgId(null)
     }
-    setDraft('')
     const priorMsgs = messages
     push({ role: 'user', text })
     setBusy(true)
+    // Streaming: the reply text lands in a placeholder bubble as it generates;
+    // the final structured payload then upgrades that SAME bubble (with the
+    // proposal card, or the final text). Falls back to non-streaming cleanly.
+    let streamMsgId: number | null = null
+    let streamed = ''
+    const emit = (patch: { text: string; proposal?: Proposal; failedText?: string }) => {
+      if (streamMsgId !== null) {
+        const id = streamMsgId
+        setMessages((cur) => cur.map((m) => (m.id === id ? { ...m, ...patch } : m)))
+      } else {
+        push({ role: 'assistant', ...patch })
+      }
+    }
     try {
       const tree = getTree()
       const warnings = validateTreeGraph(tree).map((w) => w.message)
@@ -226,16 +314,31 @@ export default function BuilderChatPanel({
           : gapMode && currentGapRef.current
             ? currentGapRef.current.nodeIds
             : []
-      const resp = await sendTreeChat({
+      const request = {
         tree,
         message: text,
         history: historyFor(priorMsgs.slice(-12)),
         warnings,
         selectedNodeIds: scopeIds,
-      })
+      }
+      let resp: TreeChatResponse
+      try {
+        resp = await sendTreeChatStream(request, (t) => {
+          streamed += t
+          if (streamMsgId === null) {
+            streamMsgId = push({ role: 'assistant', text: streamed })
+          } else {
+            const id = streamMsgId
+            setMessages((cur) => cur.map((m) => (m.id === id ? { ...m, text: streamed } : m)))
+          }
+        })
+      } catch (streamErr) {
+        console.warn('[Sprout] stream failed — falling back to non-streaming:', streamErr)
+        resp = await sendTreeChat(request)
+      }
 
       if (resp.mode !== 'propose') {
-        push({ role: 'assistant', text: resp.message || '…' })
+        emit({ text: resp.message || '…' })
         // Point at what the reply is talking about (clears stale highlights).
         onFocusNodes(resp.focusNodeIds)
         return
@@ -244,23 +347,21 @@ export default function BuilderChatPanel({
       // Proposal path: Zod gate → deterministic apply on a copy → diff.
       const parsedOps = TreeOpsSchema.safeParse(resp.operations)
       if (!parsedOps.success) {
-        push({
-          role: 'assistant',
+        emit({
           text: `That draft didn't pass validation, so nothing changed. Try rephrasing — ideally naming the exact node or bucket. (${parsedOps.error.issues[0]?.message ?? 'invalid operations'})`,
         })
         return
       }
       const result = applyOps(tree, parsedOps.data)
       if (!result.ok) {
-        push({
-          role: 'assistant',
+        emit({
           text: `That draft didn't apply cleanly, so nothing changed: ${result.errors.join('; ')}. Try rephrasing.`,
         })
         return
       }
-      const diff = diffTrees(tree, result.tree)
+      const diff = fullDiff(tree, result)
       if (diff.length === 0) {
-        push({ role: 'assistant', text: resp.message || 'The tree already says that — no change needed.' })
+        emit({ text: resp.message || 'The tree already says that — no change needed.' })
         return
       }
       const beforeWarnings = new Set(warnings)
@@ -268,8 +369,7 @@ export default function BuilderChatPanel({
         .map((w) => w.message)
         .filter((w) => !beforeWarnings.has(w))
       const afterIds = new Set(result.tree.nodes.map((n) => n.id))
-      push({
-        role: 'assistant',
+      emit({
         text: resp.message,
         proposal: {
           ops: parsedOps.data,
@@ -279,22 +379,33 @@ export default function BuilderChatPanel({
           newWarnings,
           affectedIds: [...result.addedIds, ...result.changedIds],
           removedIds: tree.nodes.filter((n) => !afterIds.has(n.id)).map((n) => n.id),
+          moves: result.moves,
           impact: diffRouting(tree, result.tree),
           status: 'pending',
+          sourceText: text,
         },
       })
       // While the diff is under review, highlight the nodes it would touch
-      // (added nodes don't exist on the canvas yet — changed ones do).
-      onFocusNodes([...new Set([...resp.focusNodeIds, ...result.changedIds])])
+      // (added nodes don't exist on the canvas yet — changed and moved ones do).
+      onFocusNodes([
+        ...new Set([...resp.focusNodeIds, ...result.changedIds, ...result.moves.flatMap((m) => m.nodeIds)]),
+      ])
     } catch (err) {
-      push({
-        role: 'assistant',
+      emit({
         text: err instanceof Error ? err.message : 'The assistant is unreachable right now.',
+        failedText: text,
       })
     } finally {
       setBusy(false)
     }
-  }, [draft, busy, messages, getTree, onFocusNodes, selectedNodeIds, previewMsgId, onEndPreview, gapMode, listening, stopListening])
+  }, [busy, messages, getTree, onFocusNodes, selectedNodeIds, previewMsgId, onEndPreview, gapMode, listening, stopListening])
+
+  const send = useCallback(() => {
+    const text = draft.trim()
+    if (!text) return
+    setDraft('')
+    void sendText(text)
+  }, [draft, sendText])
 
   const setProposalStatus = (msgId: number, status: Proposal['status']) =>
     setMessages((cur) =>
@@ -309,7 +420,9 @@ export default function BuilderChatPanel({
       setPreviewMsgId(null)
       return
     }
-    onPreview(p.afterTree, p.affectedIds, p.removedIds)
+    // Moved nodes ghost-highlight too — the preview can't show new positions
+    // (layout lands on Apply), but it shows exactly which cards would move.
+    onPreview(p.afterTree, [...new Set([...p.affectedIds, ...movedIdsOf(p)])], p.removedIds)
     setPreviewMsgId(msg.id)
   }
 
@@ -320,6 +433,7 @@ export default function BuilderChatPanel({
     const current = getTree()
     let finalTree = p.afterTree
     let affected = p.affectedIds
+    let moves = movesOf(p)
     if (JSON.stringify(current) !== p.beforeJson) {
       // Canvas changed since this was reviewed. Re-run the ops against the
       // CURRENT tree; proceed only if the result is exactly the diff the
@@ -327,7 +441,7 @@ export default function BuilderChatPanel({
       const redo = applyOps(current, p.ops)
       const sameDiff =
         redo.ok &&
-        JSON.stringify(diffTrees(current, redo.tree).map((d) => d.text)) ===
+        JSON.stringify(fullDiff(current, redo).map((d) => d.text)) ===
           JSON.stringify(p.diff.map((d) => d.text))
       if (!sameDiff) {
         onEndPreview() // no-op unless a preview was left up
@@ -340,9 +454,10 @@ export default function BuilderChatPanel({
       }
       finalTree = redo.tree
       affected = [...redo.addedIds, ...redo.changedIds]
+      moves = redo.moves
     }
-    onApply(finalTree, affected)
-    setProposalStatus(msg.id, 'applied')
+    onApply(finalTree, affected, moves)
+    patchProposal(msg.id, { status: 'applied', appliedJson: JSON.stringify(finalTree) })
     push({
       role: 'assistant',
       text:
@@ -351,6 +466,24 @@ export default function BuilderChatPanel({
         (p.newWarnings.length ? ' — and note the new warnings this introduced.' : '.'),
     })
     if (gapMode) presentNextGap()
+  }
+
+  // Regret-after-apply: restore the exact before-tree, but ONLY while the
+  // canvas still matches what Apply produced — the same honesty rule as the
+  // staleness guard, pointed the other way.
+  const undoProposal = (msg: PanelMsg) => {
+    const p = msg.proposal
+    if (!p || p.status !== 'applied' || !p.appliedJson) return
+    if (JSON.stringify(getTree()) !== p.appliedJson) {
+      push({
+        role: 'assistant',
+        text: 'The canvas has changed since this was applied, so undoing it could clobber newer work — I left everything as is. Tell me what to revert and I\'ll draft it as a normal change.',
+      })
+      return
+    }
+    onApply(JSON.parse(p.beforeJson) as Tree, [...p.affectedIds, ...p.removedIds])
+    patchProposal(msg.id, { status: 'undone' })
+    push({ role: 'assistant', text: 'Reverted — the tree is back to how it was before that change.' })
   }
 
   /* ------------------------- Guided gap fixing --------------------------- */
@@ -410,7 +543,7 @@ export default function BuilderChatPanel({
     const res = applyOps(cur, [op])
     if (!res.ok)
       return [{ kind: 'change', text: `This step can't apply on the current tree (${res.errors[0]}). Skip it or stop.` }]
-    return diffTrees(cur, res.tree)
+    return fullDiff(cur, res)
   }
 
   const startStepping = (msg: PanelMsg) => {
@@ -436,7 +569,7 @@ export default function BuilderChatPanel({
         })
         return
       }
-      onApply(res.tree, [...res.addedIds, ...res.changedIds])
+      onApply(res.tree, [...res.addedIds, ...res.changedIds], res.moves)
       applied += 1
     }
     const next = p.stepIndex + 1
@@ -459,7 +592,7 @@ export default function BuilderChatPanel({
   }
 
   return (
-    <aside className="omari-enter-side flex w-[360px] shrink-0 flex-col border-l border-[#cbd5e1] bg-canvas shadow-[-6px_0_16px_rgba(31,36,33,0.07)]">
+    <aside className="omari-enter-side flex w-[360px] shrink-0 flex-col border-l border-line bg-canvas shadow-[-6px_0_16px_rgba(31,36,33,0.07)]">
       {/* ── Header — identity hides while the welcome hero is showing ──── */}
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         {messages.length > 0 ? (
@@ -473,15 +606,34 @@ export default function BuilderChatPanel({
         ) : (
           <span />
         )}
-        <button
-          onClick={onClose}
-          aria-label="Close Sprout"
-          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-bg hover:text-ink"
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          {messages.length > 0 && (
+            <button
+              onClick={() => {
+                if (window.confirm('Clear this conversation? Applied changes stay on the canvas.')) {
+                  setMessages([])
+                  onFocusNodes([])
+                }
+              }}
+              aria-label="Clear conversation"
+              title="Clear this conversation (applied changes stay on the canvas)"
+              className="grid h-6 w-6 place-items-center rounded-md text-muted transition-colors hover:bg-bg hover:text-ink"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+              </svg>
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            aria-label="Close Sprout"
+            className="grid h-6 w-6 place-items-center rounded-md text-muted transition-colors hover:bg-bg hover:text-ink"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {/* ── Thread ─────────────────────────────────────────────────────── */}
@@ -492,9 +644,9 @@ export default function BuilderChatPanel({
               src={sproutLogo}
               alt=""
               aria-hidden
-              className="h-20 w-20 rounded-full shadow-[0_4px_16px_rgba(30,58,138,0.35)]"
+              className="h-20 w-20 rounded-full shadow-[0_4px_16px_rgba(27,58,107,0.30)]"
             />
-            <p className="mt-4 font-display text-[19px] font-semibold text-ink">Sprout</p>
+            <p className="mt-4 font-serif text-[20px] font-semibold text-ink">Sprout</p>
             <p className="mt-1 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-accent-strong">
               AI assistant for the tree Builder
             </p>
@@ -535,12 +687,23 @@ export default function BuilderChatPanel({
               }`}
             >
               {m.text && <FormattedText text={m.text} />}
+              {m.failedText && (
+                <button
+                  onClick={() => void sendText(m.failedText!)}
+                  disabled={busy}
+                  className="mt-2 rounded-md border border-line px-2.5 py-1 text-[11.5px] font-medium text-muted transition-colors hover:border-accent hover:bg-sky hover:text-accent disabled:opacity-40"
+                >
+                  ↻ Retry
+                </button>
+              )}
               {m.proposal && (
                 <ProposalCard
                   proposal={m.proposal}
                   previewing={previewMsgId === m.id}
                   onTogglePreview={() => togglePreview(m)}
                   onApply={() => applyProposal(m)}
+                  onUndo={() => undoProposal(m)}
+                  onRedraft={() => void sendText(m.proposal!.sourceText)}
                   onStepThrough={() => startStepping(m)}
                   onApplyStep={() => advanceStep(m, true)}
                   onSkipStep={() => advanceStep(m, false)}
@@ -559,7 +722,8 @@ export default function BuilderChatPanel({
           </div>
         ))}
 
-        {busy && (
+        {/* Typing dots only until the streamed reply starts arriving. */}
+        {busy && messages[messages.length - 1]?.role !== 'assistant' && (
           <div className="omari-msg flex justify-start">
             <div className="flex items-center gap-1 rounded-2xl rounded-tl-sm border border-line bg-bg px-3.5 py-2.5">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent/60 [animation-delay:-0.3s]" />
@@ -684,7 +848,7 @@ export default function BuilderChatPanel({
             <button
               onClick={() => void send()}
               disabled={!draft.trim() || busy}
-              className="omari-grad omari-grad-hover rounded-md px-3.5 py-1.5 text-[12px] font-semibold text-white shadow-[0_1px_3px_rgba(37,99,235,0.3)] transition-all hover:shadow-[0_2px_10px_rgba(37,99,235,0.3)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+              className="omari-grad omari-grad-hover rounded-md px-3.5 py-1.5 text-[12px] font-semibold text-white shadow-[0_1px_3px_rgba(27,58,107,0.30)] transition-all hover:shadow-[0_2px_10px_rgba(27,58,107,0.30)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
             >
               Send
             </button>
@@ -804,6 +968,8 @@ function ProposalCard({
   previewing,
   onTogglePreview,
   onApply,
+  onUndo,
+  onRedraft,
   onStepThrough,
   onApplyStep,
   onSkipStep,
@@ -814,6 +980,8 @@ function ProposalCard({
   previewing: boolean
   onTogglePreview: () => void
   onApply: () => void
+  onUndo: () => void
+  onRedraft: () => void
   onStepThrough: () => void
   onApplyStep: () => void
   onSkipStep: () => void
@@ -932,13 +1100,34 @@ function ProposalCard({
           </button>
         </div>
       ) : (
-        <p className="mt-2 text-[11px] font-medium text-muted">
-          {proposal.status === 'applied' && '✓ Applied to the canvas'}
-          {proposal.status === 'dismissed' && 'Dismissed — nothing was changed'}
-          {proposal.status === 'stale' && 'Stale — the canvas changed before this was applied'}
-          {proposal.status === 'stopped' &&
-            `Stopped — applied ${proposal.stepsApplied ?? 0} of ${proposal.ops.length} steps`}
-        </p>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="text-[11px] font-medium text-muted">
+            {proposal.status === 'applied' && '✓ Applied to the canvas'}
+            {proposal.status === 'undone' && '↩ Undone — reverted to before this change'}
+            {proposal.status === 'dismissed' && 'Dismissed — nothing was changed'}
+            {proposal.status === 'stale' && 'Stale — the canvas changed before this was applied'}
+            {proposal.status === 'stopped' &&
+              `Stopped — applied ${proposal.stepsApplied ?? 0} of ${proposal.ops.length} steps`}
+          </p>
+          {proposal.status === 'applied' && proposal.appliedJson && (
+            <button
+              onClick={onUndo}
+              title="Put the tree back exactly as it was before this change"
+              className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-danger/50 hover:bg-danger/5 hover:text-danger"
+            >
+              Undo
+            </button>
+          )}
+          {(proposal.status === 'stale' || proposal.status === 'dismissed') && (
+            <button
+              onClick={onRedraft}
+              title="Ask Sprout to draft this again against the tree as it is now"
+              className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-muted transition-colors hover:border-accent hover:bg-sky hover:text-accent"
+            >
+              ↻ Redraft
+            </button>
+          )}
+        </div>
       )}
     </div>
   )

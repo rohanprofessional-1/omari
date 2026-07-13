@@ -159,7 +159,7 @@ export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void 
           <p className="font-display text-[11px] font-semibold uppercase tracking-[0.14em] text-accent-strong">
             Tree generator
           </p>
-          <h1 className="font-display text-xl font-semibold text-ink">
+          <h1 className="font-serif text-[22px] font-semibold text-ink">
             {stage === 'setup' && 'Before we start'}
             {stage === 'highlight' && 'What matters in these cases?'}
             {stage === 'decide' && 'Decide each case'}
@@ -472,7 +472,7 @@ function SetupStage({
             max={12}
             value={caseCount}
             onChange={(e) => setCaseCount(Number(e.target.value))}
-            className="w-full accent-[#2c56b8]"
+            className="w-full accent-[#205ea6]"
           />
           <span className="text-[12px] font-medium text-ink">{caseCount} cases · roughly a minute each</span>
         </label>
@@ -503,7 +503,7 @@ function SetupStage({
               type="checkbox"
               checked={useAI}
               onChange={(e) => setUseAI(e.target.checked)}
-              className="accent-[#2c56b8]"
+              className="accent-[#205ea6]"
             />
             Draft missing cases automatically (you review every one before it's used)
           </label>
@@ -511,7 +511,7 @@ function SetupStage({
       </SetupSection>
 
       {/* Expectations + the gated CTA */}
-      <div className="rounded-xl border border-line bg-canvas p-4 shadow-[0_1px_2px_rgba(22,32,46,0.05)]">
+      <div className="rounded-xl border border-line bg-canvas p-4 shadow-[0_1px_2px_rgba(24,20,16,0.05)]">
         <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
           About 15 minutes. You'll produce a draft tree that <span className="font-medium text-ink">you review and sign</span> —
           your logic, your sign-off.
@@ -519,7 +519,7 @@ function SetupStage({
         <button
           onClick={start}
           disabled={!canStart}
-          className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#24489c] disabled:cursor-not-allowed disabled:opacity-40"
+          className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#373734] disabled:cursor-not-allowed disabled:opacity-40"
         >
           Start session →
         </button>
@@ -543,7 +543,7 @@ function SetupSection({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-line bg-canvas p-5 shadow-[0_1px_2px_rgba(22,32,46,0.05)]">
+    <section className="rounded-xl border border-line bg-canvas p-5 shadow-[0_1px_2px_rgba(24,20,16,0.05)]">
       <div className="mb-1 flex items-center gap-2">
         <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent-strong/10 font-display text-[11px] font-semibold text-accent-strong">
           {step}
@@ -723,7 +723,7 @@ function HighlightStage({
           </div>
           <button
             onClick={onDone}
-            className="rounded-md bg-accent-strong px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-[#24489c]"
+            className="rounded-md bg-accent-strong px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-[#373734]"
           >
             Done highlighting → decide cases
           </button>
@@ -760,7 +760,7 @@ function HighlightStage({
 
       {pendingSpan && (
         <div
-          className="fixed z-50 flex gap-1 rounded-lg border border-line bg-canvas p-1 shadow-[0_10px_30px_rgba(22,32,46,0.18)]"
+          className="fixed z-50 flex gap-1 rounded-lg border border-line bg-canvas p-1 shadow-[0_10px_30px_rgba(24,20,16,0.18)]"
           style={{ left: Math.min(pendingSpan.x, window.innerWidth - 340), top: pendingSpan.y + 12 }}
         >
           {(['routing', 'workup', 'both'] as const).map((axis) => (
@@ -1114,7 +1114,7 @@ function DecideStage({
                   Skip this case
                 </button>
                 {skipMenuOpen && (
-                  <span className="absolute left-0 top-full z-20 mt-1 flex w-56 flex-col rounded-lg border border-line bg-canvas p-1 shadow-[0_10px_30px_rgba(22,32,46,0.14)]">
+                  <span className="absolute left-0 top-full z-20 mt-1 flex w-56 flex-col rounded-lg border border-line bg-canvas p-1 shadow-[0_10px_30px_rgba(24,20,16,0.14)]">
                     {SKIP_REASONS.map((r) => (
                       <button
                         key={r.value}
@@ -1137,7 +1137,7 @@ function DecideStage({
           {allDecided && (
             <button
               onClick={onBuild}
-              className="rounded-md bg-accent-strong px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-[#24489c]"
+              className="rounded-md bg-accent-strong px-4 py-1.5 text-[13px] font-semibold text-white hover:bg-[#373734]"
             >
               All cases handled — build the draft tree →
             </button>
@@ -1369,7 +1369,7 @@ function DecideStage({
         <button
           disabled={saving}
           onClick={() => save(true)}
-          className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#24489c] disabled:opacity-50"
+          className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#373734] disabled:opacity-50"
         >
           {existing && !existing.skipped ? 'Update decision' : 'Save decision'}{' '}
           {caseIdx < cases.length - 1 ? '& next case →' : ''}
@@ -1632,7 +1632,7 @@ function ReviewStage({
             <div className="space-y-2">
               <button
                 onClick={onSave}
-                className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#24489c]"
+                className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#373734]"
               >
                 Save to library & open in Builder →
               </button>
@@ -1667,7 +1667,7 @@ function ReviewStage({
 
 function Card({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
   return (
-    <section className="rounded-xl border border-line bg-canvas p-4 shadow-[0_1px_2px_rgba(22,32,46,0.05)]">
+    <section className="rounded-xl border border-line bg-canvas p-4 shadow-[0_1px_2px_rgba(24,20,16,0.05)]">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="font-display text-[12px] font-semibold uppercase tracking-[0.09em] text-muted">
           {title}

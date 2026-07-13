@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db
@@ -18,6 +18,7 @@ from app.schemas.tree import (
     TreeRead,
     TreeReadFull,
     TreeFullCreate,
+    TreeFullUpdate,
     TreePublish,
     TreeVersionRead,
     WorkupSpecIn,
@@ -101,8 +102,20 @@ async def create_tree_full(
     db.add(tree)
     await db.flush()  # assign tree.id
 
-    for n in tree_in.nodes:
-        node = Node(id=n.id, tree_id=tree.id, node_type=NodeType(n.type))
+    await _insert_tree_nodes(db, tree.id, tree_in.nodes)
+
+    await db.commit()
+    await db.refresh(tree)
+    return tree
+
+
+async def _insert_tree_nodes(db: AsyncSession, tree_id: str, nodes) -> None:
+    """Persist the nested node/branch/condition/workup rows for a tree.
+
+    Shared by create-full and update-full so the relational mapping of the
+    frontend tree shape lives in exactly one place."""
+    for n in nodes:
+        node = Node(id=n.id, tree_id=tree_id, node_type=NodeType(n.type))
         if n.type == "variable":
             node.variable_key = n.variableKey
             node.prompt = n.prompt
@@ -123,7 +136,7 @@ async def create_tree_full(
         for i, b in enumerate(n.branches or []):
             branch = Branch(
                 node_id=node.id,
-                tree_id=tree.id,
+                tree_id=tree_id,
                 label=b.label,
                 patient_label=b.patientLabel,
                 next_node_id=b.nextNodeId,
@@ -141,13 +154,48 @@ async def create_tree_full(
             db.add(
                 WorkupItem(
                     node_id=node.id,
-                    tree_id=tree.id,
+                    tree_id=tree_id,
                     name=w.get("name", ""),
                     protocol=w.get("protocol", ""),
                     rationale=w.get("rationale", ""),
                     item_order=i,
                 )
             )
+
+
+@router.put("/{tree_id}/full", response_model=TreeRead)
+async def update_tree_full(
+    *,
+    db: AsyncSession = Depends(get_db),
+    tree_id: str,
+    tree_in: TreeFullUpdate,
+) -> Any:
+    """Replace an existing tree's nodes IN PLACE (same row, version bumped).
+
+    This makes the edit → save loop coherent: opening a library tree, editing
+    it (manually or via Sprout), and saving updates THAT tree instead of
+    spawning a near-duplicate row. Published snapshots in tree_versions are
+    immutable and untouched — this only rewrites the editable draft."""
+    tree = await db.get(Tree, tree_id)
+    if not tree:
+        raise HTTPException(status_code=404, detail="Tree not found")
+
+    # Wipe the current draft rows, children first (conditions cascade from
+    # branches at the DB level; deleted explicitly for clarity).
+    branch_ids = select(Branch.id).where(Branch.tree_id == tree_id)
+    await db.execute(delete(Condition).where(Condition.branch_id.in_(branch_ids)))
+    await db.execute(delete(WorkupItem).where(WorkupItem.tree_id == tree_id))
+    await db.execute(delete(Branch).where(Branch.tree_id == tree_id))
+    await db.execute(delete(Node).where(Node.tree_id == tree_id))
+
+    if tree_in.name is not None:
+        tree.name = tree_in.name
+    if tree_in.description is not None:
+        tree.description = tree_in.description
+    tree.root_node_id = tree_in.rootNodeId
+    tree.version = (tree.version or 1) + 1
+
+    await _insert_tree_nodes(db, tree_id, tree_in.nodes)
 
     await db.commit()
     await db.refresh(tree)

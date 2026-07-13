@@ -23,7 +23,7 @@ function TopAppBar({ page, onNavigate }: TopAppBarProps) {
       {/* Wordmark — Omari logo mark + name (tight, single unit, logo navy) */}
       <span className="flex items-center">
         <img src="/omari-logo.png" alt="" aria-hidden className="h-12 w-12 object-contain" />
-        <span className="-ml-0.5 font-display text-[18px] font-semibold tracking-tight text-[#1b2a78]">
+        <span className="-ml-0.5 font-serif text-[19px] font-semibold tracking-tight text-accent-strong">
           Omari
         </span>
       </span>
@@ -212,7 +212,7 @@ function Dropdown({ children, width = 'w-60' }: { children: ReactNode; width?: s
   return (
     <div
       role="menu"
-      className={`omari-msg absolute right-0 top-full z-50 mt-2 ${width} rounded-xl border border-line bg-canvas p-1.5 shadow-[0_10px_30px_rgba(22,32,46,0.14)]`}
+      className={`omari-msg absolute right-0 top-full z-50 mt-2 ${width} rounded-xl border border-line bg-canvas p-1.5 shadow-[0_10px_30px_rgba(24,20,16,0.14)]`}
     >
       {children}
     </div>

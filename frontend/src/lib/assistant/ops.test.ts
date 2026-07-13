@@ -10,7 +10,7 @@
  * code on failure. Run with `npm test`.
  */
 import { TreeSchema, type Tree, type TreeInput } from '../../types/tree'
-import { applyOps, TreeOpsSchema, type TreeOp } from './ops'
+import { applyOps, describeMoves, TreeOpsSchema, type TreeOp } from './ops'
 import { diffTrees } from './diff'
 
 declare const process: { exitCode?: number } | undefined
@@ -226,6 +226,46 @@ const checks: Check[] = [
       if (TreeOpsSchema.safeParse([{ op: 'drop_table' }]).success) return 'unknown op accepted'
       if (TreeOpsSchema.safeParse([{ op: 'add_variable' }]).success) return 'missing fields accepted'
       if (TreeOpsSchema.safeParse([]).success) return 'empty op list accepted'
+      return null
+    },
+  },
+  {
+    name: 'move_nodes is layout-only: tree untouched, moves returned, describable',
+    run: () => {
+      const result = applyOps(
+        fixture,
+        ops([{ op: 'move_nodes', nodeIds: ['spec_chen', 'spec_gooch'], placement: 'bottom' }]),
+      )
+      if (!result.ok) return `expected ok, got errors: ${result.errors.join('; ')}`
+      if (JSON.stringify(result.tree) !== JSON.stringify(fixture)) return 'move_nodes changed tree data'
+      if (diffTrees(fixture, result.tree).length !== 0) return 'move_nodes produced a clinical diff'
+      if (result.changedIds.length !== 0) return 'move_nodes reported changedIds'
+      if (result.moves.length !== 1) return `expected 1 move, got ${result.moves.length}`
+      if (result.moves[0].placement !== 'bottom') return 'placement lost'
+      if (result.moves[0].nodeIds.join(',') !== 'spec_chen,spec_gooch') return 'moved ids lost'
+      const [line] = describeMoves(fixture, result.moves)
+      if (!line.includes('Dr. Chen') || !line.includes('bottom')) return `bad description: ${line}`
+      return null
+    },
+  },
+  {
+    name: 'move_nodes rejects unknown ids (all-or-nothing) and resolves aliases',
+    run: () => {
+      const bad = applyOps(
+        fixture,
+        ops([{ op: 'move_nodes', nodeIds: ['spec_chen', 'ghost_node'], placement: 'left' }]),
+      )
+      if (bad.ok) return 'unknown node id accepted'
+      if (bad.moves.length !== 0) return 'failed proposal leaked moves'
+      const aliased = applyOps(
+        fixture,
+        ops([
+          { op: 'add_escalation', id: 'new_1', reason: 'No clean answer.' },
+          { op: 'move_nodes', nodeIds: ['new_1'], placement: 'bottom' },
+        ]),
+      )
+      if (!aliased.ok) return `expected ok, got errors: ${aliased.errors.join('; ')}`
+      if (aliased.moves[0]?.nodeIds[0] !== aliased.addedIds[0]) return 'placeholder id did not resolve in move'
       return null
     },
   },

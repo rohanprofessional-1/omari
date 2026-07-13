@@ -139,3 +139,11 @@ class TreeFullCreate(BaseModel):
     authored_by: Optional[str] = None
     rootNodeId: str
     nodes: List[NodeIn]
+
+
+class TreeFullUpdate(BaseModel):
+    """Replace an existing tree's draft in place (PUT /trees/{id}/full)."""
+    name: Optional[str] = Field(None, max_length=255)
+    description: Optional[str] = None
+    rootNodeId: str
+    nodes: List[NodeIn]

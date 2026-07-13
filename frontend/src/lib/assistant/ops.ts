@@ -158,9 +158,23 @@ export const TreeOpSchema = z.discriminatedUnion('op', [
     nodeId: z.string(),
     itemName: z.string(),
   }),
+  // Layout-only: reposition nodes on the canvas. Never touches tree data or
+  // wiring — the model names WHICH nodes and WHERE (a bounded edge), and the
+  // Builder computes actual coordinates deterministically.
+  z.object({
+    op: z.literal('move_nodes'),
+    nodeIds: z.array(z.string()).min(1),
+    placement: z.enum(['top', 'bottom', 'left', 'right']),
+  }),
 ])
 export type TreeOp = z.infer<typeof TreeOpSchema>
 export const TreeOpsSchema = z.array(TreeOpSchema).min(1)
+
+/** A confirmed layout move for the Builder to execute (real ids, post-alias). */
+export interface NodeMove {
+  nodeIds: string[]
+  placement: 'top' | 'bottom' | 'left' | 'right'
+}
 
 /* -------------------------------------------------------------------------- */
 /* Applier                                                                    */
@@ -174,6 +188,8 @@ export interface ApplyResult {
   addedIds: string[]
   /** Real ids of existing nodes the ops touched. */
   changedIds: string[]
+  /** Canvas-layout moves (validated ids) — tree data is never affected. */
+  moves: NodeMove[]
 }
 
 function fullItem(item: { name: string; protocol?: string; rationale?: string }): WorkupItem {
@@ -196,12 +212,14 @@ export function applyOps(inputTree: Tree, ops: TreeOp[]): ApplyResult {
       errors: [`current tree failed schema validation: ${parsed.error.issues[0]?.message}`],
       addedIds: [],
       changedIds: [],
+      moves: [],
     }
   }
   const tree: Tree = JSON.parse(JSON.stringify(parsed.data))
   const errors: string[] = []
   const addedIds: string[] = []
   const changedIds = new Set<string>()
+  const moves: NodeMove[] = []
   const alias = new Map<string, string>()
 
   const resolveId = (id: string): string => alias.get(id) ?? id
@@ -470,11 +488,26 @@ export function applyOps(inputTree: Tree, ops: TreeOp[]): ApplyResult {
         changedIds.add(node.id)
         break
       }
+      case 'move_nodes': {
+        // Layout-only: verify every id and hand resolved moves to the Builder.
+        // The tree itself is untouched — no changedIds, no diff, no rewiring.
+        const resolved: string[] = []
+        for (const rawId of raw.nodeIds) {
+          const id = resolveId(rawId)
+          if (!tree.nodes.some((n) => n.id === id)) {
+            errors.push(`move_nodes: no node with id "${rawId}"`)
+            continue
+          }
+          resolved.push(id)
+        }
+        if (resolved.length === raw.nodeIds.length) moves.push({ nodeIds: [...new Set(resolved)], placement: raw.placement })
+        break
+      }
     }
   }
 
   if (errors.length > 0) {
-    return { ok: false, tree: parsed.data, errors, addedIds: [], changedIds: [] }
+    return { ok: false, tree: parsed.data, errors, addedIds: [], changedIds: [], moves: [] }
   }
 
   // The applied result must itself be a valid tree — the same hard gate as save.
@@ -486,10 +519,42 @@ export function applyOps(inputTree: Tree, ops: TreeOp[]): ApplyResult {
       errors: [`result failed schema validation: ${finalParse.error.issues[0]?.message}`],
       addedIds: [],
       changedIds: [],
+      moves: [],
     }
   }
 
   // Don't report freshly added nodes as "changed" too.
   for (const id of addedIds) changedIds.delete(id)
-  return { ok: true, tree: finalParse.data, errors: [], addedIds, changedIds: [...changedIds] }
+  return { ok: true, tree: finalParse.data, errors: [], addedIds, changedIds: [...changedIds], moves }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Layout-move descriptions (for the proposal card)                           */
+/* -------------------------------------------------------------------------- */
+
+const PLACEMENT_TEXT: Record<NodeMove['placement'], string> = {
+  top: 'the top of the canvas',
+  bottom: 'the bottom of the canvas',
+  left: 'the left of the canvas',
+  right: 'the right of the canvas',
+}
+
+/**
+ * Human-readable line per move, in the same voice as the clinical diff.
+ * Layout moves have no clinical consequence, and the text says so.
+ */
+export function describeMoves(tree: Tree, moves: NodeMove[]): string[] {
+  const byId = new Map(tree.nodes.map((n) => [n.id, n]))
+  const nameOf = (id: string): string => {
+    const n = byId.get(id)
+    if (!n) return id
+    if (n.type === 'variable') return `'${n.variableKey}'`
+    if (n.type === 'specialist') return n.specialistName
+    return 'Human review'
+  }
+  return moves.map((m) => {
+    const names = m.nodeIds.map(nameOf)
+    const listed = names.length <= 4 ? names.join(', ') : `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`
+    return `Move ${listed} to ${PLACEMENT_TEXT[m.placement]} — layout only, wiring and routing unchanged`
+  })
 }
