@@ -10,6 +10,7 @@ const links: { id: Page; label: string }[] = [
   { id: 'generate', label: 'Generate' },
   { id: 'builder', label: 'Builder' },
   { id: 'runner', label: 'Runner' },
+  { id: 'knowledge', label: 'Knowledge' },
 ]
 
 /**

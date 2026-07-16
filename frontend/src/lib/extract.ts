@@ -13,7 +13,7 @@ import type { FilledVariables, Tree, VariableSpec } from '../types/tree'
  * the key and forces tool use so the model can only return structured JSON.
  */
 
-const DEFAULT_ENDPOINT = '/api/extract'
+const DEFAULT_ENDPOINT = '/api/v1/extract'
 
 interface ExtractOptions {
   /** Override the backend URL (e.g. an absolute URL for a Node test harness). */

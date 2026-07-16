@@ -8,11 +8,48 @@ const API_BASE = '/api/v1'
 export interface TreeSummary {
   id: string
   name: string
+  clinic_id?: string | null
   description?: string | null
   version: number
   is_active: boolean
   authored_by?: string | null
   created_at: string
+  updated_at: string
+}
+
+export interface ClinicSummary {
+  id: string
+  name: string
+  type?: string | null
+  knowledge_base?: string | null
+  group?: string | null
+}
+
+export interface KnowledgeBaseFileSummary {
+  filename: string
+  content_type?: string | null
+  file_type: string
+  text_length: number
+  selected_length: number
+  selected_chunk_count: number
+  relevant_topics: string[]
+  matched_specialists: string[]
+  matched_diagnoses: string[]
+  summary: string
+  key_points: string[]
+  evidence_quotes: string[]
+  model_used?: string | null
+}
+
+export interface KnowledgeBasePreviewResponse {
+  clinic_id: string
+  clinic_name: string
+  tree_id: string
+  tree_name: string
+  overview: string
+  focus_terms: string[]
+  files: KnowledgeBaseFileSummary[]
+  persisted: boolean
   updated_at: string
 }
 
@@ -29,6 +66,27 @@ function mapCondition(c: any): Condition {
     return { op: 'in', values: c.values_list ? JSON.parse(c.values_list) : [] }
   }
   throw new Error(`Unknown condition type: ${c.condition_type}`)
+}
+
+export async function fetchClinics(): Promise<ClinicSummary[]> {
+  const res = await fetch(`${API_BASE}/clinics`)
+  if (!res.ok) throw new Error('Failed to fetch clinics')
+  return res.json()
+}
+
+export async function previewKnowledgeBase(
+  clinicId: string,
+  formData: FormData,
+): Promise<KnowledgeBasePreviewResponse> {
+  const res = await fetch(`${API_BASE}/clinics/${clinicId}/knowledge-base/preview`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(body || 'Failed to preview knowledge base')
+  }
+  return res.json()
 }
 
 export async function fetchTrees(): Promise<TreeSummary[]> {

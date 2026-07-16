@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useState, useRef, useEffect, useMemo } from 'react'
 import { sampleTree } from '../data/sampleTree'
 import { useTreeLibrary, type TreeLibrary } from '../lib/treeLibrary'
 import TreePicker from '../components/TreePicker'
@@ -11,10 +11,8 @@ import { resolveWorkup } from '../lib/engine'
 import { describeKeyedCondition } from '../lib/conditionText'
 import {
   loadThresholds,
-  saveThresholds,
   resolveBand,
   toEngineThresholds,
-  BAND_LABEL,
   type Thresholds,
 } from '../lib/thresholds'
 import TreeMiniViz from '../components/TreeMiniViz'
@@ -172,13 +170,9 @@ function RunnerSession({
   const [candidates, setCandidates] = useState<Record<string, Extraction>>({})
   // Safety thresholds (persisted). A ref keeps async handlers reading the latest
   // value without re-binding; state drives re-render of the clinician controls.
-  const [thresholds, setThresholdsState] = useState<Thresholds>(() => loadThresholds())
+  const [thresholds] = useState<Thresholds>(() => loadThresholds())
   const thresholdsRef = useRef(thresholds)
   thresholdsRef.current = thresholds
-  const setThresholds = (t: Thresholds) => {
-    setThresholdsState(t)
-    saveThresholds(t)
-  }
   const [step, setStep] = useState<OrchestratorStep | null>(null)
   const [phase, setPhase] = useState<Phase>('intro')
   const [error, setError] = useState<string | null>(null)
@@ -517,8 +511,6 @@ function RunnerSession({
             filled={filled}
             candidates={candidates}
             step={step}
-            thresholds={thresholds}
-            onThresholds={setThresholds}
           />
         )}
       </div>
@@ -1184,15 +1176,11 @@ function BehindScenes({
   filled,
   candidates,
   step,
-  thresholds,
-  onThresholds,
 }: {
   tree: Tree
   filled: FilledVariables
   candidates: Record<string, Extraction>
   step: OrchestratorStep | null
-  thresholds: Thresholds
-  onThresholds: (t: Thresholds) => void
 }) {
   const filledEntries = Object.entries(filled)
   const pendingEntries = Object.entries(candidates)
@@ -1226,20 +1214,17 @@ function BehindScenes({
         ) : (
           <ul className="space-y-2">
             {filledEntries.map(([key, v]) => (
-              <VariableRow key={key} name={key} value={v.value} confidence={v.confidence} thresholds={thresholds} />
+              <VariableRow key={key} name={key} value={v.value} confidence={v.confidence} />
             ))}
             {pendingEntries.map(([key, c]) => (
-              <VariableRow key={key} name={key} value={c.value} confidence={c.confidence} thresholds={thresholds} pending />
+              <VariableRow key={key} name={key} value={c.value} confidence={c.confidence} pending />
             ))}
           </ul>
         )}
       </div>
 
-      {/* Tunable safety thresholds — the confidence cutoffs are a safety control. */}
-      <ThresholdControls thresholds={thresholds} onChange={onThresholds} />
 
-      {/* Terminal outcome → the reviewable referral packet (what the doctor
-          dashboard will surface). Mid-conversation → the live path so far. */}
+      {/* Terminal outcome → the reviewable referral packet */}
       {step?.kind === 'route' ? (
         <div className="border-t border-line/70 pt-3">
           <p className="mb-2 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-carolina-deep">
@@ -1258,17 +1243,7 @@ function BehindScenes({
         </div>
       ) : step?.kind === 'escalate' ? (
         <EscalationPacket tree={tree} filled={filled} reason={step.reason} pathTaken={step.pathTaken} analysis={step.analysis} />
-      ) : step ? (
-        <div className="border-t border-line/70 pt-3">
-          <p className="mb-3 font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-            Path taken
-          </p>
-          <PathStepper tree={tree} pathTaken={step.pathTaken} />
-        </div>
       ) : null}
-
-      {/* Model calibration — reliability of the extractor's confidence, from eval. */}
-      <CalibrationPanel />
     </aside>
   )
 }
@@ -1381,41 +1356,26 @@ function PathStepper({ tree, pathTaken }: { tree: Tree; pathTaken: string[] }) {
   )
 }
 
-/** One extracted variable: value + a colour-coded confidence meter + the policy
- * band (Commit / Confirm / Re-ask) that the current thresholds assign to it. */
+/** One extracted variable: value + a colour-coded confidence meter. */
 function VariableRow({
   name,
   value,
   confidence,
-  thresholds,
   pending,
 }: {
   name: string
   value: unknown
   confidence: number
-  thresholds: Thresholds
   pending?: boolean
 }) {
-  const band = resolveBand(name, confidence, thresholds)
-  const meter =
-    band === 'commit' ? 'bg-accent' : band === 'confirm' ? 'bg-nodeesc' : 'bg-danger'
-  const chip =
-    band === 'commit'
-      ? 'bg-accent/12 text-accent'
-      : band === 'confirm'
-        ? 'bg-nodeesc/15 text-nodeesc'
-        : 'bg-danger/10 text-danger'
   const pct = Math.round(confidence * 100)
+  const meter = pct >= 80 ? 'bg-accent' : pct >= 50 ? 'bg-nodeesc' : 'bg-danger'
+  const chip = pct >= 80 ? 'bg-accent/12 text-accent' : pct >= 50 ? 'bg-nodeesc/15 text-nodeesc' : 'bg-danger/10 text-danger'
   return (
     <li className="rounded-md border border-line bg-canvas px-2.5 py-2">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-mono text-[11px] text-muted">{name}</span>
-        <span className="flex shrink-0 items-center gap-1">
-          <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${chip}`}>
-            {BAND_LABEL[band]}
-          </span>
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${chip}`}>{pct}%</span>
-        </span>
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${chip}`}>{pct}%</span>
       </div>
       <div className="mt-0.5 text-xs text-ink">
         {String(value)}
@@ -1429,191 +1389,6 @@ function VariableRow({
         />
       </div>
     </li>
-  )
-}
-
-const pctStr = (x: number) => `${Math.round(x * 100)}%`
-
-/** A titled disclosure — collapsed by default, with a glanceable summary so the
- * clinician panel stays uncluttered until someone wants the detail. */
-function Collapsible({
-  title,
-  summary,
-  defaultOpen = false,
-  children,
-}: {
-  title: string
-  summary?: string
-  defaultOpen?: boolean
-  children: ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen)
-  return (
-    <div className="overflow-hidden rounded-md border border-line bg-canvas">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left transition-colors hover:bg-bg"
-      >
-        <span className="min-w-0">
-          <span className="block font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-            {title}
-          </span>
-          {summary && !open && (
-            <span className="mt-0.5 block truncate text-[10px] text-muted/80">{summary}</span>
-          )}
-        </span>
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
-          aria-hidden
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </button>
-      {open && <div className="border-t border-line px-2.5 py-2.5">{children}</div>}
-    </div>
-  )
-}
-
-/** Live, persisted safety-threshold sliders + the safe-by-default policy text. */
-function ThresholdControls({
-  thresholds,
-  onChange,
-}: {
-  thresholds: Thresholds
-  onChange: (t: Thresholds) => void
-}) {
-  const setCommit = (v: number) => onChange({ ...thresholds, commit: Math.max(v, thresholds.confirm + 0.05) })
-  const setConfirm = (v: number) => onChange({ ...thresholds, confirm: Math.min(v, thresholds.commit - 0.05) })
-  return (
-    <Collapsible
-      title="Safety thresholds"
-      summary={`Commit ≥ ${pctStr(thresholds.commit)} · Confirm ≥ ${pctStr(thresholds.confirm)}`}
-    >
-      <label className="mb-2 block">
-        <span className="flex items-center justify-between text-[11px] text-ink">
-          <span>Commit ≥ <span className="text-accent">{pctStr(thresholds.commit)}</span></span>
-          <span className="text-[10px] text-muted">route on it</span>
-        </span>
-        <input
-          type="range"
-          min={0.5}
-          max={0.99}
-          step={0.05}
-          value={thresholds.commit}
-          onChange={(e) => setCommit(Number(e.target.value))}
-          className="mt-1 w-full accent-accent"
-        />
-      </label>
-      <label className="block">
-        <span className="flex items-center justify-between text-[11px] text-ink">
-          <span>Confirm ≥ <span className="text-nodeesc">{pctStr(thresholds.confirm)}</span></span>
-          <span className="text-[10px] text-muted">ask “is that right?”</span>
-        </span>
-        <input
-          type="range"
-          min={0.1}
-          max={0.9}
-          step={0.05}
-          value={thresholds.confirm}
-          onChange={(e) => setConfirm(Number(e.target.value))}
-          className="mt-1 w-full accent-nodeesc"
-        />
-      </label>
-      <p className="mt-2 text-[10px] leading-snug text-muted">
-        ≥ {pctStr(thresholds.commit)} commit · {pctStr(thresholds.confirm)}–{pctStr(thresholds.commit)} confirm ·
-        below {pctStr(thresholds.confirm)} re-ask. When uncertain the engine asks or escalates — it never guesses.
-      </p>
-    </Collapsible>
-  )
-}
-
-interface CalibrationBin {
-  lo: number
-  hi: number
-  n: number
-  confidence: number
-  accuracy: number
-}
-interface CalibrationData {
-  generatedAt: string
-  model: string
-  n: number
-  ece: number
-  bins: CalibrationBin[]
-}
-
-/** Reliability diagram — predicted confidence vs. measured accuracy per bin,
- * loaded from the eval harness artifact (public/calibration.json). */
-function CalibrationPanel() {
-  const [data, setData] = useState<CalibrationData | null>(null)
-  const [state, setState] = useState<'loading' | 'ok' | 'none'>('loading')
-  useEffect(() => {
-    fetch('/calibration.json', { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => {
-        setData(d)
-        setState('ok')
-      })
-      .catch(() => setState('none'))
-  }, [])
-
-  const summary =
-    state === 'ok' && data
-      ? `ECE ${data.ece.toFixed(2)} · n=${data.n}`
-      : state === 'none'
-        ? 'run npm run eval to populate'
-        : 'loading…'
-
-  return (
-    <Collapsible title="Extraction calibration" summary={summary}>
-      {state === 'loading' && <p className="text-[11px] text-muted">Loading…</p>}
-      {state === 'none' && (
-        <p className="text-[11px] leading-snug text-muted">
-          No calibration data yet. Run <span className="font-mono text-ink">npm run eval</span> to measure whether the
-          model’s confidence matches its accuracy.
-        </p>
-      )}
-      {state === 'ok' && data && (
-        <div>
-          <p className="mb-2 text-[11px] leading-snug text-muted">
-            Does “{Math.round(0.9 * 100)}% confident” mean 90% correct? ·{' '}
-            <span className="font-medium text-ink">ECE {data.ece.toFixed(2)}</span> (lower = better) · n={data.n} ·{' '}
-            <span className="font-mono text-[10px]">{data.model}</span>
-          </p>
-          <ul className="space-y-1.5">
-            {data.bins.map((b) => {
-              const gap = Math.abs(b.accuracy - b.confidence)
-              const tone = gap <= 0.1 ? 'bg-accent' : gap <= 0.2 ? 'bg-nodeesc' : 'bg-danger'
-              return (
-                <li key={b.lo} className="text-[10px]">
-                  <div className="flex items-center justify-between text-muted">
-                    <span>
-                      {pctStr(b.lo)}–{pctStr(b.hi)} conf · n={b.n}
-                    </span>
-                    <span>
-                      pred <span className="text-ink">{pctStr(b.confidence)}</span> · actual{' '}
-                      <span className="font-semibold text-ink">{pctStr(b.accuracy)}</span>
-                    </span>
-                  </div>
-                  <div className="mt-0.5 h-1.5 w-full overflow-hidden rounded-full bg-line">
-                    <div className={`h-full rounded-full ${tone}`} style={{ width: pctStr(b.accuracy) }} />
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-    </Collapsible>
   )
 }
 

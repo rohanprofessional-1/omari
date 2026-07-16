@@ -168,13 +168,15 @@ function heuristicTriage(text: string, ctx: TriageContext): TriageResult {
 /* Public entry                                                                */
 /* -------------------------------------------------------------------------- */
 
+const DEFAULT_ENDPOINT = '/api/v1/triage'
+
 export async function triageTurn(
   text: string,
   ctx: TriageContext,
   opts: { signal?: AbortSignal; endpoint?: string } = {},
 ): Promise<TriageResult> {
   try {
-    const res = await fetch(opts.endpoint ?? '/api/triage', {
+    const res = await fetch(opts.endpoint ?? DEFAULT_ENDPOINT, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({

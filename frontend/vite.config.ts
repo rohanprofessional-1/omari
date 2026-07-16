@@ -6,13 +6,9 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    // Two backends, split by path (more specific key first):
-    //  • /api/v1/*  → FastAPI (Postgres) — trees, conversations, etc.
-    //  • /api/*     → Node live-AI server (server/index.mjs) — extract/triage/voice.
-    // The browser never holds the API key either way.
+    // All backend requests go to the FastAPI server
     proxy: {
       '/api/v1': 'http://localhost:8000',
-      '/api': 'http://localhost:8001',
     },
     // Allow serving files from the repo root (deps like @fontsource hoist there).
     fs: {

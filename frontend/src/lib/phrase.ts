@@ -32,7 +32,7 @@ export function setLlmPhrasing(enabled: boolean): void {
   phrasingConfig.enabled = enabled
 }
 
-const DEFAULT_ENDPOINT = '/api/phrase'
+const DEFAULT_ENDPOINT = '/api/v1/phrase'
 
 interface PhraseOptions {
   /** Override the global toggle for this one call. */

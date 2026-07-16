@@ -31,7 +31,7 @@ interface VoiceOptions {
   endpoint?: string
 }
 
-const DEFAULT_ENDPOINT = '/api/voice'
+const DEFAULT_ENDPOINT = '/api/v1/voice'
 
 /* -------------------------------------------------------------------------- */
 /* Public entry — live backend, with a safe fallback to the raw question.      */

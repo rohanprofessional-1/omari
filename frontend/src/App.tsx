@@ -3,8 +3,9 @@ import TopAppBar from './components/TopNav'
 import Builder from './pages/Builder'
 import Runner from './pages/Runner'
 import Generate from './pages/Generate'
+import KnowledgeBase from './pages/KnowledgeBase'
 
-export type Page = 'generate' | 'builder' | 'runner'
+export type Page = 'generate' | 'builder' | 'runner' | 'knowledge'
 
 function App() {
   const [page, setPage] = useState<Page>('builder')
@@ -17,6 +18,8 @@ function App() {
           <Builder />
         ) : page === 'generate' ? (
           <Generate onOpenBuilder={() => setPage('builder')} />
+        ) : page === 'knowledge' ? (
+          <KnowledgeBase />
         ) : (
           <div className="h-full overflow-y-auto">
             <Runner />
