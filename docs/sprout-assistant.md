@@ -212,13 +212,21 @@ byte-identical, so the clinical diff and routing impact are provably empty.
 The proposal card shows a `describeMoves` line instead ("Move Human review to
 the bottom of the canvas — layout only, wiring and routing unchanged"), and
 the same propose → confirm flow gates it. On Apply, the Builder computes the
-geometry deterministically (`applyNodeMoves`): a centred row beyond the
-visible graph's bounding box for top/bottom, a centred column for left/right.
-A layout-only apply skips the auto-layout pass so every other card keeps its
-position; a mixed proposal tidies first, then parks the moved cards. Like a
-manual drag, positions live on the canvas only (auto-layout or reload
-re-tidies) — requests beyond edge-parking (exact coordinates, alignment) get
-pointed at dragging or the Auto-layout button.
+geometry deterministically (`applyNodeMoves` → `lib/nodePlacement.ts::
+planNodeMoves`), tracking every card's real rectangle (position + measured
+size) and the live edge list: each moved card gets a desired spot at the
+**barycenter of its wiring** (the classic one-layer crossing-minimisation
+heuristic — cards land under/beside the nodes they connect to, so edges run
+short and parallel), a sweep enforces minimum gaps so parked cards **never
+overlap**, a mean-displacement shift keeps the run centred on its wiring, and
+the whole row/column parks with clearance beyond the graph's bounding box.
+Edge paths are routed by React Flow from their endpoint nodes, so untangled
+lines fall out of good node positions. A layout-only apply skips the
+auto-layout pass so every other card keeps its position; a mixed proposal
+tidies first, then parks the moved cards. Like a manual drag, positions live
+on the canvas only (auto-layout or reload re-tidies) — requests beyond
+edge-parking (exact coordinates, alignment) get pointed at dragging or the
+Auto-layout button.
 
 Leniencies at the boundary (tolerate, then normalize): a bare string workup
 item coerces to `{name}` (`WorkupItemInputSchema`); branch `nextNodeId` may be
@@ -527,6 +535,7 @@ clean one-line questions.
 | `frontend/src/lib/assistant/impact.ts` | path enumeration + routing impact |
 | `frontend/src/lib/assistant/gaps.ts` | deterministic gap detector + template questions |
 | `frontend/src/lib/assistant/api.ts` | typed client for the endpoint |
+| `frontend/src/lib/nodePlacement.ts` | pure placement planner for layout moves (barycenter ordering + overlap sweep); tested in `nodePlacement.test.ts` |
 | `frontend/src/components/BuilderChatPanel.tsx` | the panel: hero, thread, proposal cards, gap mode, stepper, scope chip, composer, voice input |
 | `frontend/src/pages/Builder.tsx` | launcher, `assistantFocus` highlighting, preview machinery, apply, selection plumbing |
 | `frontend/src/assets/sprout-logo.png` | the leaf mark, recolored to accent-strong |

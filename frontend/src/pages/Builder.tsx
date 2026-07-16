@@ -41,6 +41,8 @@ import {
 } from '../lib/treeToFlow'
 import { TreeSchema, type Node as TreeNode, type Tree } from '../types/tree'
 import type { NodeMove } from '../lib/assistant/ops'
+import { planNodeMoves, type PlacedRect } from '../lib/nodePlacement'
+import type { RoutePoint } from '../lib/edgeRouting'
 import { flowNodesToTree, validateTreeGraph, type TreeWarning } from '../lib/buildTree'
 import VariableNodeCard from '../components/nodes/VariableNodeCard'
 import SpecialistNodeCard from '../components/nodes/SpecialistNodeCard'
@@ -356,6 +358,15 @@ function BuilderCanvas() {
     collapsedRef.current = collapsed
   }, [collapsed])
 
+  // ELK's routed edge polylines from the last layout pass, plus where every
+  // node sat when they were computed. An edge renders its router route only
+  // while BOTH endpoints still sit at their layout positions — dragging a
+  // card gracefully degrades just that card's wires until the next layout.
+  const edgeRoutesRef = useRef<Map<string, RoutePoint[]>>(new Map())
+  const routeAnchorsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  // Bumped after each layout pass so the edges memo re-reads the refs.
+  const [routesVersion, setRoutesVersion] = useState(0)
+
   // Which tree is currently loaded on the canvas (drives save id/root + the
   // top-bar tag). Starts as the simple sample; the load buttons swap it.
   const [activeMeta, setActiveMeta] = useState({
@@ -477,9 +488,13 @@ function BuilderCanvas() {
     const derived = deriveEdges(visNodes, {
       selectedEdgeId: selectedEdge?.id,
       activeEdgeIds: focus?.activeEdges ?? null,
+      routes: edgeRoutesRef.current,
+      routeAnchors: routeAnchorsRef.current,
     })
     return derived.filter((e) => !collapsed.has(e.source))
-  }, [nodes, visibility, collapsed, selectedEdge, focus])
+    // routesVersion re-reads the refs after each layout pass.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, visibility, collapsed, selectedEdge, focus, routesVersion])
 
   // Nodes for rendering: only the visible ones; dim any not on the isolated path
   // (positions/handles unchanged), and inject the view-only collapse flags the
@@ -531,8 +546,12 @@ function BuilderCanvas() {
       const visNodes = all.filter((n) => vis.visibleIds.has(n.id))
       // Lay out only edges that are actually drawn (skip wires out of collapsed nodes).
       const layoutEdges = deriveEdges(visNodes).filter((e) => !collapsedSet.has(e.source))
-      const { nodes: laid } = await layoutGraph(visNodes, layoutEdges)
+      const { nodes: laid, routes } = await layoutGraph(visNodes, layoutEdges)
       const posById = new Map(laid.map((n) => [n.id, n.position]))
+      // Keep the router's wire routes + the positions they were computed for.
+      edgeRoutesRef.current = routes
+      routeAnchorsRef.current = new Map(laid.map((n) => [n.id, { ...n.position }]))
+      setRoutesVersion((v) => v + 1)
       setNodes((current) =>
         current.map((n) => {
           const p = posById.get(n.id)
@@ -1166,50 +1185,35 @@ function BuilderCanvas() {
 
   /**
    * Confirmed layout moves from Sprout: park the moved cards just beyond the
-   * rest of the visible graph on the requested edge. Deterministic geometry
-   * computed here — the model only ever names WHICH nodes and WHICH edge.
-   * Same contract as a manual drag: tree data and wiring are untouched.
+   * rest of the visible graph on the requested edge. All geometry is
+   * deterministic (`planNodeMoves`): real per-node rectangles + the live edge
+   * list go in, and cards come out ordered by the barycenter of their wiring
+   * (fewer edge crossings) with overlaps swept away. The model only ever
+   * names WHICH nodes and WHICH edge. Same contract as a manual drag: tree
+   * data and wiring are untouched.
    */
   const applyNodeMoves = useCallback(
     (moves: NodeMove[]) => {
-      const GAP = 140 // clearance between the graph and the moved row/column
-      const SPACING = 48 // gap between moved cards
       setNodes((current) => {
         let next = current
         const vis = computeVisibility(next, rootIdRef.current, collapsedRef.current)
+        const rectOf = (n: BuilderFlowNode): PlacedRect => ({
+          id: n.id,
+          x: n.position.x,
+          y: n.position.y,
+          w: n.measured?.width ?? NODE_WIDTH,
+          h: n.measured?.height ?? 140,
+        })
         for (const move of moves) {
           const movedSet = new Set(move.nodeIds)
-          const movedNodes = next.filter((n) => movedSet.has(n.id))
-          const rest = next.filter((n) => !movedSet.has(n.id) && vis.visibleIds.has(n.id))
-          if (movedNodes.length === 0 || rest.length === 0) continue // nothing to anchor against
-          const w = (n: BuilderFlowNode) => n.measured?.width ?? NODE_WIDTH
-          const h = (n: BuilderFlowNode) => n.measured?.height ?? 140
-          const minX = Math.min(...rest.map((n) => n.position.x))
-          const maxX = Math.max(...rest.map((n) => n.position.x + w(n)))
-          const minY = Math.min(...rest.map((n) => n.position.y))
-          const maxY = Math.max(...rest.map((n) => n.position.y + h(n)))
-          const pos = new Map<string, { x: number; y: number }>()
-          if (move.placement === 'top' || move.placement === 'bottom') {
-            // A centred horizontal row, keeping the cards' left-to-right order.
-            const row = [...movedNodes].sort((a, b) => a.position.x - b.position.x)
-            const total = row.reduce((s, n) => s + w(n), 0) + SPACING * (row.length - 1)
-            let x = (minX + maxX) / 2 - total / 2
-            const rowH = Math.max(...row.map(h))
-            const y = move.placement === 'bottom' ? maxY + GAP : minY - GAP - rowH
-            for (const n of row) {
-              pos.set(n.id, { x, y })
-              x += w(n) + SPACING
-            }
-          } else {
-            // A centred vertical column, keeping top-to-bottom order.
-            const col = [...movedNodes].sort((a, b) => a.position.y - b.position.y)
-            const total = col.reduce((s, n) => s + h(n), 0) + SPACING * (col.length - 1)
-            let y = (minY + maxY) / 2 - total / 2
-            for (const n of col) {
-              pos.set(n.id, { x: move.placement === 'right' ? maxX + GAP : minX - GAP - w(n), y })
-              y += h(n) + SPACING
-            }
-          }
+          const onCanvas = next.filter((n) => movedSet.has(n.id) || vis.visibleIds.has(n.id))
+          const pos = planNodeMoves({
+            moved: next.filter((n) => movedSet.has(n.id)).map(rectOf),
+            rest: onCanvas.filter((n) => !movedSet.has(n.id)).map(rectOf),
+            edges: deriveEdges(onCanvas).map((e) => ({ source: e.source, target: e.target })),
+            placement: move.placement,
+          })
+          if (pos.size === 0) continue // nothing to anchor against
           next = next.map((n) => {
             const p = pos.get(n.id)
             return p ? { ...n, position: p } : n

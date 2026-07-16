@@ -4,7 +4,7 @@ import { deriveQuestion, type Choice } from '../lib/runner'
 import type { OrchestratorStep } from '../lib/orchestrator'
 import type { ChatMessage, Phase } from '../pages/Runner'
 import { StatusStepper } from '../pages/Runner'
-import { Orb, type AgentState } from './Orb'
+import VoiceOrb, { ORB_BLUE, ORB_GREEN, useVoiceCapture, type VoiceCapture } from './VoiceOrb'
 
 /**
  * Omari — Presentation-mode ORB experience (presentation-only patient view).
@@ -17,23 +17,17 @@ import { Orb, type AgentState } from './Orb'
  * a reactive orb and optional spoken voice. Works identically with the real LLM
  * (Demo mode off) and the simulated extractor.
  *
- * The orb itself is the WebGL shader <Orb/> (src/components/Orb.tsx). It is
- * driven purely by this view's existing flow state via its `agentState` prop —
- * no parallel/competing animation state. Because the whole experience mounts
- * ONLY in Presentation mode, exactly one WebGL canvas exists, and it unmounts
+ * The orb itself is the voice-reactive <VoiceOrb/> (src/components/VoiceOrb.tsx)
+ * — an OGL iridescence shader driven by the patient's live microphone level.
+ * This view owns the ONE voice session (useVoiceCapture): the mic button inside
+ * the input box toggles it, and while live it BOTH streams talk-to-text into
+ * the mounted input and animates the orb via the shared level ref. The view
+ * also feeds the orb a target colour (blue through the conversation, easing to
+ * green on the referral-sent beat) and a `calm` flag under
+ * prefers-reduced-motion. Because the whole experience mounts ONLY in
+ * Presentation mode, exactly one WebGL canvas exists, and it unmounts
  * (disposing the context) the moment Presentation mode is turned off.
  */
-
-/* On-brand orb palettes fed to the shader's two-stop colour ramp.
- *  - BLUE  (--grad-blue family): the default presence through the conversation.
- *  - GREEN (--color-success family): the referral-sent success beat. The orb
- *    lerps its colours, so switching the prop EASES blue → green, never snaps. */
-const ORB_COLORS_BLUE: [string, string] = ['#2f66b0', '#a9c8e8']
-// [deeper sage companion, soft sage highlight]. The shader ramp is
-// [black → colors[0] → colors[1] → white], so the soft sage sits in the upper/highlight
-// slot (dominates the highlight) while the deeper companion gives shadow depth —
-// dimensional, not a flat single light tone.
-const ORB_COLORS_GREEN /* muted sage */: [string, string] = ['#4c7a5c', '#b9d8bf']
 
 /** Calm the orb when the OS asks for reduced motion (stable, minimal volume). */
 function usePrefersReducedMotion(): boolean {
@@ -86,14 +80,30 @@ function MicIcon({ className }: { className?: string }) {
   )
 }
 
-/** Voice-mode toggle — visual placeholder for now (not yet wired up). */
-function VoiceButton() {
+/** Voice toggle — starts/stops the ONE voice session (mic → talk-to-text into
+ *  the active input AND the orb's speaking animation via its level). */
+function VoiceButton({ voice }: { voice: VoiceCapture }) {
+  const title = voice.listening
+    ? voice.error
+      ? `${voice.error} — the orb still hears you; tap to stop`
+      : 'Stop voice input'
+    : voice.error
+      ? `${voice.error} — tap to retry`
+      : voice.supported
+        ? 'Speak your answer'
+        : 'Voice-to-text is not supported in this browser'
   return (
     <button
       type="button"
-      title="Voice mode (coming soon)"
-      aria-label="Voice mode"
-      className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line bg-canvas text-muted transition-colors hover:border-accent/40 hover:bg-sky hover:text-accent"
+      onClick={voice.toggle}
+      title={title}
+      aria-label={voice.listening ? 'Stop voice input' : 'Start voice input'}
+      aria-pressed={voice.listening}
+      className={
+        voice.listening
+          ? 'omari-grad grid h-10 w-10 shrink-0 animate-pulse place-items-center rounded-full text-white shadow-[0_2px_10px_rgba(27,58,107,0.30)] transition-colors'
+          : 'grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line bg-canvas text-muted transition-colors hover:border-accent/40 hover:bg-sky hover:text-accent'
+      }
     >
       <MicIcon className="h-[18px] w-[18px]" />
     </button>
@@ -121,15 +131,34 @@ function SendButton({
   )
 }
 
+/** Append a spoken chunk to whatever is already typed (single joining space). */
+function appendChunk(current: string, chunk: string): string {
+  const base = current.replace(/\s+$/, '')
+  return base ? `${base} ${chunk}` : chunk
+}
+
 function OrbIntro({
   draft,
   onDraft,
   onSubmit,
+  voice,
 }: {
   draft: string
   onDraft: (t: string) => void
   onSubmit: () => void
+  voice: VoiceCapture
 }) {
+  // While this input is mounted, spoken (final) phrases land in the draft.
+  useEffect(() => {
+    voice.transcriptRef.current = (chunk) => onDraft(appendChunk(draft, chunk))
+  })
+  useEffect(
+    () => () => {
+      voice.transcriptRef.current = null
+    },
+    [voice]
+  )
+
   return (
     <div className="relative w-full max-w-xl">
       <textarea
@@ -146,7 +175,7 @@ function OrbIntro({
         className={inputBoxCls}
       />
       <div className="absolute bottom-3 right-3 flex items-center gap-2">
-        <VoiceButton />
+        <VoiceButton voice={voice} />
         <SendButton onClick={onSubmit} disabled={!draft.trim()} label="Begin" />
       </div>
     </div>
@@ -157,16 +186,26 @@ function OrbAsk({
   step,
   onAnswer,
   onText,
+  voice,
 }: {
   step: OrchestratorStep & { kind: 'ask' }
   onAnswer: (choice: Choice) => void
   onText: (text: string) => void
+  voice: VoiceCapture
 }) {
   const q = step.node
     ? deriveQuestion(step.node, step.spec)
     : { kind: 'text' as const, choices: [] as Choice[] }
   const [text, setText] = useState('')
   const isChoice = q.kind === 'choice' || q.kind === 'boolean'
+
+  // While this input is mounted, spoken (final) phrases land in the answer box.
+  useEffect(() => {
+    voice.transcriptRef.current = (chunk) => setText((prev) => appendChunk(prev, chunk))
+    return () => {
+      voice.transcriptRef.current = null
+    }
+  }, [voice])
 
   const submitTyped = () => {
     const trimmed = text.trim()
@@ -232,7 +271,7 @@ function OrbAsk({
           className={inputBoxCls}
         />
         <div className="absolute bottom-3 right-3 flex items-center gap-2">
-          <VoiceButton />
+          <VoiceButton voice={voice} />
           <SendButton onClick={submitTyped} disabled={!text.trim()} label="Send" />
         </div>
       </div>
@@ -290,7 +329,10 @@ function OrbExperience({
   onRetry,
 }: OrbExperienceProps) {
   const reducedMotion = usePrefersReducedMotion()
-  const [justArrived, setJustArrived] = useState(false)
+
+  // The ONE voice session for the whole experience — toggled by the mic button
+  // in the input box. Its level drives the orb; its transcript feeds the input.
+  const voice = useVoiceCapture()
 
   // The single "moment" Omari is presenting = the most recent thing it said.
   const lastBot = useMemo(() => {
@@ -313,41 +355,15 @@ function OrbExperience({
             ? 'intro'
             : `msg-${lastBot?.id ?? 0}`
 
-  // Whether this moment carries a message (drives the brief arrival bloom).
-  const hasMoment = phase !== 'thinking' && phase !== 'error' && !!lastBot?.text
-  // No "One moment…" — thinking is shown by the ORB's animation (see agentState),
-  // so the text area carries only real messages / errors.
+  // The text area carries only real messages / errors — the orb itself is the
+  // "presence"; its motion comes from the patient's voice, not the flow state.
   const displayText = phase === 'error' ? error ?? 'Something went wrong.' : lastBot?.text ?? ''
-
-  // On each new moment: a brief warm "reaction" bloom on the orb.
-  useEffect(() => {
-    if (!hasMoment) return
-    setJustArrived(true)
-    const t = setTimeout(() => setJustArrived(false), 1100)
-    return () => clearTimeout(t)
-    // Intentionally keyed on the moment identity only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepKey])
-
-  // Map the SAME flow state onto the shader orb's agentState — no parallel state:
-  //   engine/LLM running ............... 'thinking'
-  //   presenting a new message .......... 'talking'   (brief arrival bloom)
-  //   awaiting / handling the answer .... 'listening'
-  //   done / error / idle ............... null
-  const agentState: AgentState =
-    phase === 'thinking'
-      ? 'thinking'
-      : justArrived
-        ? 'talking'
-        : phase === 'awaiting' || phase === 'intro'
-          ? 'listening'
-          : null
 
   // The referral-sent success beat: orb eases to green, a soft green edge glow
   // frames the screen, and the status timeline appears. Routed AND escalation
   // handoffs share this patient-facing green treatment.
   const done = phase === 'done'
-  const orbColors = done ? ORB_COLORS_GREEN : ORB_COLORS_BLUE
+  const orbColor = done ? ORB_GREEN : ORB_BLUE
   // Pull the matched specialist straight from the engine's routing result — never
   // hardcoded, so it shows whoever THIS patient was routed to (or escalation).
   const isEscalation = step?.kind === 'escalate'
@@ -362,9 +378,13 @@ function OrbExperience({
 
   let inputArea: ReactNode = null
   if (phase === 'intro') {
-    inputArea = <OrbIntro draft={draft} onDraft={onDraft} onSubmit={onSubmitInitial} />
+    inputArea = (
+      <OrbIntro draft={draft} onDraft={onDraft} onSubmit={onSubmitInitial} voice={voice} />
+    )
   } else if (phase === 'awaiting' && step?.kind === 'ask') {
-    inputArea = <OrbAsk step={step} onAnswer={(c) => onAnswer(step, c)} onText={onText} />
+    inputArea = (
+      <OrbAsk step={step} onAnswer={(c) => onAnswer(step, c)} onText={onText} voice={voice} />
+    )
   } else if (phase === 'awaiting' && step?.kind === 'confirm') {
     inputArea = <OrbConfirm onYes={() => onConfirmYes(step)} onNo={() => onConfirmNo(step)} />
   } else if (phase === 'error') {
@@ -415,22 +435,17 @@ function OrbExperience({
         className="relative z-10 flex flex-1 flex-col items-center px-6"
         style={{ paddingTop: 'clamp(14px, 4vh, 56px)' }}
       >
-        {/* The WebGL shader orb — ANCHORED at a fixed offset + size for the ENTIRE
-            experience. It never relayouts/moves between steps (including while
-            thinking); only its own internal animation changes via `agentState`,
-            and its colours ease blue → green on referral-sent. The footprint is
-            kept compact so the content below (question + many chips + input) fits. */}
+        {/* The voice-reactive orb — ANCHORED at a fixed offset + size for the
+            ENTIRE experience. It never relayouts/moves between steps; its motion
+            (pulse, glow, swirl speed) is driven by the patient's live microphone
+            level, and its colour eases blue → green on referral-sent. The
+            footprint is kept compact so the content below (question + many
+            chips + input) fits. */}
         <div
           className="pointer-events-none shrink-0"
           style={{ width: 'clamp(170px, 26vw, 260px)', height: 'clamp(170px, 26vw, 260px)' }}
         >
-          <Orb
-            agentState={agentState}
-            colors={orbColors}
-            volumeMode={reducedMotion ? 'manual' : 'auto'}
-            manualInput={reducedMotion ? 0 : undefined}
-            manualOutput={reducedMotion ? 0.1 : undefined}
-          />
+          <VoiceOrb color={orbColor} levelRef={voice.levelRef} calm={reducedMotion} />
         </div>
 
         {/* Content region BELOW the orb — fills the remaining height and scrolls

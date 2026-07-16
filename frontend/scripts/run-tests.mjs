@@ -9,6 +9,8 @@ const TEST_FILES = [
   'src/lib/orchestrator.test.ts',
   'src/lib/assistant/ops.test.ts',
   'src/lib/assistant/impact.test.ts',
+  'src/lib/nodePlacement.test.ts',
+  'src/lib/edgeRouting.test.ts',
 ]
 
 for (const entry of TEST_FILES) {

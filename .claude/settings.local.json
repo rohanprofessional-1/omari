@@ -132,7 +132,22 @@
       "Bash(sed -i '' -e 's/first: '\\\\''217,119,87'\\\\'', \\\\/\\\\/ clay/first: '\\\\''32,94,166'\\\\'', \\\\/\\\\/ ink blue/' -e 's/second: '\\\\''234,196,178'\\\\'', \\\\/\\\\/ soft terracotta/second: '\\\\''67,133,190'\\\\'', \\\\/\\\\/ wash blue/' -e 's/third: '\\\\''231,214,203'\\\\'', \\\\/\\\\/ warm sand/third: '\\\\''169,200,232'\\\\'', \\\\/\\\\/ faded wash/' -e 's/fourth: '\\\\''239,238,235'\\\\'', \\\\/\\\\/ soft stone/fourth: '\\\\''220,231,242'\\\\'', \\\\/\\\\/ powder wash/' -e 's/sixth: '\\\\''155,116,99'\\\\'', \\\\/\\\\/ warm umber \\(interactive blob\\)/sixth: '\\\\''84,105,177'\\\\'', \\\\/\\\\/ muted indigo \\(interactive blob\\)/' -e s/WARM_PAPER/INK_WASH/g -e 's|// All warm paper / clay \\(R,G,B\\) so the wash stays on-brand and calm.|// Muted ink-blue wash \\(R,G,B\\) so it stays on-brand and calm on parchment.|' components/BubbleBackground.tsx)",
       "Bash(sed -i '' 's/\"#F0D5C5\", \"#D9A98F\"/\"#C9D9EE\", \"#A3BCD6\"/' components/Orb.tsx)",
       "Bash(sed -i '' -e 's/variable: '\\\\''#373734'\\\\'', \\\\/\\\\/ --color-nodevar/variable: '\\\\''#205EA6'\\\\'', \\\\/\\\\/ --color-nodevar/' -e 's/specialist: '\\\\''#7B7974'\\\\'', \\\\/\\\\/ --color-nodespec/specialist: '\\\\''#4385BE'\\\\'', \\\\/\\\\/ --color-nodespec/' -e 's/escalation: '\\\\''#D97757'\\\\'', \\\\/\\\\/ --color-nodeesc/escalation: '\\\\''#7FABCD'\\\\'', \\\\/\\\\/ --color-nodeesc/' -e 's/takenEdge: '\\\\''#D97757'\\\\''/takenEdge: '\\\\''#205EA6'\\\\''/' components/TreeMiniViz.tsx)",
-      "Bash(sed -i '' -e 's/variable: '\\\\''#373734'\\\\''/variable: '\\\\''#205EA6'\\\\''/' -e 's/specialist: '\\\\''#7B7974'\\\\''/specialist: '\\\\''#4385BE'\\\\''/' -e 's/escalation: '\\\\''#D97757'\\\\''/escalation: '\\\\''#7FABCD'\\\\''/' -e 's/stroke: '\\\\''#D97757'\\\\''/stroke: '\\\\''#4385BE'\\\\''/' -e 's/fill=\"rgba\\(217,119,87,0.10\\)\"/fill=\"rgba\\(32,94,166,0.10\\)\"/' -e 's/stroke=\"#D97757\"/stroke=\"#205EA6\"/' -e 's/shadow-\\\\[0_4px_14px_rgba\\(24,20,16,0.10\\)\\\\]/shadow-[0_4px_14px_rgba\\(27,58,107,0.15\\)]/' -e 's/shadow-\\\\[0_4px_18px_rgba\\(24,20,16,0.28\\)\\\\]/shadow-[0_4px_18px_rgba\\(27,58,107,0.38\\)]/' -e 's/shadow-\\\\[0_8px_26px_rgba\\(24,20,16,0.38\\)\\\\]/shadow-[0_8px_26px_rgba\\(27,58,107,0.5\\)]/' pages/Builder.tsx)"
+      "Bash(sed -i '' -e 's/variable: '\\\\''#373734'\\\\''/variable: '\\\\''#205EA6'\\\\''/' -e 's/specialist: '\\\\''#7B7974'\\\\''/specialist: '\\\\''#4385BE'\\\\''/' -e 's/escalation: '\\\\''#D97757'\\\\''/escalation: '\\\\''#7FABCD'\\\\''/' -e 's/stroke: '\\\\''#D97757'\\\\''/stroke: '\\\\''#4385BE'\\\\''/' -e 's/fill=\"rgba\\(217,119,87,0.10\\)\"/fill=\"rgba\\(32,94,166,0.10\\)\"/' -e 's/stroke=\"#D97757\"/stroke=\"#205EA6\"/' -e 's/shadow-\\\\[0_4px_14px_rgba\\(24,20,16,0.10\\)\\\\]/shadow-[0_4px_14px_rgba\\(27,58,107,0.15\\)]/' -e 's/shadow-\\\\[0_4px_18px_rgba\\(24,20,16,0.28\\)\\\\]/shadow-[0_4px_18px_rgba\\(27,58,107,0.38\\)]/' -e 's/shadow-\\\\[0_8px_26px_rgba\\(24,20,16,0.38\\)\\\\]/shadow-[0_8px_26px_rgba\\(27,58,107,0.5\\)]/' pages/Builder.tsx)",
+      "Bash(npm uninstall *)",
+      "Bash(npx vite *)",
+      "Bash(lsof -nP -iTCP:5173 -sTCP:LISTEN)",
+      "Bash(ps -eo pid,lstart,command)",
+      "Read(//Users/shivankkancharla/Library/Caches/**)",
+      "Bash(npm ls *)",
+      "Bash(npx --no-install playwright --version)",
+      "Read(//Users/shivankkancharla/.cache/**)",
+      "Bash(mdfind \"kMDItemCFBundleIdentifier == 'com.google.Chrome'\")",
+      "Bash(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless=new --disable-extensions --hide-scrollbars --window-size=1440,900 --virtual-time-budget=10000 --screenshot=orb-check.png http://localhost:5173)",
+      "Bash(npm init *)",
+      "Bash(node orb-shot.mjs)",
+      "Bash(node orb-voice-test.mjs)",
+      "Bash(open -a Docker)",
+      "Bash(docker info *)"
     ]
   }
 }
