@@ -27,7 +27,8 @@ export interface ClinicSummary {
 
 export interface KnowledgeBaseFileSummary {
   filename: string
-  content_type?: string | null
+  file_hash: string
+  content_type: string | null
   file_type: string
   text_length: number
   selected_length: number

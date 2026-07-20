@@ -7,6 +7,7 @@ sections into a concise clinic knowledge summary.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -402,6 +403,7 @@ class KnowledgeBaseService:
         data: bytes,
         context: TreeContext,
     ) -> dict[str, Any]:
+        file_hash = hashlib.sha256(data).hexdigest()
         file_type, raw_text = _extract_text_from_bytes(filename, content_type, data)
         selected_chunks, selected_terms = _select_relevant_chunks(raw_text, context.focus_terms)
         selected_text = "\n\n".join(selected_chunks)
@@ -410,6 +412,7 @@ class KnowledgeBaseService:
         if not selected_text:
             return {
                 "filename": filename,
+                "file_hash": file_hash,
                 "content_type": content_type,
                 "file_type": file_type,
                 "text_length": len(raw_text),
@@ -432,6 +435,7 @@ class KnowledgeBaseService:
                 if parsed:
                     return {
                         "filename": filename,
+                        "file_hash": file_hash,
                         "content_type": content_type,
                         "file_type": file_type,
                         "text_length": len(raw_text),
@@ -450,6 +454,7 @@ class KnowledgeBaseService:
 
         return {
             "filename": filename,
+            "file_hash": file_hash,
             "content_type": content_type,
             "file_type": file_type,
             "text_length": len(raw_text),

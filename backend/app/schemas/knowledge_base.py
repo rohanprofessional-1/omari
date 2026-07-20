@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 class KnowledgeBaseFileSummary(BaseModel):
     filename: str
+    file_hash: str
     content_type: Optional[str] = None
     file_type: str
     text_length: int
