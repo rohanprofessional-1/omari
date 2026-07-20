@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import TopAppBar from './components/TopNav'
 import Builder from './pages/Builder'
+import KnowledgeBase from './pages/KnowledgeBase'
 import Runner from './pages/Runner'
 import Generate from './pages/Generate'
-import KnowledgeBase from './pages/KnowledgeBase'
 
 export type Page = 'generate' | 'builder' | 'runner' | 'knowledge'
 

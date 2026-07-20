@@ -1,16 +1,10 @@
-"""Seed a demo clinic and trees for local development."""
-
-from __future__ import annotations
-
-import asyncio
 import json
-import os
 import uuid
-from pathlib import Path
+from typing import Any, Dict, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
+from sqlalchemy.orm import selectinload
 
-from sqlalchemy import select
-
-from app.core.database import async_session_factory
 from app.models.branch import Branch
 from app.models.clinic import Clinic
 from app.models.condition import Condition, ConditionType
@@ -20,12 +14,12 @@ from app.models.tree import Tree
 from app.models.variable import AnswerType, Variable
 from app.models.workup_item import WorkupItem
 
-DATA_DIR = Path(__file__).parent.parent / "app" / "data"
-
-async def import_tree_from_json(db, clinic_id, tree_json_path, vars_json_path=None):
-    if vars_json_path and os.path.exists(vars_json_path):
-        with open(vars_json_path, 'r') as f:
-            vars_data = json.load(f)
+async def import_tree_from_json(db: AsyncSession, clinic_id: str, tree_data: Dict[str, Any], vars_data: Optional[Dict[str, Any]] = None) -> Tree:
+    """
+    Imports a full nested tree structure from JSON, upserting the Tree and completely
+    replacing its nested children (Nodes, Branches, Conditions, Workups) to avoid conflicts.
+    """
+    if vars_data:
         for key, vdata in vars_data.items():
             existing_var = (await db.execute(select(Variable).where(Variable.key == key))).scalars().first()
             if not existing_var:
@@ -38,21 +32,12 @@ async def import_tree_from_json(db, clinic_id, tree_json_path, vars_json_path=No
                     extraction_hints=vdata.get("extractionHints")
                 )
                 db.add(new_var)
-        await db.commit()
+        await db.flush()
 
-    if not os.path.exists(tree_json_path):
-        return
-
-    with open(tree_json_path, 'r') as f:
-        tree_data = json.load(f)
-        
     tree_id = tree_data["treeId"]
-    existing_tree = (await db.execute(select(Tree).where(Tree.id == tree_id))).scalars().first()
-    if existing_tree:
-        return # Already seeded
-
-    # Import Specialists
-    for node_data in tree_data["nodes"]:
+    
+    # Pre-emptively create specialists found in the tree
+    for node_data in tree_data.get("nodes", []):
         if node_data["type"] == "specialist":
             spec_name = node_data.get("specialistName")
             if spec_name:
@@ -66,23 +51,36 @@ async def import_tree_from_json(db, clinic_id, tree_json_path, vars_json_path=No
                         department="Unknown",
                         is_active=True
                     ))
-    await db.commit()
+    await db.flush()
 
-    # Create Tree
-    tree = Tree(
-        id=tree_id,
-        clinic_id=clinic_id,
-        name=tree_id.replace('-', ' ').title(),
-        description="Demo routing tree",
-        root_node_id=tree_data["rootNodeId"],
-        authored_by="Omari demo seed"
-    )
-    db.add(tree)
+    # Handle Tree Upsert
+    existing_tree = (await db.execute(
+        select(Tree).where(Tree.id == tree_id).options(selectinload(Tree.nodes))
+    )).scalars().first()
+
+    if existing_tree:
+        # Wipe nested entities. We execute a delete on nodes which cascades to branches and workups.
+        await db.execute(delete(Node).where(Node.tree_id == tree_id))
+        
+        existing_tree.name = tree_data.get("name") or existing_tree.name
+        existing_tree.description = tree_data.get("description") or existing_tree.description
+        existing_tree.root_node_id = tree_data.get("rootNodeId")
+        tree = existing_tree
+    else:
+        tree = Tree(
+            id=tree_id,
+            clinic_id=clinic_id,
+            name=tree_data.get("name", tree_id.replace('-', ' ').title()),
+            description=tree_data.get("description", "Imported routing tree"),
+            root_node_id=tree_data.get("rootNodeId"),
+            authored_by="Omari import"
+        )
+        db.add(tree)
     await db.flush()
 
     # Import Nodes
     node_records = []
-    for n in tree_data["nodes"]:
+    for n in tree_data.get("nodes", []):
         node_type = NodeType.variable
         if n["type"] == "specialist": node_type = NodeType.specialist
         elif n["type"] == "escalation": node_type = NodeType.escalation
@@ -103,14 +101,16 @@ async def import_tree_from_json(db, clinic_id, tree_json_path, vars_json_path=No
             escalation_reason=n.get("reason")
         )
         node_records.append(node)
-    db.add_all(node_records)
+    
+    if node_records:
+        db.add_all(node_records)
     await db.flush()
 
     # Import Branches, Conditions, Workups
     branches_list = []
     conditions_list = []
     workups_list = []
-    for n in tree_data["nodes"]:
+    for n in tree_data.get("nodes", []):
         if "branches" in n:
             for b_idx, b in enumerate(n["branches"]):
                 branch_id = str(uuid.uuid4())
@@ -156,40 +156,11 @@ async def import_tree_from_json(db, clinic_id, tree_json_path, vars_json_path=No
                     item_order=w_idx
                 ))
 
-    db.add_all(branches_list)
+    if branches_list: db.add_all(branches_list)
     await db.flush()
-    db.add_all(conditions_list)
-    db.add_all(workups_list)
+    if conditions_list: db.add_all(conditions_list)
+    if workups_list: db.add_all(workups_list)
+
     await db.commit()
-
-async def seed() -> None:
-    async with async_session_factory() as db:
-        print("Starting seed...")
-        clinic_result = await db.execute(select(Clinic).limit(1))
-        clinic = clinic_result.scalars().first()
-        if not clinic:
-            clinic = Clinic(
-                id=str(uuid.uuid4()),
-                name="Demo Clinic",
-                type="Neurology",
-            )
-            db.add(clinic)
-            await db.commit()
-
-        # Iterate over all json files in data dir
-        vars_path = DATA_DIR / "variables.json"
-
-        for file_path in DATA_DIR.glob("*.json"):
-            if file_path.name == "variables.json":
-                continue
-            # Try to load as a tree
-            try:
-                await import_tree_from_json(db, clinic.id, file_path, vars_path)
-                print(f"Imported tree from {file_path.name}")
-            except Exception as e:
-                print(f"Skipping {file_path.name}: {e}")
-                
-        print("Seed complete.")
-
-if __name__ == "__main__":
-    asyncio.run(seed())
+    await db.refresh(tree)
+    return tree
