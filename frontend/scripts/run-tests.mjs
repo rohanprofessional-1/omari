@@ -2,7 +2,16 @@
 // and runs them in Node — no extra test-runner dependency required.
 import { build } from 'esbuild'
 
-const TEST_FILES = ['src/lib/engine.test.ts', 'src/lib/orchestrator.test.ts']
+const TEST_FILES = [
+  'src/lib/engine.test.ts',
+  'src/lib/workup.test.ts',
+  'src/lib/generator/generator.test.ts',
+  'src/lib/orchestrator.test.ts',
+  'src/lib/assistant/ops.test.ts',
+  'src/lib/assistant/impact.test.ts',
+  'src/lib/nodePlacement.test.ts',
+  'src/lib/edgeRouting.test.ts',
+]
 
 for (const entry of TEST_FILES) {
   const res = await build({

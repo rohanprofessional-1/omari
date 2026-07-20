@@ -25,8 +25,8 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 
-
-import { fetchTrees, fetchTree, saveTreeToBackend } from '../lib/api'
+import { sampleTree } from '../data/sampleTree'
+import { fetchTrees, fetchTree, createTreeFull, updateTreeFull, type TreeSummary } from '../lib/api'
 import {
   createTreeNode,
   deriveEdges,
@@ -40,14 +40,18 @@ import {
   type NodeKind,
 } from '../lib/treeToFlow'
 import { TreeSchema, type Node as TreeNode, type Tree } from '../types/tree'
+import type { NodeMove } from '../lib/assistant/ops'
+import { planNodeMoves, type PlacedRect } from '../lib/nodePlacement'
+import type { RoutePoint } from '../lib/edgeRouting'
 import { flowNodesToTree, validateTreeGraph, type TreeWarning } from '../lib/buildTree'
-import { useTreeStore } from '../store/treeStore'
 import VariableNodeCard from '../components/nodes/VariableNodeCard'
 import SpecialistNodeCard from '../components/nodes/SpecialistNodeCard'
 import EscalationNodeCard from '../components/nodes/EscalationNodeCard'
 import BucketEdge from '../components/edges/BucketEdge'
 import EditorPanel from '../components/EditorPanel'
 import BuilderActionsContext from '../components/BuilderActionsContext'
+import BuilderChatPanel from '../components/BuilderChatPanel'
+import sproutLogo from '../assets/sprout-logo.png'
 
 const nodeTypes = {
   variable: VariableNodeCard,
@@ -61,9 +65,9 @@ const edgeTypes = {
 
 // Minimap dot colours mirror the node accent tokens.
 const MINIMAP_COLORS: Record<string, string> = {
-  variable: '#2563EB',
-  specialist: '#4B9CD3',
-  escalation: '#6CB4EE',
+  variable: '#205EA6',
+  specialist: '#4385BE',
+  escalation: '#7FABCD',
 }
 
 function prefersReducedMotion(): boolean {
@@ -276,7 +280,12 @@ function BuilderCanvas() {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const addCascade = useRef(0)
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<BuilderFlowNode>([])
+  const initialNodes = useMemo(() => {
+    const nodes = treeToFlowNodes(sampleTree)
+    return layoutWithDagre(nodes, deriveEdges(nodes))
+  }, [])
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<SelectedEdge | null>(null)
   // Transient hover targets that drive single-path isolation (highlight + dim).
@@ -296,11 +305,45 @@ function BuilderCanvas() {
     ok: boolean
     warnings: TreeWarning[]
   } | null>(null)
+  // The conversational assistant dock (propose → diff → confirm edits).
+  const [assistantOpen, setAssistantOpen] = useState(false)
+  // Nodes Sprout's latest reply refers to — highlighted so "which of these
+  // two nodes?" points at them. VIEW-ONLY, cleared by any canvas interaction.
+  const [assistantFocus, setAssistantFocus] = useState<Set<string> | null>(null)
+  // Sprout proposal PREVIEW: the canvas temporarily shows the candidate tree
+  // (ghosted additions, faded removals) while editing is locked. The snapshot
+  // restores the real tree on exit; Apply commits and drops the snapshot.
+  const previewSnapshotRef = useRef<{
+    nodes: BuilderFlowNode[]
+    collapsed: Set<string>
+    rootId: string
+  } | null>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const previewingRef = useRef(false)
+  useEffect(() => {
+    previewingRef.current = previewing
+  }, [previewing])
+
+  // Live multi-selection (click, shift-click, shift-drag box) — scopes the
+  // Sprout conversation to "these nodes".
+  const selectedNodeIds = useMemo(() => nodes.filter((n) => n.selected).map((n) => n.id), [nodes])
   const { fitView, screenToFlowPosition } = useReactFlow()
-  const { saveTree } = useTreeStore()
   
-  const [dbTrees, setDbTrees] = useState<{ id: string; name: string }[]>([])
-  const [initialLoaded, setInitialLoaded] = useState(false)
+  // The library trees available to open, and which one is currently on the canvas.
+  const [dbTrees, setDbTrees] = useState<TreeSummary[]>([])
+  const [openTreeId, setOpenTreeId] = useState<string | null>(null)
+
+  const refreshDbTrees = useCallback(async () => {
+    try {
+      setDbTrees(await fetchTrees())
+    } catch (e) {
+      console.error('Failed to list trees:', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshDbTrees()
+  }, [refreshDbTrees])
 
   // Keep a ref to the latest nodes for event handlers (keydown) that must read
   // current state without being re-bound on every change.
@@ -315,14 +358,23 @@ function BuilderCanvas() {
     collapsedRef.current = collapsed
   }, [collapsed])
 
+  // ELK's routed edge polylines from the last layout pass, plus where every
+  // node sat when they were computed. An edge renders its router route only
+  // while BOTH endpoints still sit at their layout positions — dragging a
+  // card gracefully degrades just that card's wires until the next layout.
+  const edgeRoutesRef = useRef<Map<string, RoutePoint[]>>(new Map())
+  const routeAnchorsRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  // Bumped after each layout pass so the edges memo re-reads the refs.
+  const [routesVersion, setRoutesVersion] = useState(0)
+
   // Which tree is currently loaded on the canvas (drives save id/root + the
-  // top-bar tag). Loaded from the DB on mount.
+  // top-bar tag). Starts as the simple sample; the load buttons swap it.
   const [activeMeta, setActiveMeta] = useState({
-    treeId: '',
-    rootNodeId: '',
+    treeId: sampleTree.treeId,
+    rootNodeId: sampleTree.rootNodeId,
   })
   // Latest root id for event handlers that must read it without re-binding.
-  const rootIdRef = useRef('')
+  const rootIdRef = useRef(sampleTree.rootNodeId)
   useEffect(() => {
     rootIdRef.current = activeMeta.rootNodeId
   }, [activeMeta])
@@ -336,6 +388,7 @@ function BuilderCanvas() {
     let edgeId: string | null = null
     let nodeId: string | null = null
     let destId: string | null = null
+    let nodeSet: Set<string> | null = null
     if (hoveredEdgeId) edgeId = hoveredEdgeId
     else if (hoveredBucket) {
       const n = nodes.find((x) => x.id === hoveredBucket.nodeId)
@@ -343,10 +396,11 @@ function BuilderCanvas() {
       const branch = tn?.type === 'variable' ? tn.branches[hoveredBucket.branchIndex] : undefined
       if (branch?.nextNodeId) edgeId = `${hoveredBucket.nodeId}__b${hoveredBucket.branchIndex}__${branch.nextNodeId}`
     } else if (hoveredNodeId) nodeId = hoveredNodeId
+    else if (assistantFocus && assistantFocus.size > 0) nodeSet = assistantFocus
     else if (tracedDestId) destId = tracedDestId
     else if (selectedEdge) edgeId = selectedEdge.id
     else if (selectedId) nodeId = selectedId
-    if (!edgeId && !nodeId && !destId) return null
+    if (!edgeId && !nodeId && !destId && !nodeSet) return null
 
     // Edge descriptors (id → source/target) for the current wiring.
     const ids = new Set(nodes.map((n) => n.id))
@@ -410,9 +464,14 @@ function BuilderCanvas() {
       for (const n of fromRoot) if (toDest.has(n)) activeNodes.add(n)
       for (const d of descs) if (fromRoot.has(d.source) && toDest.has(d.target)) activeEdges.add(d.id)
     }
+    if (nodeSet) {
+      // Highlight the referenced nodes plus any wiring between them.
+      for (const id of nodeSet) if (ids.has(id)) activeNodes.add(id)
+      for (const d of descs) if (nodeSet.has(d.source) && nodeSet.has(d.target)) activeEdges.add(d.id)
+    }
     if (activeEdges.size === 0 && activeNodes.size === 0) return null
     return { activeEdges, activeNodes }
-  }, [hoveredEdgeId, hoveredBucket, hoveredNodeId, tracedDestId, selectedEdge, selectedId, nodes, activeMeta.rootNodeId])
+  }, [hoveredEdgeId, hoveredBucket, hoveredNodeId, assistantFocus, tracedDestId, selectedEdge, selectedId, nodes, activeMeta.rootNodeId])
 
   // VIEW-ONLY visibility from the collapse set: which nodes/edges the canvas
   // draws. Tree data is untouched — this only decides what's shown.
@@ -429,9 +488,13 @@ function BuilderCanvas() {
     const derived = deriveEdges(visNodes, {
       selectedEdgeId: selectedEdge?.id,
       activeEdgeIds: focus?.activeEdges ?? null,
+      routes: edgeRoutesRef.current,
+      routeAnchors: routeAnchorsRef.current,
     })
     return derived.filter((e) => !collapsed.has(e.source))
-  }, [nodes, visibility, collapsed, selectedEdge, focus])
+    // routesVersion re-reads the refs after each layout pass.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, visibility, collapsed, selectedEdge, focus, routesVersion])
 
   // Nodes for rendering: only the visible ones; dim any not on the isolated path
   // (positions/handles unchanged), and inject the view-only collapse flags the
@@ -483,8 +546,12 @@ function BuilderCanvas() {
       const visNodes = all.filter((n) => vis.visibleIds.has(n.id))
       // Lay out only edges that are actually drawn (skip wires out of collapsed nodes).
       const layoutEdges = deriveEdges(visNodes).filter((e) => !collapsedSet.has(e.source))
-      const { nodes: laid } = await layoutGraph(visNodes, layoutEdges)
+      const { nodes: laid, routes } = await layoutGraph(visNodes, layoutEdges)
       const posById = new Map(laid.map((n) => [n.id, n.position]))
+      // Keep the router's wire routes + the positions they were computed for.
+      edgeRoutesRef.current = routes
+      routeAnchorsRef.current = new Map(laid.map((n) => [n.id, { ...n.position }]))
+      setRoutesVersion((v) => v + 1)
       setNodes((current) =>
         current.map((n) => {
           const p = posById.get(n.id)
@@ -534,6 +601,7 @@ function BuilderCanvas() {
       })
       setSelectedId(null)
       setSelectedEdge(null)
+      setAssistantFocus(null)
     },
     [runLayout],
   )
@@ -580,6 +648,7 @@ function BuilderCanvas() {
 
   const addNode = useCallback(
     (kind: NodeKind, position: { x: number; y: number }) => {
+      if (previewingRef.current) return // canvas is read-only during a Sprout preview
       const treeNode = createTreeNode(kind)
       const flowNode: BuilderFlowNode = {
         id: treeNode.id,
@@ -794,6 +863,7 @@ function BuilderCanvas() {
       setSelectedId(null)
       setSelectedEdge(null)
       setTracedDestId(null)
+      setAssistantFocus(null)
       setCollapsed(new Set())
     }
   }, [setNodes])
@@ -815,51 +885,68 @@ function BuilderCanvas() {
       setSelectedId(null)
       setSelectedEdge(null)
       setTracedDestId(null)
+      setAssistantFocus(null)
+      // A lingering Sprout preview belongs to the PREVIOUS tree — drop it.
+      previewSnapshotRef.current = null
+      setPreviewing(false)
       setSaveResult(null)
       setActiveMeta({ treeId: tree.treeId, rootNodeId: tree.rootNodeId })
       rootIdRef.current = tree.rootNodeId
-      saveTree(tree) // Runner uses whichever tree is currently active
       void runLayout(initCollapsed)
     },
-    [setNodes, saveTree, runLayout],
+    [setNodes, runLayout],
   )
   const loadTreeFromDb = useCallback(
     async (treeId: string) => {
       try {
         const tree = await fetchTree(treeId)
         loadTree(tree)
+        setOpenTreeId(treeId)
       } catch (err) {
         console.error('Failed to load tree:', err)
-        alert('Failed to load tree from database')
+        alert('Failed to load tree from the library')
       }
     },
     [loadTree],
   )
 
-  // On mount: fetch the tree list and load the first tree onto the canvas.
-  useEffect(() => {
-    if (initialLoaded) return
-    fetchTrees()
-      .then(async (trees) => {
-        setDbTrees(trees)
-        if (trees.length > 0) {
-          const tree = await fetchTree(trees[0].id)
-          loadTree(tree)
-        }
-        setInitialLoaded(true)
-      })
-      .catch(console.error)
-  }, [initialLoaded, loadTree])
+  // Start a fresh canvas from the built-in sample (used when the library is empty).
+  const onNewFromSample = useCallback(() => {
+    loadTree(sampleTree)
+    setOpenTreeId(null)
+  }, [loadTree])
 
-  // Convert the canvas back into a Tree, validate with Zod + soft graph checks,
-  // log the serialized schema, and store it for the Runner.
-  const onSave = useCallback(async () => {
+  // Generator handoff: the Generate wizard saves its validated draft to the
+  // library and asks the Builder to open it by leaving the id in localStorage.
+  useEffect(() => {
+    const id = localStorage.getItem('omari:builderOpenTreeId')
+    if (id) {
+      localStorage.removeItem('omari:builderOpenTreeId')
+      void loadTreeFromDb(id)
+    }
+  }, [loadTreeFromDb])
+
+  // Single save → the shared Postgres tree library (so the tree shows up in the
+  // Runner's tree picker and survives reloads / other browsers). The canvas is
+  // validated up front; if valid, the inline name field opens, and committing
+  // persists it. Stash the validated tree between the two steps.
+  const pendingTreeRef = useRef<Tree | null>(null)
+  const pendingWarningsRef = useRef<TreeWarning[]>([])
+
+  const validateForLibrary = useCallback((): boolean => {
+    if (previewSnapshotRef.current) {
+      setSaveResult({
+        ok: false,
+        warnings: [{ id: 'preview', message: 'Exit the Sprout preview (apply or dismiss the proposal) before saving.' }],
+      })
+      return false
+    }
     const tree = flowNodesToTree(nodesRef.current, activeMeta.treeId, rootIdRef.current)
     const warnings = validateTreeGraph(tree)
-
     const parsed = TreeSchema.safeParse(tree)
     if (!parsed.success) {
       console.error('[Blume] Tree failed Zod validation:', parsed.error.issues)
+      pendingTreeRef.current = null
       setSaveResult({
         ok: false,
         warnings: [
@@ -870,29 +957,364 @@ function BuilderCanvas() {
           ...warnings,
         ],
       })
-      return
+      return false
     }
+    pendingTreeRef.current = parsed.data
+    pendingWarningsRef.current = warnings
+    return true
+  }, [activeMeta])
 
+  const commitSaveToLibrary = useCallback(async (name: string): Promise<boolean> => {
+    const tree = pendingTreeRef.current
+    if (!tree) return false
     try {
-      // Save full tree to backend first
-      await saveTreeToBackend(parsed.data)
-      // Then update local state
-      saveTree(parsed.data)
-      setSaveResult({ ok: true, warnings })
-    } catch (err: any) {
-      console.error('[Blume] Failed to save tree to backend:', err)
+      const created = await createTreeFull(name, tree)
+      setOpenTreeId(created.id)
+      void refreshDbTrees()
+      setSaveResult({
+        ok: true,
+        warnings: [
+          { id: 'lib', message: `Saved as “${name}” — now in the tree picker here and in the Runner.` },
+          ...pendingWarningsRef.current,
+        ],
+      })
+      return true
+    } catch (err) {
       setSaveResult({
         ok: false,
         warnings: [
-          {
-            id: 'backend',
-            message: `Backend error: ${err.message}`,
-          },
-          ...warnings,
+          { id: 'lib', message: err instanceof Error ? err.message : 'Failed to save to the library.' },
         ],
       })
+      return false
     }
-  }, [saveTree, activeMeta])
+  }, [refreshDbTrees])
+
+  // Update the OPEN library tree in place (same row, version bumped) — the
+  // coherent end of the open → edit → save loop. "Save a copy" stays available
+  // for genuine forks.
+  const commitUpdateToLibrary = useCallback(async (): Promise<boolean> => {
+    const tree = pendingTreeRef.current
+    if (!tree || !openTreeId) return false
+    try {
+      const updated = await updateTreeFull(openTreeId, tree)
+      void refreshDbTrees()
+      setSaveResult({
+        ok: true,
+        warnings: [
+          {
+            id: 'lib',
+            message: `Updated “${updated.name}” (now v${updated.version}) — same tree everywhere it's used.`,
+          },
+          ...pendingWarningsRef.current,
+        ],
+      })
+      return true
+    } catch (err) {
+      setSaveResult({
+        ok: false,
+        warnings: [
+          { id: 'lib', message: err instanceof Error ? err.message : 'Failed to update the tree.' },
+        ],
+      })
+      return false
+    }
+  }, [openTreeId, refreshDbTrees])
+
+  /* --------------------------- Assistant --------------------------------- */
+
+  // The canvas as a Tree for the assistant — wiring/data only, no geometry.
+  // During a preview this returns the REAL (snapshotted) tree, never the
+  // ghosted candidate, so proposals always apply against reality.
+  const getAssistantTree = useCallback(() => {
+    const snap = previewSnapshotRef.current
+    return snap
+      ? flowNodesToTree(snap.nodes, activeMeta.treeId, snap.rootId)
+      : flowNodesToTree(nodesRef.current, activeMeta.treeId, rootIdRef.current)
+  }, [activeMeta.treeId])
+
+  // Collapsed nodes that hide any of `ids` (walk parents up), given a tree.
+  const collapsedAncestorsOf = (treeNodes: TreeNode[], ids: string[]): Set<string> => {
+    const existing = new Set(treeNodes.map((n) => n.id))
+    const reverse = new Map<string, string[]>()
+    for (const tn of treeNodes) {
+      if (tn.type !== 'variable') continue
+      for (const b of tn.branches) {
+        if (!b.nextNodeId || !existing.has(b.nextNodeId)) continue
+        const arr = reverse.get(b.nextNodeId)
+        if (arr) arr.push(tn.id)
+        else reverse.set(b.nextNodeId, [tn.id])
+      }
+    }
+    const ancestors = new Set<string>()
+    const stack = [...ids]
+    while (stack.length) {
+      const cur = stack.pop()!
+      for (const p of reverse.get(cur) ?? []) {
+        if (!ancestors.has(p)) {
+          ancestors.add(p)
+          stack.push(p)
+        }
+      }
+    }
+    return ancestors
+  }
+
+  /**
+   * VISUAL DIFF: render Sprout's candidate tree on the real canvas without
+   * applying it. Added/changed nodes render ghosted (dashed blue), nodes the
+   * proposal would delete stay visible but faded (dashed red). Editing is
+   * locked until the preview ends; Apply in the chat commits it for real.
+   */
+  const previewAssistantTree = useCallback(
+    (tree: Tree, affectedIds: string[], removedIds: string[]) => {
+      if (!previewSnapshotRef.current) {
+        previewSnapshotRef.current = {
+          nodes: nodesRef.current,
+          collapsed: new Set(collapsedRef.current),
+          rootId: rootIdRef.current,
+        }
+      }
+      const snap = previewSnapshotRef.current
+      const prevById = new Map(snap.nodes.map((n) => [n.id, n]))
+      const affected = new Set(affectedIds)
+      const flow: BuilderFlowNode[] = tree.nodes.map((tn) => {
+        const existing = prevById.get(tn.id)
+        const ghost = affected.has(tn.id) ? 'omari-node-ghost' : undefined
+        return existing
+          ? { ...existing, selected: false, className: ghost, data: { treeNode: tn } }
+          : { id: tn.id, type: tn.type, position: { x: 0, y: 0 }, className: ghost, data: { treeNode: tn } }
+      })
+      // Nodes the proposal deletes: keep them on screen, faded, so the
+      // removal itself is visible in the preview.
+      for (const id of removedIds) {
+        const existing = prevById.get(id)
+        if (existing)
+          flow.push({ ...existing, selected: false, className: 'omari-node-ghost omari-node-removed' })
+      }
+      setNodes(flow)
+      nodesRef.current = flow
+      rootIdRef.current = tree.rootNodeId
+      setSelectedId(null)
+      setSelectedEdge(null)
+      setTracedDestId(null)
+      const highlight = [...affectedIds, ...removedIds]
+      setAssistantFocus(highlight.length > 0 ? new Set(highlight) : null)
+      const ancestors = collapsedAncestorsOf(tree.nodes, highlight)
+      const nextCollapsed = new Set(
+        [...snap.collapsed].filter((c) => !ancestors.has(c) && !highlight.includes(c)),
+      )
+      setCollapsed(nextCollapsed)
+      collapsedRef.current = nextCollapsed
+      setPreviewing(true)
+      void runLayout(nextCollapsed)
+    },
+    [setNodes, runLayout],
+  )
+
+  /** Exit the preview and restore the real tree exactly as it was. */
+  const endAssistantPreview = useCallback(() => {
+    const snap = previewSnapshotRef.current
+    if (!snap) return
+    previewSnapshotRef.current = null
+    setPreviewing(false)
+    setNodes(snap.nodes)
+    nodesRef.current = snap.nodes
+    rootIdRef.current = snap.rootId
+    setCollapsed(snap.collapsed)
+    collapsedRef.current = snap.collapsed
+    setAssistantFocus(null)
+    void runLayout(snap.collapsed)
+  }, [setNodes, runLayout])
+
+  // Highlight the nodes Sprout's reply refers to: expand any collapsed
+  // ancestors hiding them, isolate them (dim the rest), and frame them.
+  // View-only, like tracing — clicking anywhere on the canvas clears it.
+  const focusAssistantNodes = useCallback(
+    (ids: string[]) => {
+      const existing = new Set(nodesRef.current.map((n) => n.id))
+      const valid = [...new Set(ids)].filter((id) => existing.has(id))
+      if (valid.length === 0) {
+        setAssistantFocus(null)
+        return
+      }
+      // Expand collapsed ancestors so every referenced node is visible.
+      const reverse = new Map<string, string[]>()
+      for (const n of nodesRef.current) {
+        const tn = n.data.treeNode
+        if (tn.type !== 'variable') continue
+        for (const b of tn.branches) {
+          if (!b.nextNodeId || !existing.has(b.nextNodeId)) continue
+          const arr = reverse.get(b.nextNodeId)
+          if (arr) arr.push(tn.id)
+          else reverse.set(b.nextNodeId, [tn.id])
+        }
+      }
+      const ancestors = new Set<string>()
+      const stack = [...valid]
+      while (stack.length) {
+        const cur = stack.pop()!
+        for (const p of reverse.get(cur) ?? []) {
+          if (!ancestors.has(p)) {
+            ancestors.add(p)
+            stack.push(p)
+          }
+        }
+      }
+      const cur = collapsedRef.current
+      const reduced = new Set([...cur].filter((c) => !ancestors.has(c) && !valid.includes(c)))
+      if (reduced.size !== cur.size) {
+        setCollapsed(reduced)
+        collapsedRef.current = reduced
+        void runLayout(reduced, { fit: false })
+      }
+      setAssistantFocus(new Set(valid))
+      setSelectedId(null)
+      setSelectedEdge(null)
+      setTracedDestId(null)
+      window.requestAnimationFrame(() =>
+        fitView({
+          nodes: valid.map((id) => ({ id })),
+          duration: prefersReducedMotion() ? 0 : 400,
+          padding: 0.3,
+        }),
+      )
+    },
+    [runLayout, fitView],
+  )
+
+  /**
+   * Confirmed layout moves from Sprout: park the moved cards just beyond the
+   * rest of the visible graph on the requested edge. All geometry is
+   * deterministic (`planNodeMoves`): real per-node rectangles + the live edge
+   * list go in, and cards come out ordered by the barycenter of their wiring
+   * (fewer edge crossings) with overlaps swept away. The model only ever
+   * names WHICH nodes and WHICH edge. Same contract as a manual drag: tree
+   * data and wiring are untouched.
+   */
+  const applyNodeMoves = useCallback(
+    (moves: NodeMove[]) => {
+      setNodes((current) => {
+        let next = current
+        const vis = computeVisibility(next, rootIdRef.current, collapsedRef.current)
+        const rectOf = (n: BuilderFlowNode): PlacedRect => ({
+          id: n.id,
+          x: n.position.x,
+          y: n.position.y,
+          w: n.measured?.width ?? NODE_WIDTH,
+          h: n.measured?.height ?? 140,
+        })
+        for (const move of moves) {
+          const movedSet = new Set(move.nodeIds)
+          const onCanvas = next.filter((n) => movedSet.has(n.id) || vis.visibleIds.has(n.id))
+          const pos = planNodeMoves({
+            moved: next.filter((n) => movedSet.has(n.id)).map(rectOf),
+            rest: onCanvas.filter((n) => !movedSet.has(n.id)).map(rectOf),
+            edges: deriveEdges(onCanvas).map((e) => ({ source: e.source, target: e.target })),
+            placement: move.placement,
+          })
+          if (pos.size === 0) continue // nothing to anchor against
+          next = next.map((n) => {
+            const p = pos.get(n.id)
+            return p ? { ...n, position: p } : n
+          })
+        }
+        return next
+      })
+      window.requestAnimationFrame(() =>
+        fitView({ duration: prefersReducedMotion() ? 0 : 400, padding: 0.15 }),
+      )
+    },
+    [setNodes, fitView],
+  )
+
+  // Commit a clinician-CONFIRMED assistant proposal to the canvas. Surviving
+  // nodes keep their positions/measurements; new nodes get placed by the next
+  // layout pass. Collapsed ancestors of touched nodes are expanded so every
+  // approved change is actually visible. Canvas-only — the library is
+  // untouched until a manual "Save to library".
+  const applyAssistantTree = useCallback(
+    (tree: Tree, affectedIds: string[], moves?: NodeMove[]) => {
+      // Committing while previewing: drop back to the REAL tree first so
+      // surviving nodes keep their true positions and no ghost styling leaks.
+      const snap = previewSnapshotRef.current
+      if (snap) {
+        previewSnapshotRef.current = null
+        setPreviewing(false)
+        nodesRef.current = snap.nodes
+        rootIdRef.current = snap.rootId
+        collapsedRef.current = snap.collapsed
+      }
+      const prevById = new Map(nodesRef.current.map((n) => [n.id, n]))
+      const flow: BuilderFlowNode[] = tree.nodes.map((tn) => {
+        const existing = prevById.get(tn.id)
+        return existing
+          ? { ...existing, data: { ...existing.data, treeNode: tn } }
+          : { id: tn.id, type: tn.type, position: { x: 0, y: 0 }, data: { treeNode: tn } }
+      })
+      setNodes(flow)
+      nodesRef.current = flow
+      setActiveMeta((m) => ({ ...m, rootNodeId: tree.rootNodeId }))
+      rootIdRef.current = tree.rootNodeId
+
+      const surviving = new Set(tree.nodes.map((n) => n.id))
+      setSelectedId((prev) => (prev && !surviving.has(prev) ? null : prev))
+      setSelectedEdge(null)
+      setTracedDestId((prev) => (prev && !surviving.has(prev) ? null : prev))
+
+      // Expand any collapsed node that hides an affected one (walk parents up).
+      const reverse = new Map<string, string[]>()
+      for (const tn of tree.nodes) {
+        if (tn.type !== 'variable') continue
+        for (const b of tn.branches) {
+          if (!b.nextNodeId) continue
+          const arr = reverse.get(b.nextNodeId)
+          if (arr) arr.push(tn.id)
+          else reverse.set(b.nextNodeId, [tn.id])
+        }
+      }
+      const movedIds = (moves ?? []).flatMap((m) => m.nodeIds).filter((id) => surviving.has(id))
+      const ancestors = new Set<string>()
+      const stack = [...affectedIds, ...movedIds]
+      while (stack.length) {
+        const cur = stack.pop()!
+        for (const p of reverse.get(cur) ?? []) {
+          if (!ancestors.has(p)) {
+            ancestors.add(p)
+            stack.push(p)
+          }
+        }
+      }
+      const nextCollapsed = new Set(
+        [...collapsedRef.current].filter(
+          (c) => surviving.has(c) && !ancestors.has(c) && !affectedIds.includes(c) && !movedIds.includes(c),
+        ),
+      )
+      setCollapsed(nextCollapsed)
+      collapsedRef.current = nextCollapsed
+      // Light up what just changed so the applied edit is easy to spot.
+      const highlight = [...new Set([...affectedIds, ...movedIds])]
+      setAssistantFocus(highlight.length > 0 ? new Set(highlight) : null)
+      if (movedIds.length === 0) {
+        void runLayout(nextCollapsed)
+      } else if (affectedIds.length > 0) {
+        // Data changed too: tidy first so new nodes get placed, then park the
+        // moved cards on their edge on top of the fresh layout.
+        void runLayout(nextCollapsed, { fit: false }).then(() => applyNodeMoves(moves!))
+      } else {
+        // Layout-only proposal: every other card keeps its position — moving
+        // the named nodes must not re-tidy work arranged by hand.
+        applyNodeMoves(moves!)
+      }
+    },
+    [setNodes, runLayout, applyNodeMoves],
+  )
+
+  // Deselect everything on the canvas (the × on the chat's "Editing" chip).
+  const clearCanvasSelection = useCallback(() => {
+    setNodes((cur) => cur.map((n) => (n.selected ? { ...n, selected: false } : n)))
+    setSelectedId(null)
+  }, [setNodes])
 
   const onBucketHover = useCallback(
     (key: { nodeId: string; branchIndex: number } | null) => setHoveredBucket(key),
@@ -911,16 +1333,21 @@ function BuilderCanvas() {
           destinations={destinations}
           tracedDestId={tracedDestId}
           onTraceDest={onTraceDest}
-          dbTrees={dbTrees}
-          activeTreeId={activeMeta.treeId}
-          onLoadTree={loadTreeFromDb}
         />
 
         {/* Canvas region: a document-style toolbar sits above the surface (like
             the toolbar above a page in Word / Google Docs). */}
         <div className="flex min-w-0 flex-1 flex-col gap-2 p-3">
           <CanvasToolbar
-            onSave={onSave}
+            trees={dbTrees}
+            openTreeId={openTreeId}
+            onOpenTree={loadTreeFromDb}
+            onRefreshTrees={refreshDbTrees}
+            onNewFromSample={onNewFromSample}
+            suggestedName={activeMeta.treeId}
+            onValidateForLibrary={validateForLibrary}
+            onCommitToLibrary={commitSaveToLibrary}
+            onCommitUpdate={commitUpdateToLibrary}
             onExpandAll={onExpandAll}
             onCollapseAll={onCollapseAll}
             onAutoLayout={onAutoLayout}
@@ -940,10 +1367,20 @@ function BuilderCanvas() {
               edgeTypes={edgeTypes}
               onConnect={onConnect}
               isValidConnection={isValidConnection}
-              onNodeClick={(_, node) => {
+              onNodeClick={(event, node) => {
+                // Shift/Cmd-click grows a multi-selection (React Flow manages
+                // the set) — that scopes Sprout, and must NOT open the editor.
+                if (event.shiftKey || event.metaKey || event.ctrlKey) {
+                  setSelectedId(null)
+                  setSelectedEdge(null)
+                  setTracedDestId(null)
+                  setAssistantFocus(null)
+                  return
+                }
                 setSelectedId(node.id)
                 setSelectedEdge(null)
                 setTracedDestId(null)
+                setAssistantFocus(null)
               }}
               onNodeMouseEnter={(_, node) => setHoveredNodeId(node.id)}
               onNodeMouseLeave={() => setHoveredNodeId(null)}
@@ -954,20 +1391,25 @@ function BuilderCanvas() {
                 if (d) setSelectedEdge({ id: edge.id, source: d.sourceNodeId, branchIndex: d.branchIndex })
                 setSelectedId(null)
                 setTracedDestId(null)
+                setAssistantFocus(null)
               }}
               onPaneClick={() => {
                 setSelectedId(null)
                 setSelectedEdge(null)
                 setTracedDestId(null)
+                setAssistantFocus(null)
               }}
               deleteKeyCode={null}
+              nodesDraggable={!previewing}
+              nodesConnectable={!previewing}
+              elementsSelectable={!previewing}
               fitView
               fitViewOptions={{ padding: 0.18 }}
               minZoom={0.2}
-              connectionLineStyle={{ stroke: '#3B82F6', strokeWidth: 2 }}
+              connectionLineStyle={{ stroke: '#4385BE', strokeWidth: 2 }}
               proOptions={{ hideAttribution: true }}
             >
-              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#E5EAF1" />
+              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#E3E1DA" />
               <Controls showInteractive={false} />
               {/* MiniMap lives in the left column now (see LeftColumn), not here. */}
 
@@ -980,6 +1422,37 @@ function BuilderCanvas() {
                 </Panel>
               )}
             </ReactFlow>
+
+            {/* Preview banner — the canvas is showing Sprout's CANDIDATE tree,
+                read-only, until the proposal is applied or dismissed. */}
+            {previewing && (
+              <div className="omari-reveal absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-accent/40 bg-sky px-4 py-1.5 shadow-[0_4px_14px_rgba(27,58,107,0.15)]">
+                <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden />
+                <span className="text-[12px] font-medium text-accent-strong">
+                  Previewing Sprout’s proposal — nothing is applied, editing is paused
+                </span>
+                <button
+                  onClick={endAssistantPreview}
+                  className="rounded-full border border-accent/40 px-2.5 py-0.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent hover:text-white"
+                >
+                  Exit preview
+                </button>
+              </div>
+            )}
+
+            {/* Floating Sprout launcher — the AI assistant lives bottom-right,
+                like a chat bubble, so it reads as "talk to something" rather
+                than another toolbar action. Hidden while the panel is open. */}
+            {!assistantOpen && (
+              <button
+                onClick={() => setAssistantOpen(true)}
+                title="Sprout — AI assistant. Drafts tree edits you approve, answers questions about the tree."
+                className="omari-reveal absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-full bg-accent-strong py-1.5 pl-1.5 pr-4 shadow-[0_4px_18px_rgba(27,58,107,0.38)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_8px_26px_rgba(27,58,107,0.5)] active:translate-y-0"
+              >
+                <img src={sproutLogo} alt="" aria-hidden className="h-9 w-9 rounded-full" />
+                <span className="font-display text-[13px] font-semibold text-white">Ask Sprout</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -989,6 +1462,25 @@ function BuilderCanvas() {
             treeNode={selectedNode.data.treeNode}
             onUpdate={(updater) => updateTreeNode(selectedNode.id, updater)}
             onClose={() => setSelectedId(null)}
+          />
+        )}
+
+        {assistantOpen && (
+          <BuilderChatPanel
+            key={openTreeId ?? 'unsaved'}
+            threadKey={openTreeId ?? 'unsaved'}
+            getTree={getAssistantTree}
+            selectedNodeIds={selectedNodeIds}
+            onClearSelection={clearCanvasSelection}
+            onApply={applyAssistantTree}
+            onPreview={previewAssistantTree}
+            onEndPreview={endAssistantPreview}
+            onFocusNodes={focusAssistantNodes}
+            onClose={() => {
+              setAssistantOpen(false)
+              endAssistantPreview()
+              setAssistantFocus(null)
+            }}
           />
         )}
       </div>
@@ -1071,7 +1563,7 @@ function OverviewMap() {
           width={r.w}
           height={r.h}
           rx={10}
-          fill={MINIMAP_COLORS[r.type] ?? '#C9CCC4'}
+          fill={MINIMAP_COLORS[r.type] ?? '#D9D8D3'}
           fillOpacity={0.9}
         />
       ))}
@@ -1081,8 +1573,8 @@ function OverviewMap() {
         width={visW}
         height={visH}
         rx={2}
-        fill="rgba(37,99,235,0.10)"
-        stroke="#2563EB"
+        fill="rgba(32,94,166,0.10)"
+        stroke="#205EA6"
         strokeWidth={1.5}
         vectorEffect="non-scaling-stroke"
       />
@@ -1095,17 +1587,11 @@ function LeftColumn({
   destinations,
   tracedDestId,
   onTraceDest,
-  dbTrees,
-  activeTreeId,
-  onLoadTree,
 }: {
   onAdd: (kind: NodeKind) => void
   destinations: Destination[]
   tracedDestId: string | null
   onTraceDest: (id: string) => void
-  dbTrees: { id: string; name: string }[]
-  activeTreeId: string
-  onLoadTree: (id: string) => void
 }) {
   const onDragStart = (event: DragEvent<HTMLDivElement>, kind: NodeKind) => {
     event.dataTransfer.setData(DRAG_MIME, kind)
@@ -1114,39 +1600,8 @@ function LeftColumn({
 
   return (
     <aside className="omari-enter-side flex w-[260px] shrink-0 flex-col border-r border-line bg-canvas">
-      {/* ── Trees ──────────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-4 pb-2 pt-4">
-        <p className="font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-accent-strong">
-          Trees
-        </p>
-      </div>
-      <ul className="shrink-0 space-y-0.5 px-2.5 pb-2">
-        {dbTrees.length === 0 && (
-          <li className="px-2 py-1 text-[11px] text-muted">No trees in database.</li>
-        )}
-        {dbTrees.map((t) => {
-          const active = t.id === activeTreeId
-          return (
-            <li key={t.id}>
-              <button
-                onClick={() => onLoadTree(t.id)}
-                aria-pressed={active}
-                className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12px] transition-all duration-150 ${
-                  active
-                    ? 'border-accent bg-sky font-medium text-accent-strong shadow-sm'
-                    : 'border-transparent font-normal text-ink hover:border-line hover:bg-bg'
-                }`}
-              >
-                <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${active ? 'bg-accent' : 'bg-line'}`} />
-                <span className="truncate">{t.name}</span>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
-
       {/* ── Add node ────────────────────────────────────────────────────── */}
-      <div className="shrink-0 border-t border-line px-4 pb-2 pt-3">
+      <div className="shrink-0 px-4 pb-2 pt-4">
         <p className="font-display text-[10px] font-semibold uppercase tracking-[0.09em] text-accent-strong">
           Add node
         </p>
@@ -1300,13 +1755,29 @@ function TBIcon({ children }: { children: ReactNode }) {
  * the labels can stay short.
  */
 function CanvasToolbar({
-  onSave,
+  trees,
+  openTreeId,
+  onOpenTree,
+  onRefreshTrees,
+  onNewFromSample,
+  suggestedName,
+  onValidateForLibrary,
+  onCommitToLibrary,
+  onCommitUpdate,
   onExpandAll,
   onCollapseAll,
   onAutoLayout,
   onClear,
 }: {
-  onSave: () => void
+  trees: TreeSummary[]
+  openTreeId: string | null
+  onOpenTree: (id: string) => void
+  onRefreshTrees: () => void
+  onNewFromSample: () => void
+  suggestedName: string
+  onValidateForLibrary: () => boolean
+  onCommitToLibrary: (name: string) => Promise<boolean>
+  onCommitUpdate: () => Promise<boolean>
   onExpandAll: () => void
   onCollapseAll: () => void
   onAutoLayout: () => void
@@ -1314,19 +1785,24 @@ function CanvasToolbar({
 }) {
   const btn =
     'inline-flex items-center gap-1.5 rounded-md border border-accent-strong/40 bg-canvas px-2.5 py-1.5 text-[12.5px] font-medium text-accent-strong transition-colors hover:border-accent-strong/70 hover:bg-sky'
-  const Divider = () => <span className="mx-0.5 h-5 w-px shrink-0 bg-line" aria-hidden />
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 rounded-[10px] border border-line bg-canvas px-2 py-1.5 shadow-[0_1px_2px_rgba(31,36,33,0.04)]">
-      <button className={btn} onClick={onSave} title="Save this tree">
-        <TBIcon>
-          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-          <path d="M17 21v-8H7v8M7 3v5h8" />
-        </TBIcon>
-        Save
-      </button>
+      <OpenTreePicker
+        trees={trees}
+        openTreeId={openTreeId}
+        onOpenTree={onOpenTree}
+        onRefreshTrees={onRefreshTrees}
+        onNewFromSample={onNewFromSample}
+      />
 
-      <Divider />
+      <SaveToLibraryButton
+        suggestedName={suggestedName}
+        updateName={trees.find((t) => t.id === openTreeId)?.name ?? null}
+        onValidate={onValidateForLibrary}
+        onCommit={onCommitToLibrary}
+        onCommitUpdate={onCommitUpdate}
+      />
 
       <button className={btn} onClick={onExpandAll} title="Reveal every collapsed branch at once">
         <TBIcon>
@@ -1348,14 +1824,324 @@ function CanvasToolbar({
         Auto-layout
       </button>
 
-      <Divider />
-
       <button className={btn} onClick={onClear} title="Clear the canvas and start over">
         <TBIcon>
           <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
         </TBIcon>
         Clear
       </button>
+    </div>
+  )
+}
+
+/**
+ * The single "Save to library" control. Validates the canvas on click; if valid,
+ * opens a small inline name field (no browser prompt) and commits on confirm.
+ */
+function SaveToLibraryButton({
+  suggestedName,
+  updateName,
+  onValidate,
+  onCommit,
+  onCommitUpdate,
+}: {
+  suggestedName: string
+  /** Name of the OPEN library tree, when one is open — enables update-in-place. */
+  updateName: string | null
+  onValidate: () => boolean
+  onCommit: (name: string) => Promise<boolean>
+  onCommitUpdate: () => Promise<boolean>
+}) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const begin = () => {
+    if (open) {
+      setOpen(false)
+      return
+    }
+    if (!onValidate()) return // invalid tree → parent shows the error banner
+    setName(updateName ? `${updateName} copy` : suggestedName)
+    setOpen(true)
+  }
+
+  const commit = async () => {
+    const n = name.trim()
+    if (!n || saving) return
+    setSaving(true)
+    try {
+      if (await onCommit(n)) setOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const commitUpdate = async () => {
+    if (saving) return
+    setSaving(true)
+    try {
+      if (await onCommitUpdate()) setOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        onClick={begin}
+        aria-expanded={open}
+        title="Save this tree to the shared library — it appears in the Runner's tree picker"
+        className="inline-flex items-center gap-1.5 rounded-md bg-accent-strong px-2.5 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90"
+      >
+        <TBIcon>
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+          <path d="M17 21v-8H7v8M7 3v5h8" />
+        </TBIcon>
+        Save to library
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-72 rounded-lg border border-line bg-canvas p-3 shadow-[0_10px_30px_rgba(31,36,33,0.18)]">
+          {updateName && (
+            <>
+              <button
+                disabled={saving}
+                onClick={() => void commitUpdate()}
+                className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {saving ? 'Saving…' : `Update “${updateName}”`}
+              </button>
+              <p className="mt-1 text-[10.5px] leading-snug text-muted">
+                Same tree, new version — updates it everywhere it's used.
+              </p>
+              <div className="my-2.5 flex items-center gap-2">
+                <span className="h-px flex-1 bg-line" aria-hidden />
+                <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-muted">or</span>
+                <span className="h-px flex-1 bg-line" aria-hidden />
+              </div>
+            </>
+          )}
+          <label className="mb-1.5 block font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+            {updateName ? 'Save a copy as' : 'Save to library as'}
+          </label>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onFocus={(e) => e.target.select()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                void commit()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setOpen(false)
+              }
+            }}
+            placeholder="Tree name"
+            className="w-full rounded-md border border-line bg-bg px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          <div className="mt-2.5 flex items-center justify-end gap-2">
+            <button
+              onClick={() => setOpen(false)}
+              className="rounded-md px-2.5 py-1 text-[12px] font-medium text-muted transition-colors hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={!name.trim() || saving}
+              onClick={() => void commit()}
+              className="rounded-md bg-accent-strong px-3 py-1 text-[12px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function fmtLibDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Open-a-tree picker for the Builder — the single entry point for pulling any
+ * library tree onto the canvas to edit (mirrors the Runner's tree picker). The
+ * trigger shows the tree currently on the canvas; the menu lists every stored
+ * tree, and selecting one loads it. Empty library → start from the built-in sample.
+ */
+function OpenTreePicker({
+  trees,
+  openTreeId,
+  onOpenTree,
+  onRefreshTrees,
+  onNewFromSample,
+}: {
+  trees: TreeSummary[]
+  openTreeId: string | null
+  onOpenTree: (id: string) => void
+  onRefreshTrees: () => void
+  onNewFromSample: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const active = trees.find((t) => t.id === openTreeId)
+  const label = active?.name ?? 'Unsaved tree'
+
+  const toggle = () => {
+    if (!open) onRefreshTrees() // freshen the list each time it opens
+    setOpen((o) => !o)
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        onClick={toggle}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title="Open a tree from the library to edit"
+        className="inline-flex items-center gap-1.5 rounded-md border border-accent-strong/40 bg-canvas px-2.5 py-1.5 text-[12.5px] font-medium text-accent-strong transition-colors hover:border-accent-strong/70 hover:bg-sky"
+      >
+        <TBIcon>
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        </TBIcon>
+        <span className="max-w-[160px] truncate">{label}</span>
+        <svg
+          width="11"
+          height="11"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-72 overflow-hidden rounded-lg border border-line bg-canvas shadow-[0_10px_30px_rgba(31,36,33,0.18)]">
+          <div className="flex items-center justify-between border-b border-line px-3 py-2">
+            <p className="font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
+              Open a tree
+            </p>
+            <button
+              onClick={() => onRefreshTrees()}
+              title="Refresh list"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors hover:bg-bg hover:text-ink"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                <path d="M21 3v5h-5" />
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                <path d="M8 16H3v5" />
+              </svg>
+            </button>
+          </div>
+          <div className="max-h-[280px] overflow-y-auto p-1.5">
+            {trees.length === 0 ? (
+              <div className="px-2 py-4 text-center">
+                <p className="text-[12px] font-medium text-ink">No trees in the library</p>
+                <p className="mt-0.5 text-[11px] text-muted">
+                  Start from the built-in sample, then “Save to library”.
+                </p>
+                <button
+                  onClick={() => {
+                    onNewFromSample()
+                    setOpen(false)
+                  }}
+                  className="omari-grad omari-grad-hover mt-3 inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold text-white"
+                >
+                  Start from sample
+                </button>
+              </div>
+            ) : (
+              <ul className="space-y-0.5">
+                {trees.map((t) => {
+                  const isActive = t.id === openTreeId
+                  return (
+                    <li key={t.id}>
+                      <button
+                        onClick={() => {
+                          onOpenTree(t.id)
+                          setOpen(false)
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                          isActive ? 'bg-sky' : 'hover:bg-bg'
+                        }`}
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                            isActive ? 'border-accent bg-accent text-white' : 'border-line'
+                          }`}
+                          aria-hidden
+                        >
+                          {isActive && (
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M20 6 9 17l-5-5" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] font-medium text-ink">{t.name}</span>
+                          <span className="block truncate text-[10px] text-muted">
+                            v{t.version} · updated {fmtLibDate(t.updated_at)}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

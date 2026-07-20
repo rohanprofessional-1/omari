@@ -109,6 +109,73 @@ export const WorkupItemSchema = z.object({
 })
 export type WorkupItem = z.infer<typeof WorkupItemSchema>
 
+/* -------------------------------------------------------------------------- */
+/* WorkupSpec — path-conditioned workup (schema v2)                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A condition bound to a specific variable key, so workup rules can reference
+ * ANY variable on the patient's path — not just the ones that drove routing.
+ */
+export const KeyedConditionSchema = z.discriminatedUnion('op', [
+  EqualsConditionSchema.extend({ key: z.string() }),
+  RangeConditionSchema.extend({ key: z.string() }),
+  InConditionSchema.extend({ key: z.string() }),
+])
+export type KeyedCondition = z.infer<typeof KeyedConditionSchema>
+
+/** Order `item` only when `when` holds on the path variables. */
+export const WorkupConditionalSchema = z.object({
+  when: KeyedConditionSchema,
+  item: WorkupItemSchema,
+  /** The surgeon's counterfactual — why the visit is wasted without it. */
+  reason: z.string().default(''),
+})
+export type WorkupConditional = z.infer<typeof WorkupConditionalSchema>
+
+/**
+ * Over-ordering guard: `item` (matched by name) must NOT be ordered unless
+ * `requiredCondition` holds. Withheld items are reported, never silently kept.
+ */
+export const WorkupGuardSchema = z.object({
+  item: z.string(),
+  requiredCondition: KeyedConditionSchema,
+})
+export type WorkupGuard = z.infer<typeof WorkupGuardSchema>
+
+/**
+ * The full path-conditioned workup at a specialist endpoint (conceptual-spec
+ * model "b"): a base list, conditional additions, do-not-order guards, and an
+ * optional escalate-to-surgeon trigger for ambiguous diagnostics.
+ */
+export const WorkupSpecObjectSchema = z.object({
+  always: z.array(WorkupItemSchema).default([]),
+  conditional: z.array(WorkupConditionalSchema).default([]),
+  doNotOrderUnless: z.array(WorkupGuardSchema).default([]),
+  escalateWorkupIf: KeyedConditionSchema.optional(),
+})
+export type WorkupSpec = z.infer<typeof WorkupSpecObjectSchema>
+
+/**
+ * BACKWARD COMPATIBLE entry point: accepts the legacy flat `WorkupItem[]`
+ * (schema v1) or the full spec object, always normalizing to `WorkupSpec`.
+ * Existing trees (sample, Duke, library rows) parse unchanged.
+ */
+export const WorkupSpecSchema = z.union([
+  z
+    .array(WorkupItemSchema)
+    .transform(
+      (always): WorkupSpec => ({ always, conditional: [], doNotOrderUnless: [] }),
+    ),
+  WorkupSpecObjectSchema,
+])
+export type WorkupSpecInput = z.input<typeof WorkupSpecSchema>
+
+/** A fresh, empty WorkupSpec (for new Builder nodes). */
+export function emptyWorkupSpec(): WorkupSpec {
+  return { always: [], conditional: [], doNotOrderUnless: [] }
+}
+
 /** A terminal node: route the patient to a specialist with urgency and workup. */
 export const SpecialistNodeSchema = z.object({
   id: z.string(),
@@ -117,7 +184,7 @@ export const SpecialistNodeSchema = z.object({
   specialty: z.string(),
   urgency: UrgencySchema,
   reasoningTemplate: z.string(),
-  workup: z.array(WorkupItemSchema),
+  workup: WorkupSpecSchema,
   /**
    * OPTIONAL, additive (the engine never reads these). The sourced clinical
    * basis for routing here, and a flag that the exact internal referral
@@ -155,6 +222,14 @@ export const TreeSchema = z.object({
   nodes: z.array(NodeSchema),
 })
 export type Tree = z.infer<typeof TreeSchema>
+
+/**
+ * The PRE-parse tree shape: what authors may write and what the API may
+ * return. Differs from `Tree` only where the schema normalizes on parse
+ * (e.g. legacy flat workup arrays). Always `TreeSchema.parse` a TreeInput
+ * before handing it to the engine.
+ */
+export type TreeInput = z.input<typeof TreeSchema>
 
 /* -------------------------------------------------------------------------- */
 /* Variable specification                                                     */

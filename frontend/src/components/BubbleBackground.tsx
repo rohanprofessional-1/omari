@@ -7,7 +7,7 @@ import { motion, useMotionValue, useSpring, type SpringOptions } from 'motion/re
  *  - dropped the Next.js "use client" directive and the React-19 ref-as-prop,
  *  - replaced cn / "@/lib/utils" with a tiny local class joiner,
  *  - CSS colour vars are scoped to the container (no global :root leak),
- *  - recoloured to an all blue/white palette and uses a transparent base so it
+ *  - recoloured to a muted ink-blue palette and uses a transparent base so it
  *    layers cleanly behind dark text (the parent supplies the light backdrop).
  */
 
@@ -29,14 +29,14 @@ export type BubbleBackgroundProps = React.ComponentProps<'div'> & {
   colors?: BubbleColors
 }
 
-// All blue / white (R,G,B) so the wash stays on-brand and calm.
-const BLUE_WHITE: BubbleColors = {
-  first: '37,99,235', // accent blue
-  second: '79,147,255', // bright blue
-  third: '147,197,253', // light blue
-  fourth: '191,219,254', // lighter blue
+// Muted ink-blue wash (R,G,B) so it stays on-brand and calm on parchment.
+const INK_WASH: BubbleColors = {
+  first: '32,94,166', // ink blue
+  second: '67,133,190', // wash blue
+  third: '169,200,232', // faded wash
+  fourth: '220,231,242', // powder wash
   fifth: '255,255,255', // white
-  sixth: '99,102,241', // indigo (interactive blob)
+  sixth: '84,105,177', // muted indigo (interactive blob)
 }
 
 export function BubbleBackground({
@@ -44,7 +44,7 @@ export function BubbleBackground({
   children,
   interactive = false,
   transition = { stiffness: 100, damping: 20 },
-  colors = BLUE_WHITE,
+  colors = INK_WASH,
   style,
   ...props
 }: BubbleBackgroundProps) {

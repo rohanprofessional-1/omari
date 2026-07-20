@@ -6,10 +6,9 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    // Forward /api/* to the backend so the browser never holds the API key.
+    // Forward /api/v1/* to the backend
     proxy: {
-      // @ts-ignore
-      '/api': process.env.VITE_API_URL || 'http://localhost:8000',
+      '/api/v1': process.env.VITE_API_URL || 'http://localhost:8000',
     },
   },
 })

@@ -11,6 +11,7 @@ import type {
   WorkupItem,
 } from '../types/tree'
 import { shortBranchLabel } from '../lib/treeToFlow'
+import { describeKeyedCondition } from '../lib/conditionText'
 
 /**
  * Blume — node editor side panel.
@@ -492,13 +493,44 @@ function SpecialistEditor({
     onUpdate((n) => (n.type === 'specialist' ? { ...n, ...partial } : n))
 
   const setWorkup = (index: number, item: WorkupItem) =>
-    patch({ workup: node.workup.map((w, i) => (i === index ? item : w)) })
+    patch({
+      workup: {
+        ...node.workup,
+        always: node.workup.always.map((w, i) => (i === index ? item : w)),
+      },
+    })
 
   const addWorkup = () =>
-    patch({ workup: [...node.workup, { name: '', protocol: '', rationale: '' }] })
+    patch({
+      workup: {
+        ...node.workup,
+        always: [...node.workup.always, { name: '', protocol: '', rationale: '' }],
+      },
+    })
 
   const removeWorkup = (index: number) =>
-    patch({ workup: node.workup.filter((_, i) => i !== index) })
+    patch({
+      workup: {
+        ...node.workup,
+        always: node.workup.always.filter((_, i) => i !== index),
+      },
+    })
+
+  const removeConditional = (index: number) =>
+    patch({
+      workup: {
+        ...node.workup,
+        conditional: node.workup.conditional.filter((_, i) => i !== index),
+      },
+    })
+
+  const removeGuard = (index: number) =>
+    patch({
+      workup: {
+        ...node.workup,
+        doNotOrderUnless: node.workup.doNotOrderUnless.filter((_, i) => i !== index),
+      },
+    })
 
   return (
     <div>
@@ -518,9 +550,9 @@ function SpecialistEditor({
         </Field>
       </Section>
 
-      <Section title="Recommended workup" count={node.workup.length}>
+      <Section title="Recommended workup" count={node.workup.always.length}>
         <div className="space-y-3">
-          {node.workup.map((item, i) => (
+          {node.workup.always.map((item, i) => (
             <div key={i} className="rounded-[11px] border border-line bg-bg/60 p-3">
               <div className="mb-2.5 flex items-center justify-between">
                 <span className="font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
@@ -557,6 +589,59 @@ function SpecialistEditor({
           <AddButton onClick={addWorkup}>+ Add test</AddButton>
         </div>
       </Section>
+
+      {node.workup.conditional.length > 0 && (
+        <Section title="Ordered only when…" count={node.workup.conditional.length}>
+          <div className="space-y-2">
+            {node.workup.conditional.map((rule, i) => (
+              <div key={i} className="rounded-[11px] border border-line bg-bg/60 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[12px] font-medium text-ink">{rule.item.name}</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-muted">
+                      Only if {describeKeyedCondition(rule.when)}
+                    </p>
+                    {rule.reason && (
+                      <p className="mt-0.5 text-[11px] leading-snug text-muted">
+                        Without it: {rule.reason}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => removeConditional(i)}
+                    className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted transition-colors hover:bg-danger/10 hover:text-danger"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
+
+      {node.workup.doNotOrderUnless.length > 0 && (
+        <Section title="Don't order unless…" count={node.workup.doNotOrderUnless.length}>
+          <div className="space-y-2">
+            {node.workup.doNotOrderUnless.map((guard, i) => (
+              <div key={i} className="rounded-[11px] border border-line bg-bg/60 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[11px] leading-snug text-muted">
+                    <span className="font-medium text-ink">{guard.item}</span> is withheld
+                    unless {describeKeyedCondition(guard.requiredCondition)}
+                  </p>
+                  <button
+                    onClick={() => removeGuard(i)}
+                    className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted transition-colors hover:bg-danger/10 hover:text-danger"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
 
       <div className="mt-7 border-t border-line pt-4">
         <Advanced>

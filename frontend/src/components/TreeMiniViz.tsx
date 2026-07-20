@@ -1,60 +1,59 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import dagre from 'dagre'
-import { evaluateCondition } from '../lib/engine'
+import { type Extraction, type OrchestratorStep } from '../lib/orchestrator'
 import { nodeDisplayName } from '../lib/treeToFlow'
-import type { Tree } from '../types/tree'
+import type { FilledVariables, Tree } from '../types/tree'
 
-function confidenceBand(conf: number) {
-  if (conf >= 0.8) return 'high'
-  if (conf >= 0.5) return 'medium'
-  return 'low'
-}
+/**
+ * Omari — live decision-tree mini-visualization (DEMO/PRESENTER aid only).
+ *
+ * Presentation-only: reads the tree the engine is already using + the
+ * variables/result the orchestrator already produced, and renders them. It
+ * changes NOTHING — no engine, extraction, routing, or intake logic.
+ *
+ * Reflects the current architecture (intake → decision):
+ *   • INTAKE  — core-intake variables light up as answers are captured.
+ *   • DECISION — once the engine routes/escalates, the taken PATH is highlighted.
+ * It deliberately does NOT depict routing node-by-node during questioning.
+ *
+ * Gating (hidden in Presentation mode) is enforced by the caller — this
+ * component is only mounted in the behind-the-scenes clinician panel.
+ */
 
+// Builder node colours (kept in sync with the design tokens / Builder cards).
 const COLOR = {
-  variable: '#2563EB',
-  specialist: '#4B9CD3',
-  escalation: '#6CB4EE',
-  dimEdge: '#CBD5E1',
-  takenEdge: '#2563EB',
-  line: '#E2E8F0',
-  muted: '#64748B',
-  ink: '#16202E',
+  variable: '#205EA6', // --color-nodevar
+  specialist: '#4385BE', // --color-nodespec
+  escalation: '#7FABCD', // --color-nodeesc
+  dimEdge: '#DAD9D3',
+  takenEdge: '#205EA6',
+  line: '#E7E6E1',
+  muted: '#7B7974',
+  ink: '#121212',
 }
 
-const VIEW_KEY = 'omari:treeviz'
-
-type View = 'path' | 'tree'
-
+/** Prettify a camelCase variable key into a short readable label. */
 function prettyKey(key: string): string {
   const words = key.replace(/([A-Z])/g, ' $1').trim()
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
-function branchLabel(tree: Tree, key: string, value: unknown): string {
-  for (const node of tree.nodes) {
-    if (node.type !== 'variable' || node.variableKey !== key) continue
-    const branch = node.branches.find((b) => evaluateCondition(b.condition, value))
-    if (branch) return branch.label
-  }
-  return String(value)
-}
-
 interface VizState {
-  litHigh: Set<string>
-  litMed: Set<string>
+  litHigh: Set<string> // variable keys captured at high confidence (filled)
+  litMed: Set<string> // variable keys captured but unconfirmed (candidates)
   resolved: boolean
-  pathSet: Set<string>
-  takenEdges: Set<string>
+  pathSet: Set<string> // node ids on the decided path (only when resolved)
+  takenEdges: Set<string> // "source->target" pairs on the decided path
   outcomeId: string | null
 }
 
 function deriveVizState(
-  filled: Record<string, any>,
-  candidates: Record<string, any>,
-  step: any,
+  filled: FilledVariables,
+  candidates: Record<string, Extraction>,
+  step: OrchestratorStep | null,
 ): VizState {
   const resolved = step?.kind === 'route' || step?.kind === 'escalate'
-  const path = step?.pathTaken || []
+  const path = resolved ? step!.pathTaken : []
   const takenEdges = new Set<string>()
   for (let i = 0; i < path.length - 1; i++) takenEdges.add(`${path[i]}->${path[i + 1]}`)
   return {
@@ -67,6 +66,10 @@ function deriveVizState(
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Top-level: header + view toggle + body                                      */
+/* -------------------------------------------------------------------------- */
+
 export default function TreeMiniViz({
   tree,
   filled,
@@ -74,173 +77,28 @@ export default function TreeMiniViz({
   step,
 }: {
   tree: Tree
-  filled: Record<string, any>
-  candidates: Record<string, any>
-  step: any
+  filled: FilledVariables
+  candidates: Record<string, Extraction>
+  step: OrchestratorStep | null
 }) {
-  const [view, setView] = useState<View>(() => {
-    try {
-      return sessionStorage.getItem(VIEW_KEY) === 'tree' ? 'tree' : 'path'
-    } catch {
-      return 'path'
-    }
-  })
-  const setAndStore = (v: View) => {
-    setView(v)
-    try {
-      sessionStorage.setItem(VIEW_KEY, v)
-    } catch {}
-  }
-
   const viz = deriveVizState(filled, candidates, step)
 
   return (
     <div className="rounded-lg border border-line bg-canvas p-2.5">
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="mb-2 flex items-center gap-2">
         <p className="font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
           Decision tree · live
         </p>
-        <div className="inline-flex rounded-md border border-line bg-bg p-0.5">
-          {(['path', 'tree'] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setAndStore(v)}
-              aria-pressed={view === v}
-              className={
-                'rounded-[5px] px-2 py-0.5 text-[10px] font-medium transition-colors ' +
-                (view === v ? 'bg-canvas text-accent shadow-[0_1px_2px_rgba(22,32,46,0.08)]' : 'text-muted hover:text-ink')
-              }
-            >
-              {v === 'path' ? 'Path' : 'Tree'}
-            </button>
-          ))}
-        </div>
       </div>
 
-      {view === 'path' ? (
-        <PathStrip tree={tree} filled={filled} candidates={candidates} step={step} viz={viz} />
-      ) : (
-        <TreeMiniMap tree={tree} viz={viz} />
-      )}
+      <TreeMiniMap tree={tree} viz={viz} />
     </div>
   )
 }
 
-function PathStrip({
-  tree,
-  filled,
-  candidates,
-  step,
-  viz,
-}: {
-  tree: Tree
-  filled: Record<string, any>
-  candidates: Record<string, any>
-  step: any
-  viz: VizState
-}) {
-  const coreKeys = useMemo(() => Array.from(new Set(tree.nodes.filter(n => n.type === 'variable').map(n => n.variableKey as string))), [tree])
-
-  return (
-    <div className="flex flex-wrap items-stretch gap-1.5">
-      {coreKeys.map((key) => {
-        const f = filled[key]
-        const c = candidates[key]
-        const state: 'high' | 'med' | 'empty' = f ? 'high' : c ? 'med' : 'empty'
-        const value = f?.value ?? c?.value
-        const confidence = f?.confidence ?? c?.confidence
-        return (
-          <IntakeChip
-            key={key}
-            label={prettyKey(key)}
-            state={state}
-            valueLabel={value !== undefined ? branchLabel(tree, key, value) : undefined}
-            confidence={confidence}
-          />
-        )
-      })}
-      <span className="self-center text-[10px] text-muted" aria-hidden>
-        →
-      </span>
-      <OutcomeChip step={step} resolved={viz.resolved} />
-    </div>
-  )
-}
-
-function IntakeChip({
-  label,
-  state,
-  valueLabel,
-  confidence,
-}: {
-  label: string
-  state: 'high' | 'med' | 'empty'
-  valueLabel?: string
-  confidence?: number
-}) {
-  const tone =
-    state === 'high'
-      ? 'border-accent/40 bg-sky'
-      : state === 'med'
-        ? 'border-nodeesc/40 bg-nodeesc/5 border-dashed'
-        : 'border-line bg-canvas'
-  const dot =
-    state === 'empty'
-      ? 'bg-line'
-      : confidence !== undefined && confidenceBand(confidence) === 'high'
-        ? 'bg-accent'
-        : confidence !== undefined && confidenceBand(confidence) === 'medium'
-          ? 'bg-nodeesc'
-          : 'bg-danger'
-  return (
-    <div className={`min-w-[68px] rounded-md border px-2 py-1 transition-colors duration-300 ${tone}`}>
-      <div className="flex items-center gap-1">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
-        <span className="truncate text-[9.5px] font-medium uppercase tracking-wide text-muted">{label}</span>
-      </div>
-      {valueLabel !== undefined ? (
-        <div key={valueLabel} className="omari-msg mt-0.5">
-          <p className="truncate text-[11px] leading-tight text-ink" title={valueLabel}>
-            {valueLabel}
-          </p>
-          {confidence !== undefined && (
-            <p className="text-[9px] leading-tight text-muted">
-              {Math.round(confidence * 100)}%{state === 'med' ? ' · unconfirmed' : ''}
-            </p>
-          )}
-        </div>
-      ) : (
-        <p className="mt-0.5 text-[10px] leading-tight text-muted/70">—</p>
-      )}
-    </div>
-  )
-}
-
-function OutcomeChip({ step, resolved }: { step: any; resolved: boolean }) {
-  if (resolved && step?.kind === 'route') {
-    return (
-      <div key="routed" className="omari-reveal flex min-w-[88px] flex-col justify-center rounded-md border border-nodespec bg-nodespec/10 px-2 py-1">
-        <span className="text-[9px] font-semibold uppercase tracking-wide text-carolina-deep">Routed</span>
-        <span className="truncate text-[11px] font-medium leading-tight text-ink">
-          Done
-        </span>
-      </div>
-    )
-  }
-  if (resolved && step?.kind === 'escalate') {
-    return (
-      <div key="escalated" className="omari-reveal flex min-w-[88px] flex-col justify-center rounded-md border border-nodeesc bg-nodeesc/10 px-2 py-1">
-        <span className="text-[9px] font-semibold uppercase tracking-wide text-nodeesc">Escalation</span>
-        <span className="truncate text-[11px] font-medium leading-tight text-ink">For clinical review</span>
-      </div>
-    )
-  }
-  return (
-    <div className="flex min-w-[88px] items-center rounded-md border border-dashed border-line bg-canvas px-2 py-1">
-      <span className="text-[10px] text-muted/70">Decision pending…</span>
-    </div>
-  )
-}
+/* -------------------------------------------------------------------------- */
+/* FULL TREE MINI-MAP — the actual tree, taken path highlighted                */
+/* -------------------------------------------------------------------------- */
 
 interface MiniNode {
   id: string
@@ -295,7 +153,7 @@ function computeMiniLayout(tree: Tree): {
         ? n.specialistName.replace(/^Dr\.\s*/, '')
         : n.type === 'escalation'
           ? 'Review'
-          : prettyKey(n.variableKey as string)
+          : prettyKey(n.variableKey)
     return {
       id: n.id,
       cx: gn.x,
@@ -348,6 +206,7 @@ function TreeMiniMap({ tree, viz }: { tree: Tree; viz: VizState }) {
     <div>
       <div className="overflow-hidden rounded-md border border-line bg-bg/50" style={{ height: 240 }}>
         <svg viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`} width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+          {/* edges first (under nodes) */}
           {edges.map((e) => {
             const taken = viz.takenEdges.has(`${e.source}->${e.target}`)
             return (
@@ -364,6 +223,7 @@ function TreeMiniMap({ tree, viz }: { tree: Tree; viz: VizState }) {
               />
             )
           })}
+          {/* nodes */}
           {nodes.map((n) => {
             const lit = nodeLit(n)
             const base = COLOR[n.type]

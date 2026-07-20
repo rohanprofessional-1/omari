@@ -37,6 +37,9 @@ class Conversation(Base, TimestampMixin):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     patient_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("patients.id"), nullable=True)
     tree_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("trees.id"), nullable=True)
+    # Pin the IMMUTABLE published snapshot used for this intake (auditability).
+    tree_version_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("tree_versions.id"), nullable=True)
+    mode: Mapped[str | None] = mapped_column(String(10), nullable=True)  # live | demo
     status: Mapped[ConversationStatus] = mapped_column(
         Enum(ConversationStatus, name="conversation_status_enum"),
         default=ConversationStatus.in_progress,

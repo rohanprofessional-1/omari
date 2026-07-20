@@ -1,15 +1,26 @@
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from '@xyflow/react'
 import type { BuilderEdgeData } from '../../lib/treeToFlow'
+import { roundedOrthogonalPath, snapRouteToHandles } from '../../lib/edgeRouting'
 
 /**
  * Custom variable-node branch edge — built for "calm by default, detail on demand".
  *
- * At REST the line is thin, soft and label-less, and it braids into a shared
- * vertical "trunk" just before its destination (Layer 3) so many wires to the
- * same target read as one rope instead of a tangle. On HOVER / SELECT / path
- * trace the edge becomes `active`: it un-bundles back to its own direct path,
- * brightens to full colour, and reveals its short answer caption + destination
- * cue (Layers 1 & 2). Everything else stays bundled and dimmed.
+ * ROUTING (in order of preference):
+ *  1. The ROUTER ROUTE — ELK's orthogonal, node-avoiding, crossing-minimised,
+ *     lane-separated polyline captured at the last layout pass, snapped to the
+ *     live handle coordinates and drawn with rounded corners. Wires stay in
+ *     their own lanes and never cut through cards.
+ *  2. The TRUNK fallback — when an endpoint card has been dragged off its
+ *     layout position (so the router route no longer applies), the edge
+ *     braids into its destination's own vertical lane just before the target.
+ *  3. A smoothstep path for anything else (same-column / cramped geometry).
+ *
+ * At REST the line is thin, soft and label-less. On HOVER / SELECT / path
+ * trace it becomes `active`: full colour, thicker, and it reveals its short
+ * answer caption AT THE SOURCE BUCKET (every bucket has its own row, so
+ * captions can never pile on top of each other) plus a destination cue at the
+ * arrow end — suppressed when several active edges share the target, where
+ * stacked identical chips used to turn traces into a smear.
  *
  * Pure presentation — the wiring (source/target/handles) is unchanged.
  */
@@ -71,25 +82,32 @@ function BucketEdge({
 }: EdgeProps) {
   const d = data as BuilderEdgeData
 
-  // The smoothstep path is the un-bundled route — used when the edge is active,
-  // and always used to anchor the caption (labels only ever show when active).
-  const [smoothPath, labelX, labelY] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-    borderRadius: 14,
-  })
-
   const active = d.highlighted || !!selected
   const dimmed = d.dimmed
-  const bundled = d.bundled && !active
 
-  // Each destination gets its own staggered lane just before the target node.
-  const laneX = targetX - TRUNK_APPROACH - (d.laneOffset ?? 0)
-  const path = bundled ? buildBundledPath(sourceX, sourceY, targetX, targetY, laneX) : smoothPath
+  let path: string
+  if (d.route && d.route.length >= 2) {
+    // The real router route, pinned to the live handle coordinates.
+    path = roundedOrthogonalPath(
+      snapRouteToHandles(d.route, sourceX, sourceY, targetX, targetY),
+      12,
+    )
+  } else if (d.bundled && !active) {
+    // Fallback: braid into the destination's own trunk lane.
+    const laneX = targetX - TRUNK_APPROACH - (d.laneOffset ?? 0)
+    path = buildBundledPath(sourceX, sourceY, targetX, targetY, laneX)
+  } else {
+    const [smoothPath] = getSmoothStepPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+      borderRadius: 14,
+    })
+    path = smoothPath
+  }
 
   // Three calm-by-default states: active (bright/thick), dimmed (very faint),
   // and rest (soft, thin, desaturated — the serene default).
@@ -113,11 +131,12 @@ function BucketEdge({
           (hovered / selected / on a traced path). Zero floating text otherwise. */}
       {active && (
         <EdgeLabelRenderer>
-          {/* Answer caption — centered on the edge, tinted to the edge colour. */}
+          {/* Answer caption — anchored just past the SOURCE bucket handle.
+              Buckets each own a row, so simultaneous captions never overlap. */}
           <div
             className="omari-edge-pill"
             style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              transform: `translate(0, -50%) translate(${sourceX + 12}px, ${sourceY - 14}px)`,
               color: d.color,
               borderColor: d.color,
             }}
@@ -125,15 +144,19 @@ function BucketEdge({
             {d.label}
           </div>
 
-          {/* Destination cue — short target name just before the arrow end. */}
-          <div
-            className="omari-edge-dest"
-            style={{
-              transform: `translate(-100%, -50%) translate(${targetX - 8}px, ${targetY}px)`,
-            }}
-          >
-            {d.targetName}
-          </div>
+          {/* Destination cue — short target name just before the arrow end.
+              Hidden when several active edges share this target (a traced
+              fan-in): the chips would stack and the card is already lit. */}
+          {d.showDest && (
+            <div
+              className="omari-edge-dest"
+              style={{
+                transform: `translate(-100%, -50%) translate(${targetX - 8}px, ${targetY}px)`,
+              }}
+            >
+              {d.targetName}
+            </div>
+          )}
         </EdgeLabelRenderer>
       )}
     </>

@@ -84,7 +84,7 @@ export function CollapseToggle({
       aria-label={title}
       aria-expanded={!collapsed}
       // `nodrag` stops a node drag; stopPropagation stops node selection.
-      className={`nodrag flex h-5 shrink-0 items-center gap-0.5 rounded-md bg-white font-display text-[11px] font-bold leading-none text-accent-strong shadow-[0_1px_2px_rgba(22,32,46,0.18)] transition-colors hover:bg-sky ${
+      className={`nodrag flex h-5 shrink-0 items-center gap-0.5 rounded-md bg-white font-display text-[11px] font-bold leading-none text-accent-strong shadow-[0_1px_2px_rgba(24,20,16,0.18)] transition-colors hover:bg-sky ${
         collapsed ? 'px-1.5' : 'w-5 justify-center'
       }`}
       onPointerDown={(e) => e.stopPropagation()}

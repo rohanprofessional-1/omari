@@ -1,7 +1,8 @@
 import dagre from 'dagre'
 import ELK from 'elkjs/lib/elk.bundled.js'
 import { MarkerType, type Edge, type Node as RFNode } from '@xyflow/react'
-import type { Condition, Node as TreeNode, Tree } from '../types/tree'
+import { emptyWorkupSpec, type Condition, type Node as TreeNode, type Tree } from '../types/tree'
+import type { RoutePoint } from './edgeRouting'
 
 /**
  * Blume — Tree <-> React Flow conversion, dagre auto-layout, and factories
@@ -155,6 +156,21 @@ export type BuilderEdgeData = {
   // blur into one ambiguous rope. The edge un-bundles itself when highlighted.
   bundled: boolean
   laneOffset: number
+  /**
+   * The REAL route: ELK's orthogonal, node-avoiding, lane-separated polyline
+   * for this edge, captured at layout time. When present it is rendered
+   * directly (snapped to the live handle coordinates); null falls back to the
+   * local trunk routing (e.g. after an endpoint was dragged off its layout
+   * position, until the next Auto-layout).
+   */
+  route: RoutePoint[] | null
+  /**
+   * Whether to show the destination-name cue at the arrow end. Suppressed
+   * when several edges into the SAME target are active at once (a traced
+   * path) — N identical chips would stack into an unreadable pile and the
+   * target card is already highlighted.
+   */
+  showDest: boolean
 }
 
 /**
@@ -169,7 +185,14 @@ function makeEdge(
   label: string,
   target: string,
   targetName: string,
-  state: { selected: boolean; highlighted: boolean; dimmed: boolean; laneOffset: number },
+  state: {
+    selected: boolean
+    highlighted: boolean
+    dimmed: boolean
+    laneOffset: number
+    route: RoutePoint[] | null
+    showDest: boolean
+  },
 ): Edge {
   const color = edgeColor(index)
   const active = state.highlighted || state.selected
@@ -200,6 +223,8 @@ function makeEdge(
       // active so a focused thread can be traced individually out of the trunk.
       bundled: !active,
       laneOffset: state.laneOffset,
+      route: state.route,
+      showDest: state.showDest,
     } satisfies BuilderEdgeData,
     markerEnd: { type: MarkerType.ArrowClosed, width: markerSize, height: markerSize, color: markerColor },
   }
@@ -222,31 +247,71 @@ export function treeToFlowNodes(tree: Tree): BuilderFlowNode[] {
  */
 export function deriveEdges(
   nodes: BuilderFlowNode[],
-  opts?: { selectedEdgeId?: string; activeEdgeIds?: Set<string> | null },
+  opts?: {
+    selectedEdgeId?: string
+    activeEdgeIds?: Set<string> | null
+    /** ELK's routed polylines by edge id, captured at the last layout pass. */
+    routes?: Map<string, RoutePoint[]> | null
+    /**
+     * Node positions AT that layout pass. A route is only used while both of
+     * its endpoint nodes still sit where the router left them — dragging a
+     * card invalidates just that card's routes, not the whole canvas.
+     */
+    routeAnchors?: Map<string, { x: number; y: number }> | null
+  },
 ): Edge[] {
   const selectedEdgeId = opts?.selectedEdgeId
   // When an active set is provided (a path is being isolated), edges IN it are
   // highlighted and all others dimmed. When null, everything renders calmly.
   const activeEdgeIds = opts?.activeEdgeIds ?? null
+  const routes = opts?.routes ?? null
+  const routeAnchors = opts?.routeAnchors ?? null
   const byId = new Map(nodes.map((n) => [n.id, n.data.treeNode]))
+  const flowById = new Map(nodes.map((n) => [n.id, n]))
 
-  // Per-destination trunk lanes (Layer 3): every edge sharing a target braids
-  // through one shared vertical lane just before that target. Give each target a
-  // stable, staggered lane offset so adjacent destinations keep distinct trunks
-  // rather than smearing into a single ambiguous rope. Order-stable across renders.
+  const anchored = (nodeId: string): boolean => {
+    if (!routeAnchors) return false
+    const a = routeAnchors.get(nodeId)
+    const n = flowById.get(nodeId)
+    if (!a || !n) return false
+    return Math.abs(a.x - n.position.x) < 0.5 && Math.abs(a.y - n.position.y) < 0.5
+  }
+
+  // Per-destination trunk lanes (the fallback when no router route applies):
+  // every edge sharing a target braids through one shared vertical lane just
+  // before that target. Destinations are grouped by target COLUMN and each
+  // gets a globally DISTINCT lane in that corridor (not a small cycling set),
+  // so two different targets can never smear into one ambiguous rope.
+  // Order-stable across renders.
   const laneOffsets = new Map<string, number>()
-  let laneSeen = 0
+  const corridorCounts = new Map<number, number>()
   for (const flowNode of nodes) {
     const treeNode = flowNode.data.treeNode
     if (treeNode.type !== 'variable') continue
     for (const branch of treeNode.branches) {
       if (branch.nextNodeId && byId.has(branch.nextNodeId) && !laneOffsets.has(branch.nextNodeId)) {
-        // Cycle through a few lane positions (~16px apart) so neighbouring trunks
-        // stay visually separate without wandering out of the inter-column gap.
-        laneOffsets.set(branch.nextNodeId, (laneSeen % 4) * 16)
-        laneSeen++
+        const targetX = flowById.get(branch.nextNodeId)?.position.x ?? 0
+        // Targets within ~a column's drift share a corridor and stack lanes.
+        const corridor = Math.round(targetX / 80)
+        const lane = corridorCounts.get(corridor) ?? 0
+        corridorCounts.set(corridor, lane + 1)
+        laneOffsets.set(branch.nextNodeId, lane * 14)
       }
     }
+  }
+
+  // Count ACTIVE edges per target so the destination cue can hide when a
+  // traced path lights several edges into the same card (chips would stack).
+  const activeByTarget = new Map<string, number>()
+  for (const flowNode of nodes) {
+    const treeNode = flowNode.data.treeNode
+    if (treeNode.type !== 'variable') continue
+    treeNode.branches.forEach((branch, i) => {
+      if (!branch.nextNodeId || !byId.has(branch.nextNodeId)) return
+      const id = `${treeNode.id}__b${i}__${branch.nextNodeId}`
+      if ((activeEdgeIds?.has(id) ?? false) || id === selectedEdgeId)
+        activeByTarget.set(branch.nextNodeId, (activeByTarget.get(branch.nextNodeId) ?? 0) + 1)
+    })
   }
 
   const edges: Edge[] = []
@@ -263,17 +328,30 @@ export function deriveEdges(
       const selected = id === selectedEdgeId
       const highlighted = activeEdgeIds ? activeEdgeIds.has(id) : false
       const dimmed = activeEdgeIds ? !activeEdgeIds.has(id) : false
+      const route =
+        routes?.get(id) && anchored(treeNode.id) && anchored(branch.nextNodeId)
+          ? routes.get(id)!
+          : null
       edges.push(
         makeEdge(treeNode.id, i, label, branch.nextNodeId, targetName, {
           selected,
           highlighted,
           dimmed,
           laneOffset: laneOffsets.get(branch.nextNodeId) ?? 0,
+          route,
+          showDest: (activeByTarget.get(branch.nextNodeId) ?? 0) <= 1,
         }),
       )
     })
   }
-  return edges
+  // Paint order: dimmed lines at the bottom, calm lines above them, active
+  // (hovered / selected / traced) lines on top — SVG has no z-index, so the
+  // array order is what keeps a followed thread from ducking under the noise.
+  const rank = (e: Edge): number => {
+    const d = e.data as BuilderEdgeData
+    return d.highlighted || e.selected ? 2 : d.dimmed ? 0 : 1
+  }
+  return edges.sort((a, b) => rank(a) - rank(b))
 }
 
 /**
@@ -359,52 +437,122 @@ const ELK_LAYOUT_OPTIONS: Record<string, string> = {
   'elk.algorithm': 'layered',
   'elk.direction': 'RIGHT', // left-to-right, matching the current orientation
   'elk.edgeRouting': 'ORTHOGONAL', // clean right-angle wires routed in lanes
-  // Crossing minimisation + tidy node placement.
+  // Crossing minimisation + tidy node placement. Thoroughness raises the
+  // number of layer-sweep iterations well past the default (7) — trees this
+  // size lay out in milliseconds either way, so buy the extra quality.
   'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
+  'elk.layered.thoroughness': '30',
   'elk.layered.nodePlacement.strategy': 'NETWORK_SIMPLEX',
+  'elk.layered.nodePlacement.favorStraightEdges': 'true',
   'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
   // Spacing: room between columns (layers) and within them for the wires.
+  // The between-layer corridors host the routed edge lanes, so they get the
+  // room lanes actually need (edgeEdge is the gap between parallel wires).
   'elk.spacing.nodeNode': '58',
-  'elk.layered.spacing.nodeNodeBetweenLayers': '180',
-  'elk.spacing.edgeNode': '34',
-  'elk.layered.spacing.edgeNodeBetweenLayers': '44',
-  'elk.spacing.edgeEdge': '18',
-  'elk.layered.spacing.edgeEdgeBetweenLayers': '18',
+  'elk.layered.spacing.nodeNodeBetweenLayers': '200',
+  'elk.spacing.edgeNode': '36',
+  'elk.layered.spacing.edgeNodeBetweenLayers': '48',
+  'elk.spacing.edgeEdge': '20',
+  'elk.layered.spacing.edgeEdgeBetweenLayers': '20',
+}
+
+/**
+ * Estimated centre-Y of a variable card's bucket handle `i`, given the card's
+ * (measured or estimated) height. Buckets are the LAST rows of the card, so
+ * they are anchored from the bottom — robust even when the details section
+ * above them is expanded. Only used to give ELK realistic port positions;
+ * rendering always uses the live handle coordinates.
+ */
+function estimatePortY(node: TreeNode, index: number, height: number): number {
+  if (node.type !== 'variable') return height / 2
+  const fromBottom = (node.branches.length - index) * 32 - 16
+  return Math.min(Math.max(height - fromBottom, 12), height - 12)
+}
+
+export interface LayoutResult {
+  nodes: BuilderFlowNode[]
+  engine: 'elk' | 'dagre'
+  /**
+   * ELK's routed polyline per edge id (start, bends, end) — the actual
+   * orthogonal, node-avoiding, lane-separated wire routes. Empty on the
+   * Dagre fallback (the edge renderer then routes locally).
+   */
+  routes: Map<string, RoutePoint[]>
 }
 
 /**
  * Lay out the graph with ELK's layered algorithm (LR, orthogonal routing,
- * crossing minimisation). Async — ELK resolves a Promise. Returns the nodes with
- * updated top-left positions (ELK and React Flow both use a top-left origin, so
- * no centre-conversion is needed). Pure: does not mutate the inputs.
+ * crossing minimisation). Async — ELK resolves a Promise. Returns the nodes
+ * with updated top-left positions (ELK and React Flow both use a top-left
+ * origin, so no centre-conversion is needed) plus the routed edge polylines.
+ * Pure: does not mutate the inputs.
+ *
+ * Ports: each variable card exposes one FIXED east-side port per bucket at
+ * that bucket's true row height, and every card one west-side input port.
+ * This is what lets ELK minimise REAL crossings — it knows exactly where on
+ * the card each wire leaves — and makes the returned routes line up with the
+ * handles React Flow actually draws.
  */
 export async function layoutWithElk(
   nodes: BuilderFlowNode[],
   edges: Edge[],
   direction: 'RIGHT' | 'DOWN' = 'RIGHT',
-): Promise<BuilderFlowNode[]> {
-  if (nodes.length === 0) return nodes
+): Promise<{ nodes: BuilderFlowNode[]; routes: Map<string, RoutePoint[]> }> {
+  if (nodes.length === 0) return { nodes, routes: new Map() }
   const graph = {
     id: 'root',
     layoutOptions: { ...ELK_LAYOUT_OPTIONS, 'elk.direction': direction },
-    children: nodes.map((n) => ({
-      id: n.id,
-      width: n.measured?.width ?? NODE_WIDTH,
-      height: n.measured?.height ?? estimateHeight(n.data.treeNode),
-    })),
-    edges: edges.map((e, i) => ({
-      id: e.id || `elk_e${i}`,
-      sources: [e.source],
-      targets: [e.target],
-    })),
+    children: nodes.map((n) => {
+      const width = n.measured?.width ?? NODE_WIDTH
+      const height = n.measured?.height ?? estimateHeight(n.data.treeNode)
+      const tn = n.data.treeNode
+      const ports: any[] = [
+        { id: `${n.id}::in`, x: 0, y: height / 2, width: 1, height: 1 },
+      ]
+      if (tn.type === 'variable')
+        tn.branches.forEach((_, i) => {
+          ports.push({
+            id: `${n.id}::out${i}`,
+            x: width,
+            y: estimatePortY(tn, i, height),
+            width: 1,
+            height: 1,
+          })
+        })
+      return {
+        id: n.id,
+        width,
+        height,
+        ports,
+        layoutOptions: { 'elk.portConstraints': 'FIXED_POS' },
+      }
+    }),
+    edges: edges.map((e, i) => {
+      // Our handle ids are `b<index>` — route from that bucket's own port.
+      const branchIndex = /^b(\d+)$/.exec(e.sourceHandle ?? '')?.[1]
+      return {
+        id: e.id || `elk_e${i}`,
+        sources: [branchIndex !== undefined ? `${e.source}::out${branchIndex}` : e.source],
+        targets: [`${e.target}::in`],
+      }
+    }),
   }
   const laid = await elk.layout(graph)
   const byId = new Map((laid.children ?? []).map((c: any) => [c.id, c]))
-  return nodes.map((node) => {
-    const c = byId.get(node.id) as any
-    if (!c || typeof c.x !== 'number' || typeof c.y !== 'number') return node
-    return { ...node, position: { x: c.x, y: c.y } }
-  })
+  const routes = new Map<string, RoutePoint[]>()
+  for (const e of (laid.edges ?? []) as any[]) {
+    const s = e.sections?.[0]
+    if (!s?.startPoint || !s?.endPoint) continue
+    routes.set(e.id, [s.startPoint, ...(s.bendPoints ?? []), s.endPoint])
+  }
+  return {
+    nodes: nodes.map((node) => {
+      const c = byId.get(node.id) as any
+      if (!c || typeof c.x !== 'number' || typeof c.y !== 'number') return node
+      return { ...node, position: { x: c.x, y: c.y } }
+    }),
+    routes,
+  }
 }
 
 /**
@@ -415,13 +563,13 @@ export async function layoutWithElk(
 export async function layoutGraph(
   nodes: BuilderFlowNode[],
   edges: Edge[],
-): Promise<{ nodes: BuilderFlowNode[]; engine: 'elk' | 'dagre' }> {
+): Promise<LayoutResult> {
   try {
-    const laid = await layoutWithElk(nodes, edges, 'RIGHT')
-    return { nodes: laid, engine: 'elk' }
+    const { nodes: laid, routes } = await layoutWithElk(nodes, edges, 'RIGHT')
+    return { nodes: laid, engine: 'elk', routes }
   } catch (err) {
     console.warn('[Blume] ELK layout failed — falling back to Dagre.', err)
-    return { nodes: layoutWithDagre(nodes, edges, 'LR'), engine: 'dagre' }
+    return { nodes: layoutWithDagre(nodes, edges, 'LR'), engine: 'dagre', routes: new Map() }
   }
 }
 
@@ -460,7 +608,7 @@ export function createTreeNode(kind: NodeKind, id: string = newNodeId(kind)): Tr
         specialty: 'Specialty',
         urgency: 'routine',
         reasoningTemplate: 'Routing to {specialistName}.',
-        workup: [],
+        workup: emptyWorkupSpec(),
       }
     case 'escalation':
       return {

@@ -8,46 +8,51 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Omari design tokens — "clinical instrument, but humane" — BLUE system.
-   Defined once; reused everywhere via Tailwind utilities. No stray hex.
+   Omari design tokens — "warm parchment printed artifact" — BLUE-INK-ON-PAPER.
+   Bone-paper surfaces + warm-gray text, with a muted ink-blue accent ramp
+   (inkwell → ink → wash) instead of vivid SaaS blues. Defined once; reused
+   everywhere via Tailwind utilities. No stray hex.
    ───────────────────────────────────────────────────────────────────────── */
 @theme {
-  /* LIGHT system — calm white surfaces, deep-blue used sparingly as the accent
-     (primary buttons, small UI). Defined once; reused everywhere. No stray hex. */
-  --color-bg: #f5f7fa; /* app background — cool warm-neutral */
-  --color-canvas: #fcfdff; /* canvas / surfaces */
-  --color-ink: #16202e; /* primary text — deep blue-black */
-  --color-muted: #64748b; /* muted text — slate */
-  --color-line: #e2e8f0; /* hairline borders */
-  --color-accent: #2563eb; /* core blue accent (links, highlights) */
-  --color-accent-strong: #1e3a8a; /* DEEP BLUE — primary buttons / small UI */
-  --color-bright: #3b82f6; /* bright blue — highlights */
-  --color-sky: #eff5ff; /* sky tint — subtle fills / selected rows */
-  --color-danger: #b0413a; /* destructive (text/icon only) */
-  --color-nodevar: #2563eb; /* variable node — primary blue */
-  --color-nodespec: #4b9cd3; /* specialist node — UNC Carolina / Tar Heel blue */
-  --color-nodeesc: #6cb4ee; /* escalation node — baby blue */
-  --color-carolina: #4b9cd3; /* UNC Carolina / Tar Heel blue */
-  --color-carolina-deep: #3d87be; /* button hover */
-  --color-success: #2e9e5b; /* deeper companion — legible indicators/text on white */
-  --color-success-light: #88e788; /* primary friendly light green — orb highlight, fills */
-  --color-success-deep: #1f7a47; /* deepest green — for depth/harmony */
-  --color-success-soft: #eaf9ee; /* soft mint tint (parallels --color-sky) */
+  /* LIGHT system — warm paper surfaces; desaturated "printed ink" blues carry
+     the accent roles (primary buttons, links, nodes, small UI). */
+  --color-bg: #f8f8f6; /* app background — bone parchment */
+  --color-canvas: #ffffff; /* canvas / elevated card surfaces — paper white */
+  --color-ink: #121212; /* primary text — warm carbon, not pure black */
+  --color-muted: #7b7974; /* muted text — ashen warm gray */
+  --color-line: #e7e6e1; /* hairline borders — chalk */
+  --color-accent: #205ea6; /* ink blue — links, highlights, focus */
+  --color-accent-strong: #1b3a6b; /* inkwell navy — primary buttons / small UI */
+  --color-bright: #4385be; /* wash blue — selection rings, highlights */
+  --color-sky: #ecf1f6; /* powder wash — subtle fills / selected rows */
+  --color-danger: #b0413a; /* destructive (text/icon only) — already warm */
+  --color-nodevar: #205ea6; /* variable node — ink blue */
+  --color-nodespec: #4385be; /* specialist node — wash blue */
+  --color-nodeesc: #7fabcd; /* escalation node — faded wash */
+  --color-carolina: #4385be; /* kicker-label accent — wash blue */
+  --color-carolina-deep: #3a76a8; /* deeper wash — hover / small legible text */
+  --color-success: #4c7a5c; /* muted sage — legible indicators/text on paper */
+  --color-success-light: #b9d8bf; /* soft sage — orb highlight, fills */
+  --color-success-deep: #38593f; /* deepest sage — depth/harmony */
+  --color-success-soft: #eef2ec; /* soft sage tint (parallels --color-sky) */
 
-  /* Inter everywhere (body + display), with system-sans fallbacks. */
+  /* Inter for all UI text; the serif is reserved for editorial headlines. */
   --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI",
     Roboto, Helvetica, Arial, sans-serif;
   --font-display: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI",
     Roboto, Helvetica, Arial, sans-serif;
+  /* Editorial serif — the brand signature, weight 400, headlines only. */
+  --font-serif: "Source Serif 4 Variable", "Source Serif Pro", Charter, Georgia,
+    "Times New Roman", serif;
 }
 
 :root {
-  /* Solid deep-blue button fills (no gradients) — hover is a touch lighter. */
+  /* Solid inkwell-navy button fills (no gradients) — hover is a touch lighter. */
   --btn-blue: var(--color-accent-strong);
-  --btn-blue-hover: #24489c;
+  --btn-blue-hover: #27508f;
   /* Kept ONLY for the decorative orb sphere in the patient experience (it needs a
      gradient to read as a 3-D orb). UI chrome/buttons are flat — see .omari-grad. */
-  --grad-blue: linear-gradient(135deg, #3b82f6 0%, #2563eb 52%, #1e3a8a 100%);
+  --grad-blue: linear-gradient(135deg, #4385be 0%, #205ea6 52%, #1b3a6b 100%);
   color-scheme: light;
 }
 
@@ -84,7 +89,7 @@ body {
   border: 2px solid var(--color-canvas); /* inset look */
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #24489c;
+  background: #27508f;
 }
 
 /* ── Primary accent helpers (SOLID deep blue — no gradients) ──────────────────
@@ -248,9 +253,9 @@ textarea:focus-visible {
   border-radius: 9999px;
   background: radial-gradient(
     circle at 50% 45%,
-    rgba(79, 147, 255, 0.55),
-    rgba(37, 109, 238, 0.28) 45%,
-    rgba(37, 99, 235, 0) 70%
+    rgba(102, 149, 201, 0.55),
+    rgba(32, 94, 166, 0.28) 45%,
+    rgba(32, 94, 166, 0) 70%
   );
   filter: blur(22px);
   animation: omari-orb-glow 4.4s ease-in-out infinite;
@@ -263,9 +268,9 @@ textarea:focus-visible {
   overflow: hidden;
   background-image: var(--grad-blue);
   box-shadow:
-    inset 0 -18px 42px rgba(18, 28, 64, 0.55),
+    inset 0 -18px 42px rgba(14, 30, 58, 0.55),
     inset 0 14px 32px rgba(255, 255, 255, 0.28),
-    0 18px 54px rgba(37, 99, 235, 0.34);
+    0 18px 54px rgba(32, 94, 166, 0.34);
   animation: omari-orb-breathe 4.4s ease-in-out infinite;
 }
 .omari-orb-swirl {
@@ -274,11 +279,11 @@ textarea:focus-visible {
   border-radius: 9999px;
   background: conic-gradient(
     from 0deg,
-    rgba(79, 147, 255, 0),
-    rgba(130, 175, 255, 0.5),
-    rgba(30, 58, 138, 0),
-    rgba(79, 147, 255, 0.42),
-    rgba(79, 147, 255, 0)
+    rgba(122, 168, 216, 0),
+    rgba(163, 197, 232, 0.5),
+    rgba(27, 58, 107, 0),
+    rgba(122, 168, 216, 0.42),
+    rgba(122, 168, 216, 0)
   );
   mix-blend-mode: screen;
   filter: blur(7px);
@@ -316,10 +321,10 @@ textarea:focus-visible {
 .omari-quiet-focus:focus,
 .omari-quiet-focus:focus-visible {
   outline: none;
-  border-color: rgba(37, 99, 235, 0.35);
+  border-color: rgba(32, 94, 166, 0.4);
   box-shadow:
-    0 1px 2px rgba(22, 32, 46, 0.06),
-    0 0 0 3px rgba(37, 99, 235, 0.07);
+    0 1px 2px rgba(18, 18, 18, 0.06),
+    0 0 0 3px rgba(32, 94, 166, 0.08);
 }
 
 /* Wordless thinking pulse (replaces the "One moment…" text). */
@@ -346,13 +351,13 @@ textarea:focus-visible {
   to { opacity: 1; }
 }
 .omari-success-glow {
-  /* Based on the deeper companion (#2e9e5b → rgb 46,158,91) so it actually reads
-     on the near-white screen — pure #88E788 would vanish here. Still soft/diffuse. */
-  box-shadow: inset 0 0 150px 46px rgba(46, 158, 91, 0.2);
+  /* Based on the deeper sage companion (#4c7a5c → rgb 76,122,92) so it actually
+     reads on the near-white screen. Still soft/diffuse. */
+  box-shadow: inset 0 0 150px 46px rgba(76, 122, 92, 0.2);
   background: radial-gradient(
     125% 95% at 50% 50%,
-    rgba(46, 158, 91, 0) 56%,
-    rgba(46, 158, 91, 0.14) 100%
+    rgba(76, 122, 92, 0) 56%,
+    rgba(76, 122, 92, 0.14) 100%
   );
   animation: omari-success-glow-in 900ms ease both;
 }
@@ -366,7 +371,7 @@ textarea:focus-visible {
   border: 1px solid var(--color-line);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(22, 32, 46, 0.06);
+  box-shadow: 0 1px 3px rgba(24, 20, 16, 0.06);
   margin: 14px;
 }
 /* Higher specificity (.react-flow__controls .…-button) so these win over
@@ -389,7 +394,7 @@ textarea:focus-visible {
   border: 1px solid var(--color-line);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(22, 32, 46, 0.06);
+  box-shadow: 0 1px 3px rgba(24, 20, 16, 0.06);
   margin: 14px;
 }
 
@@ -428,7 +433,7 @@ textarea:focus-visible {
   font-size: 11px;
   font-weight: 500;
   line-height: 1.2;
-  box-shadow: 0 1px 2px rgba(22, 32, 46, 0.06);
+  box-shadow: 0 1px 2px rgba(24, 20, 16, 0.06);
   transition:
     opacity 140ms ease,
     color 140ms ease,
@@ -456,6 +461,19 @@ textarea:focus-visible {
 .omari-node-dim {
   opacity: 0.32;
   transition: opacity 150ms ease;
+}
+
+/* Sprout proposal PREVIEW: the canvas shows the candidate tree read-only.
+   Nodes the proposal would add/change get a dashed blue outline; nodes it
+   would delete stay visible but faded with a dashed red outline. */
+.react-flow__node.omari-node-ghost {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: 4px;
+  border-radius: 16px;
+}
+.react-flow__node.omari-node-removed {
+  outline-color: var(--color-danger);
+  opacity: 0.45;
 }
 
 /* Edge label pill: white fill + hairline border + ink text. */
