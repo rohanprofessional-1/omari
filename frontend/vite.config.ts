@@ -6,13 +6,9 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    // All backend requests go to the FastAPI server
+    // Forward /api/v1/* to the backend
     proxy: {
-      '/api/v1': 'http://localhost:8000',
-    },
-    // Allow serving files from the repo root (deps like @fontsource hoist there).
-    fs: {
-      allow: ['..'],
+      '/api/v1': process.env.VITE_API_URL || 'http://localhost:8000',
     },
   },
 })
