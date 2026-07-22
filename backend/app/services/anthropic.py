@@ -961,6 +961,226 @@ class AnthropicService:
         return {"items": out.get("items", []), "wouldNotOrder": out.get("wouldNotOrder", [])}
 
     # ------------------------------------------------------------------
+    # CPG-to-tree extraction — section-level node extraction.
+    # The LLM reads a CPG section and produces structured decision-tree
+    # nodes in the Omari NodeIn schema.  It extracts ONLY what the text
+    # states — no routing, no invented thresholds, no workup the text
+    # doesn't mention.
+    # ------------------------------------------------------------------
+
+    async def cpg_extract_section(
+        self,
+        section_text: str,
+        section_name: str,
+        subspecialty: str,
+        existing_variable_keys: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Extract decision tree nodes from a single CPG section.
+
+        Returns a list of node dicts compatible with the Omari NodeIn schema.
+        Each node is a variable (with multi-branch conditions), a placeholder
+        specialist endpoint, or an escalation node.
+        """
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        tool = {
+            "name": "record_cpg_nodes",
+            "description": (
+                "Record the decision tree nodes extracted from the clinical "
+                "practice guideline section.  Each node represents a clinical "
+                "decision point, an action endpoint, or an escalation."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "nodes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "description": (
+                                        "Short unique id for this node within "
+                                        "the section, e.g. 'psa_check', 'dre_eval'."
+                                    ),
+                                },
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["variable", "specialist", "escalation"],
+                                    "description": (
+                                        "variable: a clinical question/decision point. "
+                                        "specialist: an action endpoint (placeholder — "
+                                        "the clinician assigns the real specialist). "
+                                        "escalation: a safety-net or complex-case flag."
+                                    ),
+                                },
+                                "variableKey": {
+                                    "type": "string",
+                                    "description": (
+                                        "snake_case key for the clinical variable, "
+                                        "e.g. 'psa_level', 'has_bone_pain'. "
+                                        "Only for type=variable."
+                                    ),
+                                },
+                                "prompt": {
+                                    "type": "string",
+                                    "description": (
+                                        "A patient-facing question derived from the "
+                                        "guideline, e.g. 'Are you experiencing bone pain?'. "
+                                        "Only for type=variable."
+                                    ),
+                                },
+                                "branches": {
+                                    "type": "array",
+                                    "description": "Only for type=variable.",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {
+                                                "type": "string",
+                                                "description": "Clinical label, e.g. 'PSA > 10'.",
+                                            },
+                                            "patientLabel": {
+                                                "type": "string",
+                                                "description": (
+                                                    "Patient-friendly label, e.g. "
+                                                    "'Your PSA is above 10'."
+                                                ),
+                                            },
+                                            "condition": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "op": {
+                                                        "type": "string",
+                                                        "enum": ["equals", "range", "in"],
+                                                    },
+                                                    "value": {
+                                                        "description": (
+                                                            "For op=equals: a string, "
+                                                            "number, or boolean."
+                                                        ),
+                                                    },
+                                                    "min": {"type": "number"},
+                                                    "max": {"type": "number"},
+                                                    "values": {
+                                                        "type": "array",
+                                                        "items": {"type": "string"},
+                                                    },
+                                                },
+                                                "required": ["op"],
+                                            },
+                                            "nextNodeId": {
+                                                "type": "string",
+                                                "description": (
+                                                    "id of the next node this branch "
+                                                    "leads to.  Use another node's id "
+                                                    "from this section, or a descriptive "
+                                                    "placeholder like 'action_dre_psa' "
+                                                    "for endpoints."
+                                                ),
+                                            },
+                                        },
+                                        "required": ["label", "condition", "nextNodeId"],
+                                    },
+                                },
+                                "specialistName": {
+                                    "type": "string",
+                                    "description": (
+                                        "For type=specialist: a short description of "
+                                        "the clinical action, e.g. 'DRE + PSA testing'. "
+                                        "NOT a person's name — the clinician fills that in."
+                                    ),
+                                },
+                                "specialty": {
+                                    "type": "string",
+                                    "description": "For type=specialist: clinical area.",
+                                },
+                                "reason": {
+                                    "type": "string",
+                                    "description": "For type=escalation: why escalation is needed.",
+                                },
+                                "clinicalBasis": {
+                                    "type": "string",
+                                    "description": (
+                                        "The exact CPG text or recommendation this "
+                                        "node is derived from. Include the recommendation "
+                                        "number if present."
+                                    ),
+                                },
+                            },
+                            "required": ["id", "type"],
+                        },
+                    },
+                },
+                "required": ["nodes"],
+            },
+        }
+
+        system = (
+            "You extract decision tree nodes from a Clinical Practice Guideline "
+            "(CPG) section.  You are a structured-data extractor — you capture "
+            "EXACTLY what the guideline states, nothing more.\n\n"
+            "RULES:\n"
+            "- Each clinical decision point becomes a 'variable' node with a "
+            "snake_case variableKey and a patient-facing prompt.\n"
+            "- Use MULTI-BRANCH nodes when the guideline implies more than two "
+            "outcomes (e.g. 'PSA < 4, PSA 4-10, PSA > 10' is one variable node "
+            "with three branches using op=range).\n"
+            "- When the guideline says to perform a test, order imaging, or refer, "
+            "create a 'specialist' node as a PLACEHOLDER endpoint — set "
+            "specialistName to the action description, NOT a person's name.\n"
+            "- When the guideline mentions red flags, emergency criteria, or "
+            "'urgent referral', create an 'escalation' node.\n"
+            "- Wire branches to the next logical decision point using nextNodeId. "
+            "If the branch leads to an action, point it to the placeholder "
+            "specialist/escalation node.\n"
+            "- NEVER invent thresholds, cutoffs, or clinical logic not stated in "
+            "the text.  If the guideline says 'elevated PSA' without defining a "
+            "number, use op=equals with value='elevated' — do not guess '> 4'.\n"
+            "- Populate clinicalBasis on every node with the exact text or "
+            "recommendation number the node is derived from.\n"
+            "- Reuse existing variable keys when the same clinical concept appears "
+            "across sections."
+        )
+
+        user = (
+            f"Subspecialty: {subspecialty}\n"
+            f"Section: {section_name}\n\n"
+            f"Guideline text:\n{section_text.strip()[:8000]}"
+        )
+        if existing_variable_keys:
+            user += (
+                "\n\nVariable keys already used in earlier sections (reuse when "
+                f"the same concept appears): {', '.join(existing_variable_keys[:50])}"
+            )
+
+        logger.info(
+            f"[blume/cpg-extract] → section='{section_name}' · "
+            f"{len(section_text)} chars · model={settings.ANTHROPIC_MODEL}"
+        )
+        message = await self.client.messages.create(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=4096,
+            temperature=0,
+            system=system,
+            tools=[tool],
+            tool_choice={
+                "type": "tool",
+                "name": tool["name"],
+                "disable_parallel_tool_use": True,
+            },
+            messages=[{"role": "user", "content": user}],
+        )
+        tool_use = next(
+            (b for b in message.content if b.type == "tool_use"), None
+        )
+        nodes = (tool_use.input if tool_use else {}).get("nodes", [])
+        logger.info(f"[blume/cpg-extract] ✓ {len(nodes)} nodes from '{section_name}'")
+        return nodes
+
+    # ------------------------------------------------------------------
     # Builder assistant — conversational tree editing.
     # The model TRANSLATES the clinician's stated edits into bounded tree
     # operations, answers questions about the tree, and surfaces the

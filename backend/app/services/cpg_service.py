@@ -1,0 +1,483 @@
+"""CPG-to-tree scaffold service.
+
+Implements the CPGPrompt-inspired pipeline:
+  1. Extract text from document (PDF/EPUB/TXT — reuses knowledge_base helpers)
+  2. Detect sections in the CPG via heading-aware chunking
+  3. LLM extracts decision tree nodes per section (Anthropic tool use)
+  4. Deterministic merge of section sub-trees
+  5. Structural validation
+  6. Convert to TreeFullCreate-compatible payload
+
+The LLM extracts ONLY what the CPG text states. Specialist endpoints are
+placeholders — the clinician fills them in via the Builder.
+"""
+from __future__ import annotations
+
+import logging
+import re
+import uuid
+from typing import Any
+
+from app.schemas.cpg import (
+    CPGSectionInfo,
+    CPGScaffoldResponse,
+    CPGValidationIssue,
+)
+from app.services.anthropic import anthropic_service
+from app.services.knowledge_base import (
+    _extract_text_from_bytes,
+    _normalize,
+)
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Step 1: Smart section detection
+# ---------------------------------------------------------------------------
+
+# Patterns that typically mark CPG section boundaries — ordered by specificity.
+_SECTION_PATTERNS = [
+    # "Recommendation 1:", "Recommendation 2:"
+    re.compile(r"^(Recommendation\s+\d+[:\.]?\s*.*)$", re.IGNORECASE | re.MULTILINE),
+    # "Guideline Statement 1:", "Guideline 2."
+    re.compile(r"^(Guideline\s+(?:Statement\s+)?\d+[:\.]?\s*.*)$", re.IGNORECASE | re.MULTILINE),
+    # "Step 1:", "Step 2:"
+    re.compile(r"^(Step\s+\d+[:\.]?\s*.*)$", re.IGNORECASE | re.MULTILINE),
+    # "### section_name" (CPGPrompt-style markers)
+    re.compile(r"^(###\s+.+)$", re.MULTILINE),
+    # "1.2.3 Title" — numbered subsections
+    re.compile(r"^(\d+(?:\.\d+)+\s+[A-Z].{4,})$", re.MULTILINE),
+    # "SECTION:" or "ALL-CAPS HEADING" on its own line (≤80 chars, ≥4 chars)
+    re.compile(r"^([A-Z][A-Z\s\-/]{3,78})$", re.MULTILINE),
+]
+
+# Minimum chars for a section to be worth processing
+_MIN_SECTION_CHARS = 60
+# Maximum chars per section before we split further
+_MAX_SECTION_CHARS = 6000
+
+
+def _detect_cpg_sections(text: str) -> list[tuple[str, str]]:
+    """Detect logical sections in CPG text.
+
+    Returns a list of (section_name, section_text) tuples.
+    Falls back to fixed-size chunking if no headings are found.
+    """
+    if not text:
+        return []
+    text = text.strip()
+
+    # Try each pattern, use the one that gives the best split
+    best_splits: list[tuple[int, str]] = []
+    for pattern in _SECTION_PATTERNS:
+        matches = list(pattern.finditer(text))
+        if len(matches) >= 2:  # need at least 2 sections to be a meaningful split
+            splits = [(m.start(), m.group(1).strip()) for m in matches]
+            if len(splits) > len(best_splits):
+                best_splits = splits
+            # If we found ≥3 sections with the most specific pattern, use it
+            if len(splits) >= 3:
+                break
+
+    if best_splits:
+        sections: list[tuple[str, str]] = []
+        for i, (pos, heading) in enumerate(best_splits):
+            end = best_splits[i + 1][0] if i + 1 < len(best_splits) else len(text)
+            body = text[pos:end].strip()
+            # Clean section name — strip ### markers, numbering artifacts
+            name = re.sub(r"^#{1,3}\s*", "", heading)
+            name = re.sub(r"^(Recommendation|Guideline|Step)\s+(\d+)[:\.]?\s*", r"\1 \2: ", name, flags=re.IGNORECASE)
+            name = name.strip().rstrip(":")
+            if len(body) >= _MIN_SECTION_CHARS:
+                body = _normalize(body)
+                # If a section is too long, split it further
+                if len(body) > _MAX_SECTION_CHARS:
+                    sub_chunks = _split_long_section(name, body)
+                    sections.extend(sub_chunks)
+                else:
+                    sections.append((name, body))
+        if sections:
+            return sections
+
+    # Fallback: split by double-newlines or sentence boundaries
+    return _fallback_chunking(text)
+
+
+def _split_long_section(name: str, text: str) -> list[tuple[str, str]]:
+    """Split an oversized section into manageable chunks."""
+    chunks: list[tuple[str, str]] = []
+    start = 0
+    part = 1
+    while start < len(text):
+        end = min(len(text), start + _MAX_SECTION_CHARS)
+        if end < len(text):
+            # Try to break at a paragraph boundary
+            boundary = text.rfind("\n\n", start, end)
+            if boundary == -1 or boundary < start + _MAX_SECTION_CHARS // 2:
+                boundary = text.rfind(". ", start, end)
+            if boundary > start + _MAX_SECTION_CHARS // 3:
+                end = boundary + 2
+        chunk = text[start:end].strip()
+        if len(chunk) >= _MIN_SECTION_CHARS:
+            chunks.append((f"{name} (part {part})" if len(text) > _MAX_SECTION_CHARS else name, chunk))
+            part += 1
+        start = end
+    return chunks
+
+
+def _fallback_chunking(text: str) -> list[tuple[str, str]]:
+    """Fixed-size chunking when no section headings are detected."""
+    chunks: list[tuple[str, str]] = []
+    start = 0
+    section_num = 1
+    while start < len(text):
+        end = min(len(text), start + _MAX_SECTION_CHARS)
+        if end < len(text):
+            boundary = text.rfind(". ", start + _MAX_SECTION_CHARS // 2, end)
+            if boundary > start:
+                end = boundary + 2
+        chunk = text[start:end].strip()
+        if len(chunk) >= _MIN_SECTION_CHARS:
+            # Try to extract a name from the first sentence
+            first_sentence = chunk.split(". ")[0][:80]
+            name = f"Section {section_num}: {first_sentence}"
+            chunks.append((name, chunk))
+            section_num += 1
+        start = end
+    return chunks
+
+
+# ---------------------------------------------------------------------------
+# Step 2: Merge sub-trees
+# ---------------------------------------------------------------------------
+
+def _merge_cpg_subtrees(
+    subtrees: list[tuple[str, list[dict]]],
+    existing_tree: dict | None = None,
+    document_name: str = "New Document",
+) -> tuple[list[dict], str]:
+    """Merge per-section sub-trees into a unified tree.
+
+    - Prefixes node IDs with a document UUID and section index to avoid collisions
+    - Detects cross-section references and wires them
+    - Creates placeholder specialist nodes for unresolved action endpoints
+    - Merges into an existing tree by appending to or creating a master root node
+
+    Returns (all_nodes, root_node_id).
+    """
+    all_nodes: list[dict] = []
+    section_entries: list[tuple[str, str]] = []  # (section_name, entry_node_id)
+    doc_id = uuid.uuid4().hex[:6]
+    doc_prefix = f"doc_{doc_id}_"
+    # Track action references that might point to other sections
+    action_references: dict[str, str] = {}  # lowered action text → node_id
+
+    for section_idx, (section_name, nodes) in enumerate(subtrees):
+        if not nodes:
+            continue
+        prefix = f"{doc_prefix}s{section_idx}_"
+        entry_id: str | None = None
+        for node in nodes:
+            old_id = node.get("id", "")
+            new_id = f"{prefix}{old_id}" if old_id else f"{prefix}node_{uuid.uuid4().hex[:8]}"
+            node["id"] = new_id
+            if entry_id is None:
+                entry_id = new_id
+
+            # Prefix nextNodeId references within the same section
+            if node.get("branches"):
+                for branch in node["branches"]:
+                    next_id = branch.get("nextNodeId", "")
+                    # Don't prefix if it's already fully qualified or is an escalation/placeholder
+                    if next_id and not next_id.startswith("doc_"):
+                        branch["nextNodeId"] = f"{prefix}{next_id}"
+
+            all_nodes.append(node)
+
+        if entry_id:
+            section_entries.append((section_name, entry_id))
+
+    if not section_entries:
+        return [], ""
+
+    # Scan for dangling nextNodeId references and create placeholder endpoints
+    all_ids = {n["id"] for n in all_nodes}
+    placeholder_counter = 0
+    seen_placeholders: dict[str, str] = {}  # dangling_id → placeholder_id
+
+    for node in list(all_nodes):
+        for branch in node.get("branches") or []:
+            next_id = branch.get("nextNodeId", "")
+            if next_id and next_id not in all_ids:
+                if next_id not in seen_placeholders:
+                    placeholder_counter += 1
+                    ph_id = f"placeholder_{placeholder_counter}"
+                    # Try to derive a meaningful label from the dangling reference
+                    # Remove the doc_id and section index from the name for the label
+                    label = re.sub(r"^doc_[a-f0-9]+_s\d+_", "", next_id).replace("_", " ").title()
+                    all_nodes.append({
+                        "id": ph_id,
+                        "type": "specialist",
+                        "specialistName": f"[Assign specialist — {label}]",
+                        "specialty": label,
+                        "urgency": "routine",
+                    })
+                    seen_placeholders[next_id] = ph_id
+                    all_ids.add(ph_id)
+                branch["nextNodeId"] = seen_placeholders[next_id]
+
+    # Determine the document-level entry point
+    if len(section_entries) == 1:
+        doc_entry_id = section_entries[0][1]
+    else:
+        doc_entry_id = f"{doc_prefix}cpg_root"
+        root_branches = []
+        for section_name, entry_id in section_entries:
+            root_branches.append({
+                "label": section_name,
+                "condition": {"op": "equals", "value": section_name.lower().replace(" ", "_")[:60]},
+                "nextNodeId": entry_id,
+            })
+        all_nodes.insert(0, {
+            "id": doc_entry_id,
+            "type": "variable",
+            "variableKey": f"{doc_prefix}cpg_section",
+            "prompt": f"Which section of the {document_name} applies?",
+            "dataSource": "patient",
+            "branches": root_branches,
+        })
+
+    # Merge into existing tree if provided
+    if not existing_tree or not existing_tree.get("nodes"):
+        return all_nodes, doc_entry_id
+
+    master_nodes = list(existing_tree["nodes"])
+    master_root_id = existing_tree.get("rootNodeId")
+    master_root = next((n for n in master_nodes if n.get("id") == master_root_id), None)
+
+    if not master_root:
+        return master_nodes + all_nodes, master_root_id or doc_entry_id
+
+    doc_branch_label = document_name.title()[:60]
+    doc_branch_value = document_name.lower().replace(" ", "_")[:60]
+
+    if master_root.get("variableKey") == "master_cpg_root":
+        master_root.setdefault("branches", []).append({
+            "label": doc_branch_label,
+            "condition": {"op": "equals", "value": doc_branch_value},
+            "nextNodeId": doc_entry_id
+        })
+        master_nodes.extend(all_nodes)
+        return master_nodes, master_root_id
+    else:
+        new_master_root_id = "master_cpg_root"
+        new_master_root = {
+            "id": new_master_root_id,
+            "type": "variable",
+            "variableKey": "master_cpg_root",
+            "prompt": "Which clinical pathway applies to this patient?",
+            "dataSource": "patient",
+            "branches": [
+                {
+                    "label": "Previous Pathway",
+                    "condition": {"op": "equals", "value": "previous_pathway"},
+                    "nextNodeId": master_root_id
+                },
+                {
+                    "label": doc_branch_label,
+                    "condition": {"op": "equals", "value": doc_branch_value},
+                    "nextNodeId": doc_entry_id
+                }
+            ]
+        }
+        master_nodes.insert(0, new_master_root)
+        master_nodes.extend(all_nodes)
+        return master_nodes, new_master_root_id
+
+
+# ---------------------------------------------------------------------------
+# Step 3: Structural validation
+# ---------------------------------------------------------------------------
+
+def _validate_scaffold(
+    nodes: list[dict],
+    root_id: str,
+) -> list[CPGValidationIssue]:
+    """Run structural checks on the generated scaffold."""
+    issues: list[CPGValidationIssue] = []
+    ids = {n["id"] for n in nodes}
+    nodes_by_id = {n["id"]: n for n in nodes}
+
+    # Check root exists
+    if root_id not in ids:
+        issues.append(CPGValidationIssue(
+            kind="missing_root",
+            detail=f"Root node '{root_id}' not found in generated nodes.",
+        ))
+        return issues
+
+    # Check for dangling references
+    for node in nodes:
+        for branch in node.get("branches") or []:
+            next_id = branch.get("nextNodeId", "")
+            if next_id and next_id not in ids:
+                issues.append(CPGValidationIssue(
+                    kind="dead_end",
+                    detail=f"Branch '{branch.get('label', '?')}' on node '{node['id']}' points to non-existent node '{next_id}'.",
+                    node_id=node["id"],
+                ))
+
+    # Check for orphan nodes (not reachable from root)
+    reachable: set[str] = set()
+    queue = [root_id]
+    while queue:
+        nid = queue.pop(0)
+        if nid in reachable:
+            continue
+        reachable.add(nid)
+        node = nodes_by_id.get(nid)
+        if not node:
+            continue
+        for branch in node.get("branches") or []:
+            next_id = branch.get("nextNodeId", "")
+            if next_id and next_id not in reachable:
+                queue.append(next_id)
+    orphans = ids - reachable
+    for orphan_id in orphans:
+        issues.append(CPGValidationIssue(
+            kind="orphan",
+            detail=f"Node '{orphan_id}' is not reachable from root.",
+            node_id=orphan_id,
+        ))
+
+    # Check variable nodes have branches
+    for node in nodes:
+        if node.get("type") == "variable" and not node.get("branches"):
+            issues.append(CPGValidationIssue(
+                kind="no_branches",
+                detail=f"Variable node '{node['id']}' has no branches.",
+                node_id=node["id"],
+            ))
+
+    # Check for leaf variable nodes (variable with branches all pointing nowhere)
+    for node in nodes:
+        if node.get("type") == "variable":
+            branches = node.get("branches") or []
+            if branches and all(not b.get("nextNodeId") for b in branches):
+                issues.append(CPGValidationIssue(
+                    kind="dead_end",
+                    detail=f"All branches on variable node '{node['id']}' are unwired.",
+                    node_id=node["id"],
+                ))
+
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Step 4: Full pipeline
+# ---------------------------------------------------------------------------
+
+async def generate_scaffold_from_cpg(
+    *,
+    subspecialty: str,
+    document_text: str | None = None,
+    file_data: bytes | None = None,
+    filename: str | None = None,
+    content_type: str | None = None,
+    existing_tree: dict | None = None,
+) -> CPGScaffoldResponse:
+    """Top-level pipeline: document → draft tree scaffold.
+
+    Accepts either raw text or file bytes (PDF/EPUB/TXT).
+    Returns a CPGScaffoldResponse with the TreeFullCreate-compatible payload.
+    """
+    # --- Extract text ---
+    if file_data and filename:
+        _, raw_text = _extract_text_from_bytes(filename, content_type, file_data)
+    elif document_text:
+        raw_text = _normalize(document_text)
+    else:
+        raise ValueError("Provide either document_text or file_data + filename.")
+
+    if not raw_text or len(raw_text) < 100:
+        raise ValueError(f"Extracted text too short ({len(raw_text or '')} chars). Check document format.")
+
+    logger.info(f"[cpg] extracted {len(raw_text)} chars from {'file' if file_data else 'text input'}")
+
+    # --- Detect sections ---
+    sections = _detect_cpg_sections(raw_text)
+    if not sections:
+        raise ValueError("Could not detect any sections in the document. Try pasting text directly.")
+
+    logger.info(f"[cpg] detected {len(sections)} sections")
+    section_infos: list[CPGSectionInfo] = [
+        CPGSectionInfo(name=name, char_count=len(text))
+        for name, text in sections
+    ]
+
+    # --- Extract nodes per section ---
+    if not anthropic_service.is_available:
+        raise RuntimeError("Anthropic API key not configured — cannot extract tree from CPG.")
+
+    subtrees: list[tuple[str, list[dict]]] = []
+    seen_keys: list[str] = []
+
+    for section_name, section_text in sections:
+        try:
+            nodes = await anthropic_service.cpg_extract_section(
+                section_text=section_text,
+                section_name=section_name,
+                subspecialty=subspecialty,
+                existing_variable_keys=seen_keys,
+            )
+            # Track keys to avoid duplicates across sections
+            for node in nodes:
+                key = node.get("variableKey")
+                if key and key not in seen_keys:
+                    seen_keys.append(key)
+            subtrees.append((section_name, nodes))
+            # Update section info with node count
+            for info in section_infos:
+                if info.name == section_name:
+                    info.node_count = len(nodes)
+        except Exception:
+            logger.warning(f"[cpg] section extraction failed for '{section_name}'", exc_info=True)
+            subtrees.append((section_name, []))
+
+    total_nodes_extracted = sum(len(nodes) for _, nodes in subtrees)
+    if total_nodes_extracted == 0:
+        raise ValueError("LLM extraction produced zero nodes across all sections. The document may not contain actionable clinical decision logic.")
+
+    # --- Merge ---
+    document_name = filename.rsplit(".", 1)[0] if filename else "Text Document"
+    merged_nodes, root_id = _merge_cpg_subtrees(subtrees, existing_tree=existing_tree, document_name=document_name)
+
+    # --- Validate ---
+    issues = _validate_scaffold(merged_nodes, root_id)
+
+    # --- Build TreeFullCreate payload ---
+    placeholder_count = sum(1 for n in merged_nodes if n.get("type") == "specialist"
+                           and (n.get("specialistName") or "").startswith("[Assign"))
+    variable_count = sum(1 for n in merged_nodes if n.get("type") == "variable")
+
+    tree_payload = {
+        "name": f"{subspecialty} (CPG scaffold)",
+        "description": f"Auto-generated scaffold from clinical practice guideline. {placeholder_count} specialist endpoint(s) need assignment.",
+        "rootNodeId": root_id,
+        "nodes": merged_nodes,
+    }
+
+    logger.info(
+        f"[cpg] scaffold complete: {len(merged_nodes)} nodes, "
+        f"{variable_count} variables, {placeholder_count} placeholders, "
+        f"{len(issues)} validation issues"
+    )
+
+    return CPGScaffoldResponse(
+        tree=tree_payload,
+        sections=section_infos,
+        validation_issues=issues,
+        placeholder_count=placeholder_count,
+        total_nodes=len(merged_nodes),
+        total_variables=variable_count,
+    )
