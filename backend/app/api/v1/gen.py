@@ -790,10 +790,13 @@ async def generate_cpg_scaffold(
             existing_tree=session.draft_tree_json,
         )
     except ValueError as e:
+        import traceback
+        logger.error(f"[gen] ValueError during CPG scaffold generation: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        logger.exception("CPG scaffold generation failed")
-        raise HTTPException(status_code=502, detail=f"CPG scaffold generation failed: {e}")
+        import traceback
+        logger.error(f"[gen] Exception during CPG scaffold generation: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
     # Persist the draft tree on the session
     session.draft_tree_json = result.tree

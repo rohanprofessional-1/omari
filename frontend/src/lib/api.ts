@@ -113,7 +113,7 @@ export async function fetchTree(id: string): Promise<Tree> {
       if (n.node_type === 'variable') {
         base.variableKey = n.variable_key
         base.prompt = n.prompt
-        base.dataSource = n.data_source
+        base.dataSource = n.data_source || 'patient'
         base.branches = n.branches.map((b: any) => ({
           label: b.label,
           patientLabel: b.patient_label || undefined,
@@ -123,8 +123,8 @@ export async function fetchTree(id: string): Promise<Tree> {
       } else if (n.node_type === 'specialist') {
         base.specialistName = n.specialist_name
         base.specialty = n.specialty
-        base.urgency = n.urgency
-        base.reasoningTemplate = n.reasoning_template
+        base.urgency = n.urgency || 'routine'
+        base.reasoningTemplate = n.reasoning_template || ''
         base.clinicalBasis = n.clinical_basis || undefined
         base.confirmWithDrLi = n.confirm_with_dr_li || undefined
         // Prefer the v2 path-conditioned spec (JSONB); fall back to the legacy

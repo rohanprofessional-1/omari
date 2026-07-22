@@ -994,6 +994,10 @@ class AnthropicService:
             "input_schema": {
                 "type": "object",
                 "properties": {
+                    "analysis": {
+                        "type": "string",
+                        "description": "Chain-of-thought analysis of the clinical scenarios. Identify the key variables, conditions, and actions before attempting to structure them into nodes."
+                    },
                     "nodes": {
                         "type": "array",
                         "items": {
@@ -1114,7 +1118,7 @@ class AnthropicService:
                         },
                     },
                 },
-                "required": ["nodes"],
+                "required": ["analysis", "nodes"],
             },
         }
 
@@ -1142,7 +1146,9 @@ class AnthropicService:
             "- Populate clinicalBasis on every node with the exact text or "
             "recommendation number the node is derived from.\n"
             "- Reuse existing variable keys when the same clinical concept appears "
-            "across sections."
+            "across sections.\n"
+            "- CRITICAL: Even if the guidelines are vague, formatted as a list, or use implied tabular logic instead of strict if/then statements, you MUST extract the core clinical criteria as decision nodes.\n"
+            "- Use the 'analysis' field to write out a step-by-step interpretation of the scenarios before structuring the nodes."
         )
 
         user = (
@@ -1176,6 +1182,10 @@ class AnthropicService:
         tool_use = next(
             (b for b in message.content if b.type == "tool_use"), None
         )
+        if tool_use:
+            analysis = tool_use.input.get("analysis", "No analysis provided.")
+            logger.warning(f"[blume/cpg-extract] Claude Analysis for '{section_name}':\n{analysis}")
+            
         nodes = (tool_use.input if tool_use else {}).get("nodes", [])
         logger.info(f"[blume/cpg-extract] ✓ {len(nodes)} nodes from '{section_name}'")
         return nodes

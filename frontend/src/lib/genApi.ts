@@ -414,3 +414,31 @@ export async function registerVariableSpecs(specs: VariableSpec[]): Promise<void
     }
   }
 }
+
+/* ── cpg-to-scaffold (additive tree generation) ── */
+
+export async function generateCPGScaffold(
+  sessionId: string,
+  file: File
+): Promise<{ tree: Tree; placeholderCount: number; validationIssues: any[] }> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const res = await fetch(`${API_BASE}/gen/sessions/${sessionId}/cpg-scaffold`, {
+    method: 'POST',
+    // Do NOT set Content-Type header when using FormData; fetch handles the multipart boundary automatically
+    body: formData,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`POST /cpg-scaffold failed (${res.status}): ${text.slice(0, 300)}`)
+  }
+
+  const data = await res.json()
+  return {
+    tree: data.tree,
+    placeholderCount: data.placeholder_count,
+    validationIssues: data.validation_issues,
+  }
+}

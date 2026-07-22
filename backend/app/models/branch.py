@@ -8,11 +8,11 @@ class Branch(Base, TimestampMixin):
     __tablename__ = "branches"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    node_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    node_id: Mapped[str] = mapped_column(String(100), nullable=False)
     tree_id: Mapped[str] = mapped_column(String(36), nullable=False)
     label: Mapped[str] = mapped_column(String(500), nullable=False)
     patient_label: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    next_node_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    next_node_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     branch_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     __table_args__ = (

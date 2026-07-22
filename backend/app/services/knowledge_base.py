@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ebooklib import ITEM_DOCUMENT, epub
-from pypdf import PdfReader
+import pymupdf4llm
 
 from app.core.config import settings
 from app.models.tree import Tree
@@ -98,7 +98,10 @@ class TreeContext:
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
+    # Preserve newlines (vital for Markdown), but collapse excessive spaces and blank lines
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _strip_html(html: str) -> str:
@@ -172,14 +175,18 @@ def _is_likely_diagnosis_like(text: str) -> bool:
 
 
 def _extract_text_from_pdf(data: bytes) -> str:
-    reader = PdfReader(BytesIO(data))
-    pages: list[str] = []
-    for page in reader.pages:
-        try:
-            pages.append(page.extract_text() or "")
-        except Exception:
-            continue
-    return _normalize("\n".join(pages))
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+            temp_file.write(data)
+            temp_file.flush()
+            temp_path = Path(temp_file.name)
+            
+        md_text = pymupdf4llm.to_markdown(str(temp_path))
+        return _normalize(md_text)
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
 
 
 def _extract_text_from_epub(data: bytes) -> str:
