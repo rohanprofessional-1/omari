@@ -14,6 +14,9 @@ import { anchorForNode, baseTreeHash, type ResolveContext } from '../lib/deltas/
 import type { Delta, DeltaOp, DeltaResult, NodeAnchor } from '../lib/deltas/schema'
 import DeltaList from '../components/reconcile/DeltaList'
 import TerminalMappingTable, { type MapTarget, type RosterEntry } from '../components/reconcile/TerminalMappingTable'
+import ScopeChecklist, { type ScopeCut } from '../components/reconcile/ScopeChecklist'
+import ThresholdQueue, { type ThresholdDecision } from '../components/reconcile/ThresholdQueue'
+import WorkupReview, { type WorkupChange } from '../components/reconcile/WorkupReview'
 
 /**
  * Blume — the RECONCILE session: guideline tree → this clinic's tree.
@@ -32,10 +35,10 @@ import TerminalMappingTable, { type MapTarget, type RosterEntry } from '../compo
 type Stage = 'map' | 'scope' | 'thresholds' | 'workup' | 'validate' | 'gaps'
 
 const STAGES: Array<{ id: Stage; label: string; ready: boolean }> = [
-  { id: 'scope', label: 'Scope', ready: false },
+  { id: 'scope', label: 'Scope', ready: true },
   { id: 'map', label: 'Map endpoints', ready: true },
-  { id: 'thresholds', label: 'Thresholds', ready: false },
-  { id: 'workup', label: 'Workup', ready: false },
+  { id: 'thresholds', label: 'Thresholds', ready: true },
+  { id: 'workup', label: 'Workup', ready: true },
   { id: 'validate', label: 'Validate', ready: false },
   { id: 'gaps', label: 'Gap sweep', ready: false },
 ]
@@ -215,6 +218,82 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
     [addDeltas],
   )
 
+  /* ---------------- Stage: scope, thresholds, workup ---------------- */
+
+  const handleScope = useCallback(
+    (cuts: ScopeCut[]) => {
+      void addDeltas(
+        cuts.map((cut) => ({
+          payload: { op: 'set_scope', branch: cut.anchor, reason: cut.reason } satisfies DeltaOp,
+          provenance: { author: '', rationale: cut.reason, deviatesFromCpg: false, sessionStage: 'scope' },
+        })),
+      )
+    },
+    [addDeltas],
+  )
+
+  const handleThreshold = useCallback(
+    (decision: ThresholdDecision) => {
+      const answerTypeChange = decision.candidate.kind === 'ambiguous_equals' ? 'string_to_number' : 'none'
+      const payload: DeltaOp =
+        decision.action === 'replace'
+          ? {
+              op: 'set_threshold',
+              branch: decision.candidate.anchor,
+              mode: 'replace',
+              replacement: decision.replacement!,
+              answerTypeChange,
+            }
+          : {
+              op: 'set_threshold',
+              branch: decision.candidate.anchor,
+              mode: 'split',
+              split: decision.bands!.map((b) => ({ label: b.label, condition: b.condition, target: 'same' as const })),
+              answerTypeChange,
+            }
+      void addDeltas([
+        {
+          payload,
+          provenance: {
+            author: '',
+            rationale: decision.rationale,
+            deviatesFromCpg: decision.deviates,
+            cpgBasis: decision.candidate.clinicalBasis,
+            sessionStage: 'thresholds',
+          },
+        },
+      ])
+    },
+    [addDeltas],
+  )
+
+  const handleWorkup = useCallback(
+    (change: WorkupChange) => {
+      const payload: DeltaOp =
+        change.kind === 'add'
+          ? {
+              op: 'add_workup',
+              anchor: change.anchor,
+              item: {
+                name: change.itemName,
+                ...(change.protocol ? { protocol: change.protocol } : {}),
+                ...(change.rationale ? { rationale: change.rationale } : {}),
+              },
+              ...(change.when ? { when: change.when, reason: change.rationale ?? '' } : {}),
+            }
+          : change.kind === 'guard'
+            ? { op: 'remove_workup', anchor: change.anchor, itemName: change.itemName, guardInstead: change.when! }
+            : { op: 'remove_workup', anchor: change.anchor, itemName: change.itemName }
+      void addDeltas([
+        {
+          payload,
+          provenance: { author: '', rationale: change.rationale ?? '', deviatesFromCpg: false, sessionStage: 'workup' },
+        },
+      ])
+    },
+    [addDeltas],
+  )
+
   /* ---------------- Render ---------------- */
 
   if (!loaded) {
@@ -314,9 +393,20 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
           </div>
         )}
 
-        {stage === 'map' && compiled && (
-          <TerminalMappingTable terminals={terminals} roster={roster} busy={busy} onMap={handleMap} />
-        )}
+        {compiled &&
+          (stage === 'map' ? (
+            <TerminalMappingTable terminals={terminals} roster={roster} busy={busy} onMap={handleMap} />
+          ) : (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {stage === 'scope' ? (
+                <ScopeChecklist tree={compiled.tree} busy={busy} onApply={handleScope} />
+              ) : stage === 'thresholds' ? (
+                <ThresholdQueue tree={compiled.tree} busy={busy} onDecide={handleThreshold} />
+              ) : stage === 'workup' ? (
+                <WorkupReview tree={compiled.tree} busy={busy} onChange={handleWorkup} />
+              ) : null}
+            </div>
+          ))}
       </div>
 
       <DeltaList deltas={deltas} results={compiled?.results ?? []} onUndo={(id) => void undoDelta(id)} busy={busy} />
