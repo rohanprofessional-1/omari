@@ -61,7 +61,11 @@ function mapCondition(c: any): Condition {
     else if (!isNaN(Number(val))) val = Number(val)
     return { op: 'equals', value: val }
   } else if (c.condition_type === 'range') {
-    return { op: 'range', min: c.min_value ?? undefined, max: c.max_value ?? undefined }
+    return {
+      op: 'range',
+      min: c.min_value != null ? Number(c.min_value) : undefined,
+      max: c.max_value != null ? Number(c.max_value) : undefined
+    }
   } else if (c.condition_type === 'in') {
     return { op: 'in', values: c.values_list ? JSON.parse(c.values_list) : [] }
   }

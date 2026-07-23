@@ -1148,6 +1148,7 @@ class AnthropicService:
             "- Reuse existing variable keys when the same clinical concept appears "
             "across sections.\n"
             "- CRITICAL: Even if the guidelines are vague, formatted as a list, or use implied tabular logic instead of strict if/then statements, you MUST extract the core clinical criteria as decision nodes.\n"
+            "- CRITICAL: If the provided text is merely a cover page, title, or introduction with absolutely no actionable clinical criteria or recommendations, you MUST return an empty array `[]` for `nodes`.\n"
             "- Use the 'analysis' field to write out a step-by-step interpretation of the scenarios before structuring the nodes."
         )
 

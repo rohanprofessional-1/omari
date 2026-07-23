@@ -100,10 +100,14 @@ export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void 
       }
       
       setBusy('Saving tree to your library…')
+      const treeName = files.length === 1 
+        ? `${files[0].name.replace(/\.[^/.]+$/, "")} (CPG draft)`
+        : `${newSession.subspecialty} (CPG draft)`
+
       const summary = await createTreeFull(
-        `${newSession.subspecialty} — CPG draft`,
+        treeName,
         latestTree,
-        { description: `Generated from ${files.length} CPG document(s) in session ${newSession.id}` },
+        { description: `Generated from ${files.map(f => f.name).join(', ')} in session ${newSession.id}` },
       )
       
       await patchGenSession(newSession.id, { treeId: summary.id, stage: 'done', status: 'completed' })
