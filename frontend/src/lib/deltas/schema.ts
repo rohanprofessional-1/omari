@@ -182,6 +182,17 @@ export const DeltaOpSchema = z.discriminatedUnion('op', [
     branch: BranchAnchorSchema,
     reason: z.string().min(1),
   }),
+  // Validation correction: this branch routes to the wrong place — point it
+  // at an existing node instead, or at a new reasoned escalation. The
+  // localized fix the case-validation stage emits.
+  z.object({
+    op: z.literal('retarget_branch'),
+    branch: BranchAnchorSchema,
+    target: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('node'), anchor: NodeAnchorSchema }),
+      z.object({ kind: z.literal('escalation'), reason: z.string().min(1) }),
+    ]),
+  }),
   // Subtree/section-level suppression with scope provenance.
   z.object({
     op: z.literal('set_scope'),

@@ -65,6 +65,12 @@ export function describeDelta(delta: Delta): string {
     case 'suppress_branch':
       text = `Suppress the ${branchText(p.branch)} pathway on ${anchorText(p.branch.node)} — ${p.reason}`
       break
+    case 'retarget_branch':
+      text =
+        p.target.kind === 'node'
+          ? `Reroute ${branchText(p.branch)} on ${anchorText(p.branch.node)} to ${anchorText(p.target.anchor)}`
+          : `Reroute ${branchText(p.branch)} on ${anchorText(p.branch.node)} to human review — ${p.target.reason}`
+      break
     case 'set_scope':
       text = `Out of scope: ${branchText(p.branch)} — ${p.reason}`
       break

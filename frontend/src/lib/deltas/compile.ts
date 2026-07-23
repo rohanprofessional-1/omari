@@ -79,9 +79,12 @@ function writerKeys(delta: Delta): string[] {
       return p.anchors.map((a) => `urgency:${anchorKey(a)}`)
     case 'set_threshold':
       return [`threshold:${branchKey(p.branch)}`]
+    // suppress / scope / retarget all write the same slot: the branch's
+    // destination. Last writer wins; earlier ones supersede away.
     case 'suppress_branch':
     case 'set_scope':
-      return [`suppress:${branchKey(p.branch)}`]
+    case 'retarget_branch':
+      return [`dest:${branchKey(p.branch)}`]
     case 'reorder_priority':
       return [`order:${anchorKey(p.node)}`]
     case 'reword':
@@ -270,6 +273,25 @@ function lower(tree: Tree, delta: Delta, ctx: ResolveContext): Lowered {
           { op: 'update_branch', nodeId, branchIndex, nextNodeId: escAlias },
         ],
       }
+    }
+
+    case 'retarget_branch': {
+      const { res, lowered } = requireBranch(tree, p.branch, ctx)
+      if (lowered) return lowered
+      const { nodeId, branchIndex } = res as Required<Pick<BranchResolution, 'nodeId' | 'branchIndex'>>
+      if (p.target.kind === 'escalation') {
+        const escAlias = 'new_retarget_esc'
+        return {
+          ok: true,
+          ops: [
+            { op: 'add_escalation', id: escAlias, reason: p.target.reason },
+            { op: 'update_branch', nodeId, branchIndex, nextNodeId: escAlias },
+          ],
+        }
+      }
+      const dest = resolveNodeAnchor(tree, p.target.anchor, ctx)
+      if (dest.status !== 'resolved') return stale(STATUS_OF_RESOLUTION[dest.status], `retarget destination: ${dest.reason}`)
+      return { ok: true, ops: [{ op: 'update_branch', nodeId, branchIndex, nextNodeId: dest.nodeId! }] }
     }
 
     case 'add_rule': {

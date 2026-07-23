@@ -17,6 +17,8 @@ import TerminalMappingTable, { type MapTarget, type RosterEntry } from '../compo
 import ScopeChecklist, { type ScopeCut } from '../components/reconcile/ScopeChecklist'
 import ThresholdQueue, { type ThresholdDecision } from '../components/reconcile/ThresholdQueue'
 import WorkupReview, { type WorkupChange } from '../components/reconcile/WorkupReview'
+import CasePlayer, { type CaseCorrection } from '../components/reconcile/CasePlayer'
+import GapSweep, { type GapProposal } from '../components/reconcile/GapSweep'
 
 /**
  * Blume — the RECONCILE session: guideline tree → this clinic's tree.
@@ -39,8 +41,8 @@ const STAGES: Array<{ id: Stage; label: string; ready: boolean }> = [
   { id: 'map', label: 'Map endpoints', ready: true },
   { id: 'thresholds', label: 'Thresholds', ready: true },
   { id: 'workup', label: 'Workup', ready: true },
-  { id: 'validate', label: 'Validate', ready: false },
-  { id: 'gaps', label: 'Gap sweep', ready: false },
+  { id: 'validate', label: 'Validate', ready: true },
+  { id: 'gaps', label: 'Gap sweep', ready: true },
 ]
 
 const OPEN_KEY = 'omari:reconcileTreeId'
@@ -51,6 +53,7 @@ interface LoadedTree {
   base: BaseTreeInput
   ctx: ResolveContext
   baseHash: string
+  subspecialty: string | null
 }
 
 export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void }) {
@@ -74,7 +77,9 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
         return
       }
       const base = baseTree as BaseTreeInput
-      const metas: Array<{ docId?: string; documentName?: string }> = Array.isArray((baseMeta as any)?.docs)
+      const metas: Array<{ docId?: string; documentName?: string; subspecialty?: string }> = Array.isArray(
+        (baseMeta as any)?.docs,
+      )
         ? (baseMeta as any).docs
         : baseMeta
           ? [baseMeta]
@@ -84,7 +89,14 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
         if (m.documentName && m.docId) docs[m.documentName] = m.docId
       }
       const treeDeltas = await listDeltas(treeId)
-      setLoaded({ treeId, name, base, ctx: { docs }, baseHash: baseTreeHash(compile(base, []).tree) })
+      setLoaded({
+        treeId,
+        name,
+        base,
+        ctx: { docs },
+        baseHash: baseTreeHash(compile(base, []).tree),
+        subspecialty: metas.find((m) => m.subspecialty)?.subspecialty ?? null,
+      })
       setDeltas(treeDeltas)
       localStorage.setItem(OPEN_KEY, treeId)
     } catch (e) {
@@ -294,6 +306,40 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
     [addDeltas],
   )
 
+  /* ---------------- Stage: validation & gap sweep ---------------- */
+
+  const handleCorrection = useCallback(
+    (correction: CaseCorrection) => {
+      void addDeltas([
+        {
+          payload: { op: 'retarget_branch', branch: correction.branch, target: correction.target } satisfies DeltaOp,
+          provenance: {
+            author: '',
+            rationale: correction.note || 'Surgeon correction from case validation',
+            deviatesFromCpg: false,
+            sessionStage: 'validation',
+          },
+        },
+      ])
+    },
+    [addDeltas],
+  )
+
+  const handleGapProposals = useCallback(
+    (proposals: GapProposal[]) => {
+      void addDeltas(
+        proposals.map((p) => ({
+          payload:
+            p.kind === 'bind_escalation'
+              ? ({ op: 'bind_terminal', anchors: p.anchors!, target: { kind: 'escalation', reason: p.reason } } satisfies DeltaOp)
+              : ({ op: 'retarget_branch', branch: p.branch!, target: { kind: 'escalation', reason: p.reason } } satisfies DeltaOp),
+          provenance: { author: '', rationale: p.reason, deviatesFromCpg: false, sessionStage: 'gaps' },
+        })),
+      )
+    },
+    [addDeltas],
+  )
+
   /* ---------------- Render ---------------- */
 
   if (!loaded) {
@@ -404,6 +450,16 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
                 <ThresholdQueue tree={compiled.tree} busy={busy} onDecide={handleThreshold} />
               ) : stage === 'workup' ? (
                 <WorkupReview tree={compiled.tree} busy={busy} onChange={handleWorkup} />
+              ) : stage === 'validate' ? (
+                <CasePlayer
+                  tree={compiled.tree}
+                  subspecialty={loaded.subspecialty}
+                  roster={roster.map((r) => ({ name: r.name, specialty: r.specialty ?? '' }))}
+                  busy={busy}
+                  onCorrect={handleCorrection}
+                />
+              ) : stage === 'gaps' ? (
+                <GapSweep tree={compiled.tree} busy={busy} onApply={handleGapProposals} />
               ) : null}
             </div>
           ))}

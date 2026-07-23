@@ -18,6 +18,7 @@ DeltaOpName = Literal[
     "remove_workup",
     "suppress_branch",
     "set_scope",
+    "retarget_branch",
     "add_rule",
     "reorder_priority",
     "reword",

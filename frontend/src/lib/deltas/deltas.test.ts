@@ -346,6 +346,41 @@ const checks: Check[] = [
     },
   },
   {
+    name: 'retarget_branch points a branch at an existing node, and shares the dest slot with suppress',
+    run: () => {
+      seq = 0
+      const durationBranch = {
+        node: { kind: 'variable', variableKey: 'symptom_duration_months' } as const,
+        conditionFingerprint: conditionFingerprint({ op: 'range', max: 3 }),
+        label: 'Under 3 months',
+      }
+      const ds = [
+        delta('sup', { op: 'suppress_branch', branch: durationBranch, reason: 'Not seen here' }),
+        delta('ret', { op: 'retarget_branch', branch: durationBranch, target: { kind: 'node', anchor: surveillanceAnchor } }),
+      ]
+      const { tree, results } = compile(base, ds)
+      const by = Object.fromEntries(results.map((r) => [r.deltaId, r.status]))
+      if (by.sup !== 'superseded') return `suppress: expected superseded by retarget, got ${by.sup}`
+      if (by.ret !== 'applied') return `retarget: expected applied, got ${by.ret}`
+      const dur = tree.nodes.find((n) => n.type === 'variable' && n.variableKey === 'symptom_duration_months')
+      if (dur?.type !== 'variable') return 'duration node missing'
+      const surv = tree.nodes.find((n) => n.type === 'specialist' && n.specialistName === 'Active surveillance')
+      if (dur.branches[0].nextNodeId !== surv?.id) return 'branch not retargeted to the anchored node'
+      if (tree.nodes.some((n) => n.type === 'escalation' && n.reason === 'Not seen here')) {
+        return 'superseded suppress still created its escalation'
+      }
+
+      const toEsc = compile(base, [
+        delta('e', { op: 'retarget_branch', branch: durationBranch, target: { kind: 'escalation', reason: 'Needs review first' } }),
+      ])
+      const dur2 = toEsc.tree.nodes.find((n) => n.type === 'variable' && n.variableKey === 'symptom_duration_months')
+      if (dur2?.type !== 'variable') return 'duration node missing (esc case)'
+      const esc = toEsc.tree.nodes.find((n) => n.id === dur2.branches[0].nextNodeId)
+      if (esc?.type !== 'escalation' || esc.reason !== 'Needs review first') return 'escalation retarget failed'
+      return null
+    },
+  },
+  {
     name: 'reorder_priority applies the anchored permutation',
     run: () => {
       seq = 0
