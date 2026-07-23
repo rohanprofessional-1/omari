@@ -241,6 +241,24 @@ _TREE_CHAT_OP_ITEMS = {
             "condition": _COND,
             "nextNodeId": {"type": "string", "description": "new target node id; empty string unwires"},
         }, ("nodeId",)),
+        _op("insert_branch", {
+            "nodeId": _NODE_ID,
+            "index": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "position to insert at; branch order is evaluation order (first match wins)",
+            },
+            "branch": _BRANCH,
+        }, ("nodeId", "index", "branch")),
+        _op("reorder_branches", {
+            "nodeId": _NODE_ID,
+            "order": {
+                "type": "array",
+                "items": {"type": "integer", "minimum": 0},
+                "minItems": 2,
+                "description": "permutation of current branch indices, e.g. [2, 0, 1] — every index exactly once",
+            },
+        }, ("nodeId", "order")),
         _op("remove_branch", {
             "nodeId": _NODE_ID,
             "branchIndex": {"type": "integer"},

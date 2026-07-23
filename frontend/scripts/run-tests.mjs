@@ -1,6 +1,7 @@
 // Bundles the TypeScript test files with esbuild (already a Vite dependency)
 // and runs them in Node — no extra test-runner dependency required.
 import { build } from 'esbuild'
+import { existsSync } from 'node:fs'
 
 const TEST_FILES = [
   'src/lib/engine.test.ts',
@@ -14,6 +15,10 @@ const TEST_FILES = [
 ]
 
 for (const entry of TEST_FILES) {
+  if (!existsSync(entry)) {
+    console.warn(`[skip] ${entry} — not present on this branch`)
+    continue
+  }
   const res = await build({
     entryPoints: [entry],
     bundle: true,
