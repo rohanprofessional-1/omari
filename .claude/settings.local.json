@@ -147,7 +147,8 @@
       "Bash(node orb-shot.mjs)",
       "Bash(node orb-voice-test.mjs)",
       "Bash(open -a Docker)",
-      "Bash(docker info *)"
+      "Bash(docker info *)",
+      "Skill(run)"
     ]
   }
 }
