@@ -151,10 +151,36 @@ def _fallback_chunking(text: str) -> list[tuple[str, str]]:
 # Step 2: Merge sub-trees
 # ---------------------------------------------------------------------------
 
+def _EMPTY_WORKUP_SPEC() -> dict:
+    return {"always": [], "conditional": [], "doNotOrderUnless": []}
+
+
+def _normalize_scaffold_nodes(nodes: list[dict]) -> list[dict]:
+    """Fill schema-required fields the LLM/merge steps may omit, so the raw
+    scaffold JSON parses with the frontend TreeSchema without a DB round-trip.
+    """
+    for node in nodes:
+        node_type = node.get("type")
+        if node_type == "specialist":
+            node.setdefault("specialty", "")
+            node.setdefault("urgency", "routine")
+            node.setdefault("reasoningTemplate", "")
+            if not isinstance(node.get("workup"), (list, dict)):
+                node["workup"] = _EMPTY_WORKUP_SPEC()
+        elif node_type == "variable":
+            node.setdefault("dataSource", "patient")
+            node.setdefault("branches", [])
+            node.setdefault("prompt", "")
+        elif node_type == "escalation":
+            node.setdefault("reason", "Needs clinical review.")
+    return nodes
+
+
 def _merge_cpg_subtrees(
     subtrees: list[tuple[str, list[dict]]],
     existing_tree: dict | None = None,
     document_name: str = "New Document",
+    doc_id: str | None = None,
 ) -> tuple[list[dict], str]:
     """Merge per-section sub-trees into a unified tree.
 
@@ -167,7 +193,7 @@ def _merge_cpg_subtrees(
     """
     all_nodes: list[dict] = []
     section_entries: list[tuple[str, str]] = []  # (section_name, entry_node_id)
-    doc_id = uuid.uuid4().hex[:6]
+    doc_id = doc_id or uuid.uuid4().hex[:6]
     doc_prefix = f"doc_{doc_id}_"
     # Track action references that might point to other sections
     action_references: dict[str, str] = {}  # lowered action text → node_id
@@ -221,6 +247,8 @@ def _merge_cpg_subtrees(
                         "specialistName": f"[Assign specialist — {label}]",
                         "specialty": label,
                         "urgency": "routine",
+                        "reasoningTemplate": "",
+                        "workup": _EMPTY_WORKUP_SPEC(),
                     })
                     seen_placeholders[next_id] = ph_id
                     all_ids.add(ph_id)
@@ -457,7 +485,13 @@ async def generate_scaffold_from_cpg(
         logger.warning(f"[cpg] LLM extraction produced zero nodes for '{document_name}'. Returning empty scaffold.")
 
     # --- Merge ---
-    merged_nodes, root_id = _merge_cpg_subtrees(subtrees, existing_tree=existing_tree, document_name=document_name)
+    doc_id = uuid.uuid4().hex[:6]
+    merged_nodes, root_id = _merge_cpg_subtrees(
+        subtrees, existing_tree=existing_tree, document_name=document_name, doc_id=doc_id
+    )
+
+    # --- Normalize to full Tree schema shape ---
+    merged_nodes = _normalize_scaffold_nodes(merged_nodes)
 
     # --- Validate ---
     issues = _validate_scaffold(merged_nodes, root_id)
@@ -487,4 +521,10 @@ async def generate_scaffold_from_cpg(
         placeholder_count=placeholder_count,
         total_nodes=len(merged_nodes),
         total_variables=variable_count,
+        base_meta={
+            "docId": doc_id,
+            "documentName": document_name,
+            "subspecialty": subspecialty,
+            "sections": [info.name for info in section_infos],
+        },
     )

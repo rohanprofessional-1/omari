@@ -1,5 +1,5 @@
 import pytest
-from app.services.cpg_service import _merge_cpg_subtrees
+from app.services.cpg_service import _merge_cpg_subtrees, _normalize_scaffold_nodes
 
 def test_merge_single_section():
     subtrees = [
@@ -142,3 +142,47 @@ def test_merge_into_existing_tree_with_master_root():
     assert len(master_root["branches"]) == 2
     assert master_root["branches"][1]["label"] == "Doc B"
     assert master_root["branches"][1]["nextNodeId"].endswith("node_b")
+
+
+def test_normalize_scaffold_nodes_fills_schema_required_fields():
+    """Raw scaffold nodes (LLM output + merge placeholders) must be
+    TreeSchema-complete without a DB round-trip — the delta compiler
+    consumes the raw base JSON directly."""
+    subtrees = [
+        ("Section 1", [
+            {
+                "id": "var_1",
+                "type": "variable",
+                "variableKey": "psa",
+                "prompt": "PSA?",
+                "branches": [
+                    {"label": "High", "condition": {"op": "equals", "value": "high"}, "nextNodeId": "action_referral"},
+                ],
+            },
+            # LLM specialist nodes omit urgency/reasoningTemplate/workup
+            {"id": "spec_1", "type": "specialist", "specialistName": "Surveillance"},
+        ]),
+    ]
+    nodes, root_id = _merge_cpg_subtrees(subtrees, document_name="Doc")
+    nodes = _normalize_scaffold_nodes(nodes)
+
+    for node in nodes:
+        if node["type"] == "specialist":
+            assert node["urgency"] in ("routine", "expedited", "urgent")
+            assert "reasoningTemplate" in node
+            assert isinstance(node["workup"], (list, dict))
+            assert "specialty" in node
+        elif node["type"] == "variable":
+            assert node.get("dataSource") in ("patient", "referral", "record")
+            assert isinstance(node.get("branches"), list)
+
+    # The dangling action_referral became a schema-complete placeholder
+    placeholder = next(n for n in nodes if n.get("specialistName", "").startswith("[Assign"))
+    assert placeholder["workup"] == {"always": [], "conditional": [], "doNotOrderUnless": []}
+    assert placeholder["reasoningTemplate"] == ""
+
+
+def test_merge_accepts_explicit_doc_id():
+    subtrees = [("Section 1", [{"id": "n1", "type": "variable", "branches": []}])]
+    nodes, _root = _merge_cpg_subtrees(subtrees, doc_id="fixed1")
+    assert all(n["id"].startswith("doc_fixed1_") for n in nodes)

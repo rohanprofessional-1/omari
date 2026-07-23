@@ -41,3 +41,6 @@ class CPGScaffoldResponse(BaseModel):
     placeholder_count: int = 0  # how many specialist endpoints need clinician input
     total_nodes: int = 0
     total_variables: int = 0
+    # Anchoring metadata for the delta layer: which document/sections produced
+    # this scaffold. Stored alongside the base tree so deltas can scope anchors.
+    base_meta: Optional[dict[str, Any]] = None
