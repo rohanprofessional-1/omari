@@ -204,6 +204,69 @@ async def test_reconcile_replaces_draft_and_records_verdicts(client):
 
 
 @pytest.mark.asyncio
+async def test_rebase_replaces_base_and_keeps_deltas(client, monkeypatch):
+    from unittest.mock import AsyncMock, PropertyMock
+
+    from app.schemas.cpg import CPGScaffoldResponse
+    from app.services.anthropic import AnthropicService
+    import app.api.v1.deltas  # noqa: F401  (endpoint imports resolved at call time)
+    import app.services.cpg_service as cpg_service
+
+    tree_id = await _create_tree(client)
+    res = await client.post(f"/api/v1/trees/{tree_id}/deltas", json=[BIND_DELTA])
+    delta_id = res.json()[0]["id"]
+
+    # The regenerated scaffold: same clinical content, fresh doc namespace.
+    new_base = {
+        "rootNodeId": "doc_ff00aa_cpg_root",
+        "nodes": [
+            {**BASE_TREE["nodes"][0], "id": "doc_ff00aa_cpg_root",
+             "branches": [{"label": "Elevated", "condition": {"op": "equals", "value": "elevated"}, "nextNodeId": "ph_x"}]},
+            {**BASE_TREE["nodes"][1], "id": "ph_x"},
+        ],
+    }
+    new_meta = {"docId": "ff00aa", "documentName": "AUA Prostate CPG v2", "sections": ["Recommendation 1"]}
+    fake = CPGScaffoldResponse(tree=new_base, base_meta=new_meta, placeholder_count=1, total_nodes=2, total_variables=1)
+
+    monkeypatch.setattr(cpg_service, "generate_scaffold_from_cpg", AsyncMock(return_value=fake))
+    monkeypatch.setattr(AnthropicService, "is_available", PropertyMock(return_value=True))
+
+    res = await client.post(
+        f"/api/v1/trees/{tree_id}/rebase",
+        files={"file": ("cpg_v2.txt", b"guideline text " * 20, "text/plain")},
+    )
+    assert res.status_code == 200, res.text
+
+    # Base replaced, meta updated…
+    res = await client.get(f"/api/v1/trees/{tree_id}/base")
+    body = res.json()
+    assert body["baseTree"]["rootNodeId"] == "doc_ff00aa_cpg_root"
+    assert body["baseMeta"]["documentName"] == "AUA Prostate CPG v2"
+
+    # …and the delta survives untouched, awaiting replay.
+    res = await client.get(f"/api/v1/trees/{tree_id}/deltas")
+    rows = res.json()
+    assert [d["id"] for d in rows] == [delta_id]
+    assert rows[0]["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_rebase_requires_existing_base(client):
+    # A tree saved without baseTree cannot be rebased.
+    res = await client.post(
+        "/api/v1/trees/full",
+        json={"name": "No base", "rootNodeId": BASE_TREE["rootNodeId"], "nodes": BASE_TREE["nodes"]},
+    )
+    tree_id = res.json()["id"]
+    res = await client.post(
+        f"/api/v1/trees/{tree_id}/rebase",
+        files={"file": ("cpg.txt", b"text " * 30, "text/plain")},
+    )
+    assert res.status_code == 422
+    assert "no CPG base" in res.text
+
+
+@pytest.mark.asyncio
 async def test_reconcile_rejects_unknown_delta_ids(client):
     tree_id = await _create_tree(client)
     res = await client.post(

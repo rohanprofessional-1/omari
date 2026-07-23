@@ -5,9 +5,9 @@ Compilation happens in the frontend (lib/deltas/compile.ts); the server
 stores deltas, and `/reconcile` transactionally saves a compiled tree
 together with the compile's per-delta verdicts.
 """
-from typing import Any, List, Union
+from typing import Any, List, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -157,6 +157,65 @@ async def delete_delta(
         raise HTTPException(status_code=404, detail="Delta not found")
     await db.delete(d)
     await db.commit()
+
+
+@reconcile_router.post("/rebase")
+async def rebase_tree(
+    tree_id: str,
+    file: Optional[UploadFile] = File(None),
+    document_text: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Regenerate the tree's BASE from an updated CPG document.
+
+    Replaces base_tree_json / base_meta_json with a fresh scaffold (no
+    grafting under a master root — this is the same guideline, revised).
+    Deltas are NOT touched here: the frontend compiler replays them against
+    the new base on the next Reconcile open, and deltas whose anchors no
+    longer resolve surface as stale for re-review — never silently dropped.
+    """
+    from app.services.anthropic import anthropic_service
+    from app.services.cpg_service import generate_scaffold_from_cpg
+
+    tree = await _require_tree(db, tree_id)
+    if tree.base_tree_json is None:
+        raise HTTPException(status_code=422, detail="Tree has no CPG base to rebase — it predates the delta layer.")
+
+    if not anthropic_service.is_available:
+        raise HTTPException(status_code=503, detail="Anthropic API key not configured — required for CPG extraction.")
+
+    file_data: bytes | None = None
+    filename: str | None = None
+    content_type: str | None = None
+    if file:
+        file_data = await file.read()
+        filename = file.filename
+        content_type = file.content_type
+    elif not document_text or not document_text.strip():
+        raise HTTPException(status_code=422, detail="Provide either a file upload or document_text.")
+
+    subspecialty = (
+        tree.subspecialty
+        or (tree.base_meta_json or {}).get("subspecialty")
+        or tree.name
+    )
+
+    try:
+        result = await generate_scaffold_from_cpg(
+            subspecialty=subspecialty,
+            document_text=document_text,
+            file_data=file_data,
+            filename=filename,
+            content_type=content_type,
+            existing_tree=None,  # fresh base — no master-root graft
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    tree.base_tree_json = result.tree
+    tree.base_meta_json = result.base_meta
+    await db.commit()
+    return result
 
 
 @reconcile_router.get("/base")

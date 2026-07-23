@@ -103,6 +103,16 @@ export async function deleteDelta(treeId: string, deltaId: string): Promise<void
   if (!res.ok && res.status !== 204) throw new Error('Failed to delete delta')
 }
 
+/** Regenerate the tree's base from an UPDATED guideline document. Deltas are
+ *  untouched server-side — the compiler replays them on the next load, and
+ *  anchors that no longer resolve surface as stale for re-review. */
+export async function rebaseTree(treeId: string, file: File): Promise<void> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch(`${API_BASE}/trees/${treeId}/rebase`, { method: 'POST', body: formData })
+  if (!res.ok) throw new Error(`Failed to rebase tree: ${await res.text()}`)
+}
+
 /** The raw CPG scaffold this tree compiles from, plus anchoring metadata. */
 export async function fetchTreeBase(
   treeId: string,

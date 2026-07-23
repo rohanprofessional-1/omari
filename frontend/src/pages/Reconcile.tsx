@@ -6,6 +6,7 @@ import {
   deleteDelta,
   fetchTreeBase,
   listDeltas,
+  rebaseTree,
   reconcileTree,
   type DeltaDraft,
 } from '../lib/deltas/api'
@@ -47,6 +48,22 @@ const STAGES: Array<{ id: Stage; label: string; ready: boolean }> = [
 
 const OPEN_KEY = 'omari:reconcileTreeId'
 
+/** Base metadata → resolve context inputs (single doc or {docs:[…]} shape). */
+function parseBaseMeta(baseMeta: unknown): { docs: Record<string, string>; subspecialty: string | null } {
+  const metas: Array<{ docId?: string; documentName?: string; subspecialty?: string }> = Array.isArray(
+    (baseMeta as any)?.docs,
+  )
+    ? (baseMeta as any).docs
+    : baseMeta
+      ? [baseMeta as any]
+      : []
+  const docs: Record<string, string> = {}
+  for (const m of metas) {
+    if (m.documentName && m.docId) docs[m.documentName] = m.docId
+  }
+  return { docs, subspecialty: metas.find((m) => m.subspecialty)?.subspecialty ?? null }
+}
+
 interface LoadedTree {
   treeId: string
   name: string
@@ -77,17 +94,7 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
         return
       }
       const base = baseTree as BaseTreeInput
-      const metas: Array<{ docId?: string; documentName?: string; subspecialty?: string }> = Array.isArray(
-        (baseMeta as any)?.docs,
-      )
-        ? (baseMeta as any).docs
-        : baseMeta
-          ? [baseMeta]
-          : []
-      const docs: Record<string, string> = {}
-      for (const m of metas) {
-        if (m.documentName && m.docId) docs[m.documentName] = m.docId
-      }
+      const { docs, subspecialty } = parseBaseMeta(baseMeta)
       const treeDeltas = await listDeltas(treeId)
       setLoaded({
         treeId,
@@ -95,7 +102,7 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
         base,
         ctx: { docs },
         baseHash: baseTreeHash(compile(base, []).tree),
-        subspecialty: metas.find((m) => m.subspecialty)?.subspecialty ?? null,
+        subspecialty,
       })
       setDeltas(treeDeltas)
       localStorage.setItem(OPEN_KEY, treeId)
@@ -306,6 +313,37 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
     [addDeltas],
   )
 
+  /* ---------------- Rebase: updated guideline, deltas replay ---------------- */
+
+  const handleRebaseFile = useCallback(
+    async (file: File) => {
+      if (!loaded) return
+      setBusy(true)
+      setError(null)
+      try {
+        await rebaseTree(loaded.treeId, file)
+        // Reload the fresh base, replay ALL deltas against it, and persist
+        // the compiled result + per-delta verdicts in one pass — stale ones
+        // surface in the rail for re-review, never dropped.
+        const { baseTree, baseMeta } = await fetchTreeBase(loaded.treeId)
+        const base = baseTree as BaseTreeInput
+        const { docs, subspecialty } = parseBaseMeta(baseMeta)
+        const ctx = { docs }
+        const baseHash = baseTreeHash(compile(base, []).tree)
+        const ds = await listDeltas(loaded.treeId)
+        const out = compile(base, ds, { ctx })
+        await reconcileTree(loaded.treeId, out.tree, out.results, { baseHash })
+        setLoaded({ ...loaded, base, ctx, baseHash, subspecialty })
+        setDeltas(await listDeltas(loaded.treeId))
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [loaded],
+  )
+
   /* ---------------- Stage: validation & gap sweep ---------------- */
 
   const handleCorrection = useCallback(
@@ -386,6 +424,22 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
               </p>
             </div>
             <div className="ml-auto flex items-center gap-2">
+              <label
+                className={`cursor-pointer rounded-md border border-line px-3 py-1.5 text-[12.5px] font-medium text-muted hover:text-ink ${busy ? 'pointer-events-none opacity-50' : ''}`}
+                title="Upload a revised version of the guideline — your clinic decisions replay on top"
+              >
+                Update guideline
+                <input
+                  type="file"
+                  accept=".pdf,.txt,.epub"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    e.target.value = ''
+                    if (f) void handleRebaseFile(f)
+                  }}
+                />
+              </label>
               <button
                 onClick={() => {
                   localStorage.setItem('omari:builderOpenTreeId', loaded.treeId)
@@ -438,6 +492,18 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
             )}
           </div>
         )}
+
+        {compiled && (() => {
+          const stale = compiled.results.filter((r) => r.status.startsWith('stale'))
+          if (stale.length === 0) return null
+          return (
+            <div className="border-b border-danger/30 bg-danger/5 px-4 py-2 text-[12.5px] text-danger">
+              The guideline changed underneath {stale.length} of your clinic decision
+              {stale.length === 1 ? '' : 's'} — review the flagged items in the rail (undo, or redo them
+              against the updated tree).
+            </div>
+          )
+        })()}
 
         {compiled &&
           (stage === 'map' ? (
