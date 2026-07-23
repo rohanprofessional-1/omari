@@ -4,19 +4,27 @@ import {
   createGenSession,
   patchGenSession,
   generateCPGScaffold,
+  type CPGBaseMeta,
   type GenSession,
   type GenRosterEntry,
 } from '../lib/genApi'
 
 /**
  * Blume — the CPG-to-Scaffold GENERATOR wizard.
- * 
+ *
  * Takes a subspecialty, a roster of specialists, and one or more CPG files (PDF/TXT),
- * uploads them sequentially to the backend to build a unified tree, and drops the 
- * user into the Builder.
+ * uploads them sequentially to the backend to build a unified tree, stores the raw
+ * scaffold as the tree's delta-layer BASE, and drops the user into the Reconcile
+ * session to map it onto the clinic.
  */
 
-export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void }) {
+export default function Generate({
+  onOpenBuilder,
+  onOpenReconcile,
+}: {
+  onOpenBuilder: () => void
+  onOpenReconcile: () => void
+}) {
   const [session, setSession] = useState<GenSession | null>(null)
   const [subspecialty, setSubspecialty] = useState('Peripheral nerve surgery')
   const [surgeonName, setSurgeonName] = useState('')
@@ -86,36 +94,44 @@ export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void 
       setSession(newSession)
 
       let latestTree = null
-      
+      const baseMetas: CPGBaseMeta[] = []
+
       // Sequentially upload CPGs
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         setBusy(`Extracting logic from ${file.name} (${i + 1} of ${files.length})… This takes about 30 seconds.`)
         const result = await generateCPGScaffold(newSession.id, file)
         latestTree = result.tree
+        if (result.baseMeta) baseMetas.push(result.baseMeta)
       }
-      
+
       if (!latestTree) {
         throw new Error("Failed to generate a tree from the provided files.")
       }
-      
+
       setBusy('Saving tree to your library…')
-      const treeName = files.length === 1 
+      const treeName = files.length === 1
         ? `${files[0].name.replace(/\.[^/.]+$/, "")} (CPG draft)`
         : `${newSession.subspecialty} (CPG draft)`
 
       const summary = await createTreeFull(
         treeName,
         latestTree,
-        { description: `Generated from ${files.map(f => f.name).join(', ')} in session ${newSession.id}` },
+        {
+          description: `Generated from ${files.map(f => f.name).join(', ')} in session ${newSession.id}`,
+          // Delta layer: the raw scaffold is the BASE clinic deltas replay onto.
+          baseTree: latestTree,
+          baseMeta: baseMetas.length === 1 ? baseMetas[0] : baseMetas.length > 1 ? { docs: baseMetas } : undefined,
+        },
       )
-      
+
       await patchGenSession(newSession.id, { treeId: summary.id, stage: 'done', status: 'completed' })
-      
-      // Handoff to Builder
+
+      // Handoff to the Reconcile session (Builder stays reachable for viewing)
       localStorage.setItem('omari:builderOpenTreeId', summary.id)
       localStorage.setItem('omari:activeTreeId', summary.id)
-      onOpenBuilder()
+      localStorage.setItem('omari:reconcileTreeId', summary.id)
+      onOpenReconcile()
       
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -280,7 +296,7 @@ export default function Generate({ onOpenBuilder }: { onOpenBuilder: () => void 
           <div className="rounded-xl border border-line bg-canvas p-4 shadow-[0_1px_2px_rgba(24,20,16,0.05)]">
             <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
               We will extract exactly what the guidelines say—no invented thresholds or unauthorized routing.
-              You will review the resulting tree in the Builder.
+              You will map the resulting tree onto your clinic in the Reconcile session.
             </p>
             <button
               onClick={start}

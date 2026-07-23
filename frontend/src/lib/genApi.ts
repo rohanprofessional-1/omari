@@ -417,10 +417,17 @@ export async function registerVariableSpecs(specs: VariableSpec[]): Promise<void
 
 /* ── cpg-to-scaffold (additive tree generation) ── */
 
+export interface CPGBaseMeta {
+  docId: string
+  documentName: string
+  subspecialty?: string
+  sections?: string[]
+}
+
 export async function generateCPGScaffold(
   sessionId: string,
   file: File
-): Promise<{ tree: Tree; placeholderCount: number; validationIssues: any[] }> {
+): Promise<{ tree: Tree; placeholderCount: number; validationIssues: any[]; baseMeta: CPGBaseMeta | null }> {
   const formData = new FormData()
   formData.append('file', file)
 
@@ -440,5 +447,6 @@ export async function generateCPGScaffold(
     tree: data.tree,
     placeholderCount: data.placeholder_count,
     validationIssues: data.validation_issues,
+    baseMeta: data.base_meta ?? null,
   }
 }

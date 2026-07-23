@@ -8,6 +8,7 @@ interface TopAppBarProps {
 
 const links: { id: Page; label: string }[] = [
   { id: 'generate', label: 'Generate' },
+  { id: 'reconcile', label: 'Reconcile' },
   { id: 'builder', label: 'Builder' },
   { id: 'knowledge', label: 'Knowledge' },
   { id: 'runner', label: 'Runner' },
