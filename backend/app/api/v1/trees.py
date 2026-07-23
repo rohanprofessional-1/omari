@@ -98,6 +98,8 @@ async def create_tree_full(
         root_node_id=tree_in.rootNodeId,
         is_active=True,
         version=1,
+        base_tree_json=tree_in.baseTree,
+        base_meta_json=tree_in.baseMeta,
     )
     db.add(tree)
     await db.flush()  # assign tree.id

@@ -204,7 +204,7 @@ export async function getConversation(conversationId: string) {
 export async function createTreeFull(
   name: string,
   tree: Tree,
-  opts: { description?: string } = {},
+  opts: { description?: string; baseTree?: unknown; baseMeta?: unknown } = {},
 ): Promise<TreeSummary> {
   const res = await fetch(`${API_BASE}/trees/full`, {
     method: 'POST',
@@ -214,6 +214,9 @@ export async function createTreeFull(
       description: opts.description,
       rootNodeId: tree.rootNodeId,
       nodes: tree.nodes,
+      // Delta layer: raw CPG scaffold + anchoring metadata, stored verbatim.
+      baseTree: opts.baseTree,
+      baseMeta: opts.baseMeta,
     }),
   })
   if (!res.ok) throw new Error(`Failed to save tree: ${await res.text()}`)
