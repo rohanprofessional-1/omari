@@ -14,7 +14,12 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.schemas.assistant import TreeChatRequest, TreeChatResponse
+from app.schemas.assistant import (
+    DeltaChatRequest,
+    DeltaChatResponse,
+    TreeChatRequest,
+    TreeChatResponse,
+)
 from app.services.anthropic import anthropic_service
 
 logger = logging.getLogger(__name__)
@@ -48,6 +53,27 @@ async def tree_chat(body: TreeChatRequest) -> Any:
         operations=out["operations"],
         focusNodeIds=out["focusNodeIds"],
     )
+
+
+@router.post("/delta-chat", response_model=DeltaChatResponse)
+async def delta_chat(body: DeltaChatRequest) -> Any:
+    """Reconcile-session assistant turn: translate stated clinic decisions
+    into proposed DELTAS (semantically anchored, replayable). Proposals
+    only — the frontend validates, dry-compiles, and gates on confirm."""
+    if not anthropic_service.is_available:
+        raise HTTPException(status_code=503, detail="Anthropic API key not configured on the backend.")
+    if not body.message.strip():
+        raise HTTPException(status_code=422, detail="No message provided.")
+    try:
+        out = await anthropic_service.delta_chat(
+            tree=body.tree,
+            message=body.message,
+            history=[t.model_dump() for t in body.history],
+        )
+    except Exception as e:
+        logger.exception("delta chat failed")
+        raise HTTPException(status_code=502, detail=f"Assistant call failed: {e}")
+    return DeltaChatResponse(mode=out["mode"], message=out["message"], deltas=out["deltas"])
 
 
 @router.post("/tree-chat/stream")

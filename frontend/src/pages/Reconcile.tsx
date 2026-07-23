@@ -20,6 +20,10 @@ import ThresholdQueue, { type ThresholdDecision } from '../components/reconcile/
 import WorkupReview, { type WorkupChange } from '../components/reconcile/WorkupReview'
 import CasePlayer, { type CaseCorrection } from '../components/reconcile/CasePlayer'
 import GapSweep, { type GapProposal } from '../components/reconcile/GapSweep'
+import ReconcileChat from '../components/reconcile/ReconcileChat'
+import SignOffModal from '../components/reconcile/SignOffModal'
+import { describeDeltas } from '../lib/deltas/describe'
+import { publishTree } from '../lib/api'
 
 /**
  * Blume — the RECONCILE session: guideline tree → this clinic's tree.
@@ -81,6 +85,8 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pickerTrees, setPickerTrees] = useState<TreeSummary[] | null>(null)
+  const [signingOff, setSigningOff] = useState(false)
+  const [published, setPublished] = useState<string | null>(null)
 
   /* ---------------- Loading ---------------- */
 
@@ -378,6 +384,47 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
     [addDeltas],
   )
 
+  /* ---------------- Freeform (Sprout) & publish ---------------- */
+
+  const handleChatApply = useCallback(
+    (payloads: DeltaOp[]) => {
+      void addDeltas(
+        payloads.map((payload) => ({
+          payload,
+          provenance: { author: '', rationale: '', deviatesFromCpg: false, sessionStage: 'freeform' },
+        })),
+      )
+    },
+    [addDeltas],
+  )
+
+  const handlePublish = useCallback(
+    async (signedBy: string) => {
+      if (!loaded || !compiled) return
+      setBusy(true)
+      setError(null)
+      try {
+        const appliedIds = compiled.results.filter((r) => r.status === 'applied').map((r) => r.deltaId)
+        const version = await publishTree(loaded.treeId, {
+          signedBy,
+          validationSummary: {
+            appliedDeltaIds: appliedIds,
+            baseHash: loaded.baseHash,
+            deviationRegister: describeDeltas(deltas.filter((d) => appliedIds.includes(d.id))),
+            deviationCount: deltas.filter((d) => appliedIds.includes(d.id) && d.provenance.deviatesFromCpg).length,
+          },
+        })
+        setSigningOff(false)
+        setPublished(`Published and signed as version ${version.version_no}.`)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e))
+      } finally {
+        setBusy(false)
+      }
+    },
+    [loaded, compiled, deltas],
+  )
+
   /* ---------------- Render ---------------- */
 
   if (!loaded) {
@@ -454,10 +501,18 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
                   localStorage.removeItem(OPEN_KEY)
                   setLoaded(null)
                   setDeltas([])
+                  setPublished(null)
                 }}
                 className="rounded-md border border-line px-3 py-1.5 text-[12.5px] font-medium text-muted hover:text-ink"
               >
                 Switch tree
+              </button>
+              <button
+                onClick={() => setSigningOff(true)}
+                disabled={busy || !compiled}
+                className="rounded-md bg-accent-strong px-3.5 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-40"
+              >
+                Sign off &amp; publish
               </button>
             </div>
           </div>
@@ -532,6 +587,27 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
       </div>
 
       <DeltaList deltas={deltas} results={compiled?.results ?? []} onUndo={(id) => void undoDelta(id)} busy={busy} />
+
+      {compiled && <ReconcileChat tree={compiled.tree} busy={busy} onApply={handleChatApply} />}
+
+      {signingOff && compiled && (
+        <SignOffModal
+          deltas={deltas}
+          results={compiled.results}
+          busy={busy}
+          onPublish={(signedBy) => void handlePublish(signedBy)}
+          onClose={() => setSigningOff(false)}
+        />
+      )}
+
+      {published && (
+        <div className="fixed bottom-5 left-1/2 z-20 -translate-x-1/2 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 text-[13px] font-medium text-accent-strong shadow-lg">
+          {published}
+          <button className="ml-3 text-muted hover:text-ink" onClick={() => setPublished(null)}>
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   )
 }

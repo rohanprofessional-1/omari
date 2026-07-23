@@ -24,6 +24,22 @@ class TreeChatRequest(BaseModel):
     selectedNodeIds: List[str] = [] # nodes the clinician selected on the canvas — scopes "these"/"this"
 
 
+class DeltaChatRequest(BaseModel):
+    """Reconcile-session assistant turn: compiled tree + message in,
+    reply + proposed DELTAS out. Same confirm gate as tree chat — no
+    persistence, no auto-apply; the frontend anchor-repairs, validates,
+    dry-compiles, and gates on the surgeon's confirm."""
+    tree: dict
+    message: str
+    history: List[AssistantTurn] = []
+
+
+class DeltaChatResponse(BaseModel):
+    mode: Literal["answer", "clarify", "propose", "decline"]
+    message: str
+    deltas: List[dict] = []  # proposed DeltaOp payloads; frontend Zod-validates
+
+
 class TreeChatResponse(BaseModel):
     # answer: question about the tree · clarify: instruction underspecified ·
     # propose: operations drafted for review · decline: asked to author a

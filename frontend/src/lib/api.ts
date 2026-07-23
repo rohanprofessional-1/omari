@@ -243,6 +243,20 @@ export async function updateTreeFull(
   return res.json()
 }
 
+/** Publish the draft as an immutable, optionally signed version. */
+export async function publishTree(
+  id: string,
+  opts: { signedBy?: string; validationSummary?: Record<string, unknown> } = {},
+): Promise<{ id: string; version_no: number; signed_by?: string | null }> {
+  const res = await fetch(`${API_BASE}/trees/${id}/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ signed_by: opts.signedBy, validation_summary: opts.validationSummary }),
+  })
+  if (!res.ok) throw new Error(`Failed to publish tree: ${await res.text()}`)
+  return res.json()
+}
+
 /** Rename a stored tree. */
 export async function renameTree(id: string, name: string): Promise<TreeSummary> {
   const res = await fetch(`${API_BASE}/trees/${id}`, {

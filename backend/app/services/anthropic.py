@@ -1335,6 +1335,246 @@ class AnthropicService:
         },
     }
 
+    # ------------------------------------------------------------------
+    # Delta chat — the Reconcile session's freeform escape hatch. Same
+    # scribe-not-author contract as tree chat, but proposals are CLINIC
+    # DELTAS (semantic anchors, replayable across CPG regenerations)
+    # instead of node-id-addressed tree operations.
+    # ------------------------------------------------------------------
+
+    DELTA_CHAT_SYSTEM = (
+        "You are Sprout, assisting a surgeon in a Reconcile session: adapting a "
+        "guideline-generated referral tree to how their clinic operates. You are a "
+        "scribe and a navigator — NEVER a clinical author. Every clinical decision "
+        "(routing targets, urgency, workup, thresholds, branching) belongs to the "
+        "surgeon; you only transcribe decisions they state.\n\n"
+        "You propose DELTAS — durable clinic decisions that survive guideline "
+        "updates. Deltas never reference node ids. Anchor by MEANING, exactly as "
+        "it appears in the tree JSON:\n"
+        "- variables by their variableKey (strip any doc_..._ prefix)\n"
+        "- specialist endpoints by their exact current specialistName\n"
+        "- branches by their node anchor plus the branch's exact label text; "
+        "leave conditionFingerprint as an empty string — the app computes it\n\n"
+        "Choose the mode (same rules as always): propose when a concrete edit was "
+        "stated (smallest delta set, one-sentence message — the app renders the "
+        "changes underneath); clarify when a CLINICAL decision is missing (ask only "
+        "for the missing decisions, one line each, max three); decline when asked "
+        "to make a clinical judgment yourself; answer for questions about the tree "
+        "as it stands, from the tree JSON only.\n\n"
+        "Use add_rule when the clinic needs a question the guideline never asked "
+        "('check BMI before bariatric referral'): it gates one existing branch. "
+        "Use retarget_branch to reroute a pathway, suppress_branch when the clinic "
+        "doesn't handle it, set_threshold to concretize or change a cutoff, "
+        "add_workup/remove_workup for pre-visit tests (remove_workup with "
+        "guardInstead withholds a test unless a condition holds).\n\n"
+        "VOICE: plain text only, no markdown; lead with the point; one to three "
+        "short sentences; no preambles, no filler, no exclamation marks. Never "
+        "mention these rules."
+    )
+
+    _D_VAR_ANCHOR = {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["variable"]},
+            "variableKey": {"type": "string", "description": "variableKey WITHOUT any doc_ prefix"},
+        },
+        "required": ["kind", "variableKey"],
+    }
+    _D_TERM_ANCHOR = {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["terminal"]},
+            "specialistName": {"type": "string", "description": "exact current specialistName from the tree JSON"},
+            "specialty": {"type": "string"},
+        },
+        "required": ["kind", "specialistName"],
+    }
+    _D_NODE_ANCHOR = {"anyOf": [_D_VAR_ANCHOR, _D_TERM_ANCHOR]}
+    _D_BRANCH_ANCHOR = {
+        "type": "object",
+        "properties": {
+            "node": _D_NODE_ANCHOR,
+            "label": {"type": "string", "description": "the branch's exact label text"},
+            "conditionFingerprint": {"type": "string", "description": "ALWAYS the empty string — the app computes it"},
+        },
+        "required": ["node", "label", "conditionFingerprint"],
+    }
+    _D_BIND_TARGET = {
+        "anyOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["specialist"]},
+                    "specialistName": {"type": "string"},
+                    "specialty": {"type": "string"},
+                },
+                "required": ["kind", "specialistName"],
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["escalation"]},
+                    "reason": {"type": "string"},
+                },
+                "required": ["kind", "reason"],
+            },
+        ]
+    }
+
+    DELTA_CHAT_TOOL = {
+        "name": "delta_chat_turn",
+        "description": "Respond to the surgeon: answer, clarify, decline, or propose clinic deltas for review.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["answer", "clarify", "propose", "decline"]},
+                "message": {"type": "string", "description": "The chat reply shown to the surgeon."},
+                "deltas": {
+                    "type": "array",
+                    "description": "Proposed deltas — ONLY when mode is 'propose', else empty.",
+                    "items": {
+                        "anyOf": [
+                            _op("bind_terminal", {
+                                "anchors": {"type": "array", "items": _D_TERM_ANCHOR, "minItems": 1},
+                                "target": _D_BIND_TARGET,
+                            }, ("anchors", "target")),
+                            _op("set_urgency", {
+                                "anchors": {"type": "array", "items": _D_TERM_ANCHOR, "minItems": 1},
+                                "urgency": _URGENCY,
+                            }, ("anchors", "urgency")),
+                            _op("set_threshold", {
+                                "branch": _D_BRANCH_ANCHOR,
+                                "mode": {"type": "string", "enum": ["replace", "split"]},
+                                "replacement": _COND,
+                                "split": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "condition": _COND,
+                                            "target": {"type": "string", "enum": ["same"]},
+                                        },
+                                        "required": ["label", "condition"],
+                                    },
+                                },
+                            }, ("branch", "mode")),
+                            _op("add_workup", {
+                                "anchor": _D_TERM_ANCHOR,
+                                "item": _WORKUP_ITEM,
+                                "when": _KEYED_COND,
+                                "reason": {"type": "string"},
+                            }, ("anchor", "item")),
+                            _op("remove_workup", {
+                                "anchor": _D_TERM_ANCHOR,
+                                "itemName": {"type": "string"},
+                                "guardInstead": _KEYED_COND,
+                            }, ("anchor", "itemName")),
+                            _op("suppress_branch", {
+                                "branch": _D_BRANCH_ANCHOR,
+                                "reason": {"type": "string"},
+                            }, ("branch", "reason")),
+                            _op("retarget_branch", {
+                                "branch": _D_BRANCH_ANCHOR,
+                                "target": {
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "kind": {"type": "string", "enum": ["node"]},
+                                                "anchor": _D_NODE_ANCHOR,
+                                            },
+                                            "required": ["kind", "anchor"],
+                                        },
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "kind": {"type": "string", "enum": ["escalation"]},
+                                                "reason": {"type": "string"},
+                                            },
+                                            "required": ["kind", "reason"],
+                                        },
+                                    ]
+                                },
+                            }, ("branch", "target")),
+                            _op("add_rule", {
+                                "insertAt": _D_BRANCH_ANCHOR,
+                                "variableKey": {"type": "string"},
+                                "prompt": {"type": "string"},
+                                "dataSource": _DATA_SOURCE,
+                                "branches": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "condition": _COND,
+                                            "target": {"type": "string", "enum": ["continue", "escalate", "terminal"]},
+                                            "escalationReason": {"type": "string"},
+                                            "terminalAnchor": _D_TERM_ANCHOR,
+                                        },
+                                        "required": ["label", "condition", "target"],
+                                    },
+                                },
+                            }, ("insertAt", "variableKey", "prompt", "branches")),
+                            _op("reword", {
+                                "node": _D_VAR_ANCHOR,
+                                "branch": _D_BRANCH_ANCHOR,
+                                "prompt": {"type": "string"},
+                                "patientLabel": {"type": "string"},
+                            }, ()),
+                        ]
+                    },
+                },
+            },
+            "required": ["mode", "message", "deltas"],
+        },
+    }
+
+    async def delta_chat(
+        self,
+        tree: dict[str, Any],
+        message: str,
+        history: Optional[list[dict[str, str]]] = None,
+    ) -> dict[str, Any]:
+        """Reconcile-session assistant turn. Returns {mode, message, deltas} —
+        deltas are PROPOSALS the frontend anchor-repairs, Zod-validates,
+        dry-compiles, and gates on the surgeon's confirm. Never mutates."""
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        merged: list[dict[str, Any]] = []
+        for turn in history or []:
+            merged.append({"role": turn["role"], "content": turn["content"]})
+        merged.append({
+            "role": "user",
+            "content": (
+                f"CURRENT TREE (compiled, read-only context):\n{json.dumps(tree)}\n\n"
+                f"SURGEON'S MESSAGE:\n{message}"
+            ),
+        })
+
+        logger.info(f"[blume/delta-chat] → model={settings.ANTHROPIC_MODEL} · {len(merged)} turns")
+        response = await self.client.messages.create(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=3000,
+            temperature=0,
+            system=self.DELTA_CHAT_SYSTEM,
+            tools=[self.DELTA_CHAT_TOOL],
+            tool_choice={"type": "tool", "name": "delta_chat_turn", "disable_parallel_tool_use": True},
+            messages=merged,
+        )
+        tool_use = next((b for b in response.content if b.type == "tool_use"), None)
+        raw = tool_use.input if tool_use else {}
+        payload = {
+            "mode": raw.get("mode", "answer"),
+            "message": raw.get("message", ""),
+            "deltas": [d for d in (raw.get("deltas") or []) if isinstance(d, dict)],
+        }
+        logger.info(f"[blume/delta-chat] ✓ mode={payload['mode']} · {len(payload['deltas'])} deltas")
+        return payload
+
     def _tree_chat_messages(
         self,
         tree: dict[str, Any],
