@@ -297,9 +297,14 @@ export const deriveTestQuestions: Deriver<TestsQuestion> = (input: FlowInput) =>
   return [...groups.values()].map((g) => {
     const whats = g.whats.filter((w) => w.toLowerCase() !== g.destination.toLowerCase())
     const where = spokenCase(g.destination.replace(/\s*\/\s*/g, ' or '))
+    // Name what these patients came for only while it still reads as a
+    // phrase. Three merged guideline sentences, each already shortened to an
+    // ellipsis, make a line nobody can parse — and the specific referral
+    // kinds are listed in the screen itself anyway.
+    const namable = whats.filter((w) => w.split(/\s+/).length <= 8 && !w.includes('…'))
     const groupLine =
-      whats.length > 0
-        ? `Patients going to ${where} for ${joinPhrases(whats)}`
+      namable.length > 0 && namable.length <= 2 && namable.length === whats.length
+        ? `Patients going to ${where} for ${joinPhrases(namable)}`
         : `Patients going to ${where}`
     const n = g.suggested ? 0 : g.items.length
     return {
