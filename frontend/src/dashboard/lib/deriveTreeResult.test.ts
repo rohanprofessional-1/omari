@@ -199,6 +199,72 @@ const checks: Check[] = [
     },
   },
   {
+    name: 'full fixture set: 32 referrals, unique ids, non-empty ICD-10, exact per-group counts',
+    run: () => {
+      const total = REFERRAL_FIXTURES.length
+      if (total < 28 || total > 32) return `total ${total} outside 28–32`
+      if (total !== 32) return `expected exactly 32 fixtures, got ${total}`
+      const ids = REFERRAL_FIXTURES.map((f) => f.payload.referralId)
+      if (new Set(ids).size !== ids.length) return 'duplicate referralIds'
+      for (const f of REFERRAL_FIXTURES) {
+        if (f.payload.diagnoses.length === 0) return `${f.payload.referralId} has no ICD-10 diagnoses`
+      }
+      const counts: Record<string, number> = {}
+      for (const f of REFERRAL_FIXTURES) {
+        const g = queueGroupFor(deriveTreeResult(f), undefined)
+        counts[g] = (counts[g] ?? 0) + 1
+      }
+      const expected: Record<string, number> = {
+        ready: 15,
+        needs_info: 4,
+        needs_judgment: 5,
+        out_of_scope: 3,
+        escalated: 5,
+      }
+      for (const [group, n] of Object.entries(expected)) {
+        if (counts[group] !== n) return `group ${group}: expected ${n}, got ${counts[group] ?? 0} (${JSON.stringify(counts)})`
+      }
+      return null
+    },
+  },
+  {
+    name: 'fixture set: clinic-override terminals appear ≥2× each (Li add_workup, Bhowmick urgent)',
+    run: () => {
+      const results = REFERRAL_FIXTURES.map((f) => deriveTreeResult(f))
+      const li = results.filter(
+        (r) => r.routedTo?.nodeId === 'spec_li' && r.terminalOverridden,
+      )
+      if (li.length < 2) return `expected ≥2 overridden spec_li routings, got ${li.length}`
+      const bh = results.filter(
+        (r) => r.routedTo?.nodeId === 'spec_bhowmick' && r.urgency === 'urgent',
+      )
+      if (bh.length < 2) return `expected ≥2 urgent spec_bhowmick routings, got ${bh.length}`
+      if (!bh.every((r) => r.terminalOverridden)) return 'spec_bhowmick routings not marked overridden'
+      return null
+    },
+  },
+  {
+    name: 'fixture set: ≥3 stated-reason mismatches; fax/phone extractions are honestly sparser',
+    run: () => {
+      const mismatches = REFERRAL_FIXTURES.filter(
+        (f) => f.annotations?.flags?.statedReasonMismatch === true,
+      )
+      if (mismatches.length < 3) return `expected ≥3 statedReasonMismatch fixtures, got ${mismatches.length}`
+      // Fax/phone referrals carry lower extraction confidence than Epic ones.
+      // Fixtures whose ONLY variable is urgentRedFlag are exempt: a referrer
+      // phoning in an explicit red flag is a stated fact, not sparse prose.
+      for (const f of REFERRAL_FIXTURES) {
+        if (f.payload.channel === 'epic') continue
+        const entries = Object.values(f.extraction.variables)
+        if (Object.keys(f.extraction.variables).length === 1 && f.extraction.variables.urgentRedFlag) continue
+        if (!entries.some((v) => v.confidence < 0.85)) {
+          return `${f.payload.referralId} (${f.payload.channel}) has no variable below 0.85`
+        }
+      }
+      return null
+    },
+  },
+  {
     name: 'reviewed referrals leave the queue',
     run: () => {
       const r = deriveTreeResult(byId('REF-2026-0142'))

@@ -1,7 +1,16 @@
 import type { ReferralFixture } from '../../types'
+import { REFERRALS_CLEAN } from './referralsClean'
+import { REFERRALS_EDGE } from './referralsEdge'
+import { REFERRALS_OUT_OF_SCOPE } from './referralsOutOfScope'
 
 /**
- * Dashboard — seed referral fixtures (5 archetypes; the full set comes later).
+ * Dashboard — referral fixture index.
+ *
+ * The five original seed archetypes live in this file; the expanded set is
+ * split for reviewability into referralsClean (the high-confidence majority),
+ * referralsEdge (missing-variable / ambiguous / mismatch / escalation), and
+ * referralsOutOfScope. REFERRAL_FIXTURES at the bottom concatenates them all —
+ * the adapter and tests import only that.
  *
  * Every extraction uses the EXACT variable keys and branch condition values
  * from dukeNerveTree — the derivation test replays each one through the real
@@ -9,7 +18,7 @@ import type { ReferralFixture } from '../../types'
  * NPIs, and ICD-10s are plausible-looking fakes. Dates are pinned relative to
  * DEMO_NOW (2026-07-24T09:00).
  *
- * Archetypes:
+ * Seed archetypes:
  *  1. Clean high-confidence in-scope  → routes (Dr. Saltzman)      [epic]
  *  2. Missing EMG                     → incomplete at the EMG gate [fax]
  *  3. Ambiguous spine-vs-peripheral   → routed but needs judgment  [epic]
@@ -17,7 +26,7 @@ import type { ReferralFixture } from '../../types'
  *  5. Acute trauma red flag           → urgent escalation          [phone]
  */
 
-export const REFERRAL_FIXTURES: ReferralFixture[] = [
+const SEED_FIXTURES: ReferralFixture[] = [
   /* 1 ── Clean, high-confidence carpal tunnel → Dr. Saltzman ─────────────── */
   {
     payload: {
@@ -289,4 +298,12 @@ export const REFERRAL_FIXTURES: ReferralFixture[] = [
       },
     },
   },
+]
+
+/** The full mock queue: 5 seeds + 14 clean + 11 edge + 2 out-of-scope = 32. */
+export const REFERRAL_FIXTURES: ReferralFixture[] = [
+  ...SEED_FIXTURES,
+  ...REFERRALS_CLEAN,
+  ...REFERRALS_EDGE,
+  ...REFERRALS_OUT_OF_SCOPE,
 ]
