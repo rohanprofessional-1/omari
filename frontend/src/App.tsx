@@ -5,8 +5,9 @@ import KnowledgeBase from './pages/KnowledgeBase'
 import Runner from './pages/Runner'
 import Generate from './pages/Generate'
 import Reconcile from './pages/Reconcile'
+import DashboardPage from './dashboard/DashboardPage'
 
-export type Page = 'generate' | 'reconcile' | 'builder' | 'runner' | 'knowledge'
+export type Page = 'generate' | 'reconcile' | 'builder' | 'runner' | 'knowledge' | 'dashboard'
 
 function App() {
   const [page, setPage] = useState<Page>('builder')
@@ -23,6 +24,8 @@ function App() {
           <Reconcile onOpenBuilder={() => setPage('builder')} />
         ) : page === 'knowledge' ? (
           <KnowledgeBase />
+        ) : page === 'dashboard' ? (
+          <DashboardPage />
         ) : (
           <div className="h-full overflow-y-auto">
             <Runner />
