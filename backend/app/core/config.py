@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:5173"]
 
+    # Epic FHIR
+    EPIC_FHIR_BASE_URL: str = ""
+    EPIC_CLIENT_ID: str = ""
+    EPIC_PRIVATE_KEY_PATH: str = ""
+    EPIC_TOKEN_URL: str = ""
+
     # App
     PROJECT_NAME: str = "Blume API"
     API_V1_PREFIX: str = "/api/v1"

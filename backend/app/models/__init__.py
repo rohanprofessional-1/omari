@@ -10,6 +10,7 @@ from app.models.specialist import Specialist
 from app.models.workup_item import WorkupItem
 from app.models.patient import Patient, PatientClinic
 from app.models.conversation import Conversation, ConversationTurn, PatientVariable, Action
+from app.models.referral import Referral
 from app.models.generator import (
     GenerationSession,
     SyntheticCase,
@@ -48,4 +49,5 @@ __all__ = [
     "Gap",
     "ValidationRun",
     "ValidationResult",
+    "Referral",
 ]

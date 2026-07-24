@@ -29,6 +29,7 @@ class VariableVia(str, enum.Enum):
     extraction = "extraction"
     answer = "answer"
     confirmation = "confirmation"
+    referral_document = "referral_document"
 
 
 class Conversation(Base, TimestampMixin):

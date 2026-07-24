@@ -17,6 +17,7 @@ from app.api.v1 import (
     assistant,
     knowledge_bases,
     runner,
+    referrals,
 )
 
 
@@ -56,6 +57,7 @@ app.include_router(gen.router, prefix=settings.API_V1_PREFIX, tags=["generator"]
 app.include_router(assistant.router, prefix=settings.API_V1_PREFIX, tags=["assistant"])
 app.include_router(knowledge_bases.router, prefix=settings.API_V1_PREFIX, tags=["knowledge-bases"])
 app.include_router(runner.router, prefix=settings.API_V1_PREFIX, tags=["runner"])
+app.include_router(referrals.router, prefix=settings.API_V1_PREFIX, tags=["referrals"])
 
 
 @app.get(f"{settings.API_V1_PREFIX}/health", tags=["health"])
