@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { Tree } from '../../types/tree'
 import { describeDelta } from '../../lib/deltas/describe'
-import { repairProposedDeltas } from '../../lib/deltas/repairAnchors'
+import { repairProposedDeltas, type RepairResult } from '../../lib/deltas/repairAnchors'
 import { DeltaSchema, type DeltaOp } from '../../lib/deltas/schema'
 
 /**
@@ -32,7 +32,7 @@ export default function ReconcileChat({
   const [turns, setTurns] = useState<Turn[]>([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
-  const [proposal, setProposal] = useState<{ payloads: DeltaOp[]; errors: string[] } | null>(null)
+  const [proposal, setProposal] = useState<RepairResult | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const send = async () => {
@@ -108,7 +108,7 @@ export default function ReconcileChat({
           <div className="rounded-lg border border-line bg-bg p-3">
             <p className="text-[11.5px] font-semibold uppercase tracking-wide text-muted">Proposed changes</p>
             <ul className="mt-1.5 space-y-1">
-              {proposal.payloads.map((p, i) => (
+              {proposal.valid.map((p, i) => (
                 <li key={i} className="text-[12px] leading-snug text-ink">
                   · {describeDelta(DeltaSchema.parse({ id: `p${i}`, seq: i, payload: p, provenance: {} }))}
                 </li>
@@ -119,18 +119,18 @@ export default function ReconcileChat({
                 Couldn't draft: {e}
               </p>
             ))}
-            {proposal.payloads.length > 0 && (
+            {proposal.valid.length > 0 && (
               <div className="mt-2 flex gap-2">
                 <button
                   onClick={() => {
-                    onApply(proposal.payloads)
+                    onApply(proposal.valid)
                     setProposal(null)
                     setTurns((t) => [...t, { role: 'assistant', content: "Applied — it's in the decision rail with everything else." }])
                   }}
                   disabled={busy}
                   className="rounded-md bg-accent-strong px-3 py-1 text-[12px] font-semibold text-white disabled:opacity-40"
                 >
-                  Apply {proposal.payloads.length === 1 ? 'it' : `all ${proposal.payloads.length}`}
+                  Apply {proposal.valid.length === 1 ? 'it' : `all ${proposal.valid.length}`}
                 </button>
                 <button onClick={() => setProposal(null)} className="text-[12px] text-muted hover:text-ink">
                   discard

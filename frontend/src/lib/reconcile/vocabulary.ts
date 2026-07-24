@@ -46,8 +46,66 @@ export function findForbidden(text: string): string | null {
 }
 
 /**
- * Sweep an object's string fields (and nested arrays/objects) for our
- * vocabulary. Returns one `field: word — text` line per offence.
+ * Fields the sweep must not judge, for two different reasons.
+ *
+ * PLUMBING never reaches a screen — ids, kinds, anchors, the nodes a question
+ * was derived from. A discriminator that happens to be the string 'scope' is
+ * not a copy problem.
+ *
+ * QUOTATION is the guideline's own words, shown verbatim behind a "guideline"
+ * expander with its citation. When a guideline says "thresholds", quoting it
+ * accurately is the whole point; paraphrasing it to satisfy our style rules
+ * would be worse than the offence. The rule governs what we WRITE.
+ */
+const PLUMBING_KEYS = new Set([
+  'id',
+  'kind',
+  'shape',
+  'mode',
+  'source',
+  'key',
+  'keys',
+  'anchor',
+  'anchors',
+  'node',
+  'nodes',
+  'targets',
+  'destinations',
+  'roster',
+  'candidate',
+  'decisions',
+  'choices',
+  'condition',
+  'conditionFingerprint',
+  'answerTypeChange',
+  'bounds',
+  'span',
+  'cutPoints',
+  'position',
+  'total',
+  'unavailable',
+  'suggested',
+  'stranded',
+])
+
+const QUOTATION_KEYS = new Set([
+  'clinicalBasis',
+  'cpgBasis',
+  'fullText',
+  'guidelineQuote',
+  'label',
+  'narrative',
+  'prompt',
+  'protocol',
+])
+
+function isExempt(key: string): boolean {
+  return PLUMBING_KEYS.has(key) || QUOTATION_KEYS.has(key)
+}
+
+/**
+ * Sweep the strings a screen actually WRITES for our vocabulary. Returns one
+ * `field: word — text` line per offence.
  */
 export function sweepForbidden(value: unknown, path = ''): string[] {
   if (typeof value === 'string') {
@@ -59,8 +117,7 @@ export function sweepForbidden(value: unknown, path = ''): string[] {
   }
   if (value && typeof value === 'object') {
     return Object.entries(value).flatMap(([key, v]) =>
-      // `id` is internal plumbing and never rendered; skip it.
-      key === 'id' ? [] : sweepForbidden(v, path ? `${path}.${key}` : key),
+      isExempt(key) ? [] : sweepForbidden(v, path ? `${path}.${key}` : key),
     )
   }
   return []

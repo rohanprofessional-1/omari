@@ -113,6 +113,36 @@ export function tidyLabel(label: string): string {
 }
 
 /**
+ * Title Case guideline prose, said the way a person says it mid-sentence:
+ * "Primary Care to Orthopedic Referral" → "primary care to orthopedic
+ * referral". Only lowercases a word that is capitalised for TYPOGRAPHY.
+ * A word is left alone when it is an acronym (ENT, NSAIDs), carries an
+ * internal capital (McMurray), is part of a hyphenated eponym
+ * (Kellgren-Lawrence), or is a title (Dr., Prof.) — those are capitalised
+ * because of what they are, not because of where they sit.
+ */
+export function spokenCase(text: string): string {
+  const TITLE = /^(dr|prof|mr|ms|mrs|st)\.?$/i
+  let afterTitle = false
+  return text
+    .split(/(\s+)/)
+    .map((word) => {
+      if (/^\s*$/.test(word)) return word
+      const bare = word.replace(/[^A-Za-z-]/g, '')
+      const wasAfterTitle = afterTitle
+      afterTitle = TITLE.test(bare)
+      if (!/^[A-Z]/.test(word) || !bare) return word
+      if (wasAfterTitle) return word // the surname in "Dr. Reyes"
+      if (afterTitle) return word // the title itself
+      if (/^[A-Z]{2,}/.test(bare)) return word // ENT, NSAIDs
+      if (/.[A-Z]/.test(bare.replace(/-/g, ''))) return word // McMurray
+      if (/-[A-Z]/.test(bare)) return word // Kellgren-Lawrence
+      return word.charAt(0).toLowerCase() + word.slice(1)
+    })
+    .join('')
+}
+
+/**
  * Drop a word every label shares at the start ("Duration < 6 weeks",
  * "Duration 6 weeks – 6 months" → "< 6 weeks", "6 weeks – 6 months"), so a
  * list of groups reads as a sentence instead of a column of repetition.

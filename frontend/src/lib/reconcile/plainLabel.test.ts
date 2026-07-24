@@ -18,6 +18,7 @@ import {
   isVerbose,
   joinPhrases,
   plural,
+  spokenCase,
   stripSharedPrefix,
   subjectOf,
   tidyLabel,
@@ -174,6 +175,27 @@ const checks: Array<{ name: string; run: () => string | null }> = [
     },
   },
   {
+    name: 'Title Case prose is said plainly, but names and acronyms survive',
+    run: () => {
+      const cases: Array<[string, string]> = [
+        ['Primary Care to Orthopedic Referral', 'primary care to orthopedic referral'],
+        ['Orthopedic Surgery', 'orthopedic surgery'],
+        ['Primary care or Physical medicine and rehabilitation', 'primary care or physical medicine and rehabilitation'],
+        // A surname is capitalised because of what it is, not where it sits.
+        ['Dr. Reyes', 'Dr. Reyes'],
+        ['Patients going to Dr. Reyes for Surgery', 'patients going to Dr. Reyes for surgery'],
+        ['Kellgren-Lawrence grade 3-4', 'Kellgren-Lawrence grade 3-4'],
+        ['McMurray test positive', 'McMurray test positive'],
+        ['ENT referral', 'ENT referral'],
+        ['NSAIDs and physical therapy', 'NSAIDs and physical therapy'],
+      ]
+      for (const [input, want] of cases) {
+        if (spokenCase(input) !== want) return `“${input}” → “${spokenCase(input)}”, wanted “${want}”`
+      }
+      return null
+    },
+  },
+  {
     name: 'the vocabulary guard catches our words and spares a surgeon’s',
     run: () => {
       if (findForbidden('5 of 5 conditions need your number') !== 'conditions') return 'missed “conditions”'
@@ -191,11 +213,13 @@ const checks: Array<{ name: string; run: () => string | null }> = [
     run: () => {
       const offences = sweepForbidden({
         id: 'cutoffs:duration:abc',
+        kind: 'scope',
         question: 'How long should someone have symptoms?',
-        rows: [{ label: 'fine' }, { label: 'the threshold applies' }],
+        clinicalBasis: 'The guideline sets thresholds for referral.',
+        rows: [{ groupLine: 'fine' }, { groupLine: 'the threshold applies' }],
       })
       if (offences.length !== 1) return `expected 1 offence, got ${offences.length}: ${offences.join(' | ')}`
-      if (!offences[0].includes('rows[1].label')) return `wrong path: ${offences[0]}`
+      if (!offences[0].includes('rows[1].groupLine')) return `wrong path: ${offences[0]}`
       return null
     },
   },
