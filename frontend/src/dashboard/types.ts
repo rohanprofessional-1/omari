@@ -120,7 +120,7 @@ export interface AuditEvent {
   at: string
   actor: string
   role: Role
-  action: ReviewStatus | 'viewed' | 'workup_status_changed'
+  action: ReviewStatus | 'viewed' | 'workup_status_changed' | 'commented'
   correction?: Correction
   note?: string
 }

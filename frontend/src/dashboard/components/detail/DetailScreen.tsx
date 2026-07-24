@@ -80,9 +80,12 @@ function ReviewStepper({ decided }: { decided: boolean }) {
 export default function DetailScreen({
   referralId,
   onBack,
+  backLabel = '← Queue',
 }: {
   referralId: string
   onBack: () => void
+  /** Back-button text — reflects where the referral was opened from. */
+  backLabel?: string
 }) {
   const { reviews } = useDashboardStore()
   const [referral, setReferral] = useState<ReviewableReferral | null>(null)
@@ -118,7 +121,7 @@ export default function DetailScreen({
           onClick={onBack}
           className="mt-3 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-muted hover:text-ink"
         >
-          ← Queue
+          {backLabel}
         </button>
       </div>
     )
@@ -138,7 +141,7 @@ export default function DetailScreen({
           onClick={onBack}
           className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-muted transition-colors hover:text-ink"
         >
-          ← Queue
+          {backLabel}
         </button>
         <div className="min-w-0">
           <h2 className="truncate font-serif text-[16px] font-semibold leading-tight text-ink">

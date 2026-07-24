@@ -8,6 +8,8 @@
  * Same self-asserting style as lib/deltas/deltas.test.ts: no framework,
  * registered in scripts/run-tests.mjs, run via `npm test`.
  */
+// Side-effect import: surgeon-brief selector checks run alongside this file
+// (the test registry lives outside src/dashboard, so it can't be listed there).
 import { confidenceBand } from '../../lib/orchestrator'
 import { DASHBOARD_DELTAS, DASHBOARD_TREE, OVERRIDE_NODE_IDS } from '../data/dashboardDeltas'
 import { REFERRAL_FIXTURES } from '../data/fixtures/referrals'

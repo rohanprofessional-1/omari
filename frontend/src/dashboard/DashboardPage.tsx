@@ -3,6 +3,7 @@ import RoleSwitcher from './components/RoleSwitcher'
 import DetailScreen from './components/detail/DetailScreen'
 import QueueScreen from './components/queue/QueueScreen'
 import SectionCard from './components/shared/SectionCard'
+import SurgeonScreen from './components/surgeon/SurgeonScreen'
 import { useDashboardStore } from './lib/reviewStore'
 import type { Role } from './types'
 
@@ -31,6 +32,8 @@ export default function DashboardPage() {
   const { role } = useDashboardStore()
   const [view, setView] = useState<View>(DEFAULT_VIEW[role])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  /** Which list the open detail came from — back returns there. */
+  const [cameFrom, setCameFrom] = useState<Exclude<View, 'detail'>>('queue')
 
   // Switching role jumps to that role's home view.
   useEffect(() => {
@@ -39,11 +42,12 @@ export default function DashboardPage() {
   }, [role])
 
   const openReferral = (referralId: string) => {
+    setCameFrom(view === 'detail' ? cameFrom : (view as Exclude<View, 'detail'>))
     setSelectedId(referralId)
     setView('detail')
   }
 
-  const navActive = view === 'detail' ? 'queue' : view
+  const navActive = view === 'detail' ? cameFrom : view
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -86,11 +90,17 @@ export default function DashboardPage() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {view === 'queue' ? (
           <QueueScreen onOpen={openReferral} />
+        ) : view === 'surgeon' ? (
+          <SurgeonScreen onOpen={openReferral} />
         ) : view === 'detail' && selectedId ? (
-          <DetailScreen referralId={selectedId} onBack={() => setView('queue')} />
+          <DetailScreen
+            referralId={selectedId}
+            onBack={() => setView(cameFrom)}
+            backLabel={cameFrom === 'surgeon' ? '← Surgeon brief' : '← Queue'}
+          />
         ) : (
           <div className="mx-auto max-w-3xl px-4 py-6">
-            <SectionCard title={view === 'surgeon' ? 'Surgeon review' : 'Workup tracking'}>
+            <SectionCard title="Workup tracking">
               <p className="text-[13px] text-muted">Coming in a later step.</p>
             </SectionCard>
           </div>

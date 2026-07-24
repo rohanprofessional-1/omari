@@ -17,6 +17,7 @@ const ACTION_LABELS: Record<AuditEvent['action'], string> = {
   info_requested: 'Requested information',
   viewed: 'Viewed',
   workup_status_changed: 'Updated workup',
+  commented: 'Commented',
 }
 
 function timeOf(iso: string): string {

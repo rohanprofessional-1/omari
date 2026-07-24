@@ -25,6 +25,8 @@ export interface DashboardSnapshot {
   audit: AuditEvent[]
   workupOverrides: Record<string, Record<string, WorkupStatus>>
   role: Role
+  /** ISO timestamp of the surgeon's last 'Mark caught up' — null = never. */
+  surgeonLastVisit: string | null
 }
 
 const REVIEWER_NAMES: Record<Role, string> = {
@@ -63,6 +65,7 @@ let snapshot: DashboardSnapshot = {
   audit: loadJson<AuditEvent[]>(AUDIT_KEY, []),
   workupOverrides: loadJson<Record<string, Record<string, WorkupStatus>>>(WORKUP_KEY, {}),
   role: loadRole(),
+  surgeonLastVisit: canStore ? localStorage.getItem(SURGEON_VISIT_KEY) : null,
 }
 
 const listeners = new Set<() => void>()
@@ -155,6 +158,41 @@ export function reopenReview(referralId: string, actor: string, role: Role): voi
   notify()
 }
 
+/**
+ * Append a comment to the audit trail WITHOUT changing review status — the
+ * surgeon's lightweight "I looked at this" affordance.
+ */
+export function addComment(referralId: string, note: string, actor: string, role: Role): void {
+  const event: AuditEvent = {
+    id: newEventId(),
+    referralId,
+    at: new Date().toISOString(),
+    actor,
+    role,
+    action: 'commented',
+    note,
+  }
+  snapshot = { ...snapshot, audit: [...snapshot.audit, event] }
+  persist()
+  notify()
+}
+
+/**
+ * Mark a coordinator correction as seen by the surgeon (endorse flow) — the
+ * row leaves the surgeon brief without changing the review status. No-op when
+ * the referral has no review state.
+ */
+export function markSurgeonSeen(referralId: string): void {
+  const review = snapshot.reviews[referralId]
+  if (!review || review.surgeonSeen) return
+  snapshot = {
+    ...snapshot,
+    reviews: { ...snapshot.reviews, [referralId]: { ...review, surgeonSeen: true } },
+  }
+  persist()
+  notify()
+}
+
 export function setRole(role: Role): void {
   if (role === snapshot.role) return
   snapshot = { ...snapshot, role }
@@ -197,16 +235,32 @@ export function resetDemoData(): void {
   if (canStore) {
     for (const key of ALL_KEYS) localStorage.removeItem(key)
   }
-  snapshot = { reviews: {}, audit: [], workupOverrides: {}, role: 'coordinator' }
+  snapshot = {
+    reviews: {},
+    audit: [],
+    workupOverrides: {},
+    role: 'coordinator',
+    surgeonLastVisit: null,
+  }
   notify()
 }
 
 export function getSurgeonLastVisit(): string | null {
-  return canStore ? localStorage.getItem(SURGEON_VISIT_KEY) : null
+  return snapshot.surgeonLastVisit
 }
 
+/** Surgeon clicked 'Mark caught up' — zeroes the since-last-visit counters live. */
 export function markSurgeonVisit(): void {
-  if (canStore) localStorage.setItem(SURGEON_VISIT_KEY, new Date().toISOString())
+  const at = new Date().toISOString()
+  if (canStore) {
+    try {
+      localStorage.setItem(SURGEON_VISIT_KEY, at)
+    } catch {
+      /* storage unavailable — state stays in memory */
+    }
+  }
+  snapshot = { ...snapshot, surgeonLastVisit: at }
+  notify()
 }
 
 /* ── React binding ────────────────────────────────────────────────────────── */
@@ -218,8 +272,12 @@ export function useDashboardStore() {
     audit: snap.audit,
     workupOverrides: snap.workupOverrides,
     role: snap.role,
+    surgeonLastVisit: snap.surgeonLastVisit,
     applyAction,
     reopenReview,
+    addComment,
+    markSurgeonSeen,
+    markSurgeonVisit,
     setRole,
     setWorkupStatus,
     resetDemoData,
