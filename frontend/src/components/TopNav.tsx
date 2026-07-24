@@ -12,7 +12,6 @@ const links: { id: Page; label: string }[] = [
   { id: 'builder', label: 'Builder' },
   { id: 'knowledge', label: 'Knowledge' },
   { id: 'runner', label: 'Runner' },
-  { id: 'dashboard', label: 'Referrals' },
 ]
 
 /**
