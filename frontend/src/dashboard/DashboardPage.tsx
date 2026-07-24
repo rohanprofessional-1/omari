@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react'
+import AdminBar from './components/AdminBar'
 import RoleSwitcher from './components/RoleSwitcher'
 import DetailScreen from './components/detail/DetailScreen'
 import QueueScreen from './components/queue/QueueScreen'
-import SectionCard from './components/shared/SectionCard'
 import SurgeonScreen from './components/surgeon/SurgeonScreen'
+import WorkupScreen from './components/workup/WorkupScreen'
 import { useDashboardStore } from './lib/reviewStore'
 import type { Role } from './types'
 
 /**
  * Referral-review dashboard shell. No router — the same view-state idiom as
  * App.tsx: an internal segmented nav (Queue / Surgeon / Workup) plus a detail
- * view opened from queue rows. The role switcher sets the default view for
- * that role's workflow.
+ * view opened from any list. The role switcher sets the default view for
+ * that role's workflow; the admin role also gets a demo-administration bar.
  */
 
 type View = 'queue' | 'detail' | 'surgeon' | 'workup'
@@ -26,6 +27,20 @@ const DEFAULT_VIEW: Record<Role, View> = {
   coordinator: 'queue',
   surgeon: 'surgeon',
   admin: 'queue',
+}
+
+/** One-line purpose subtitle per view — the queue's header idiom everywhere. */
+const SUBTITLES: Record<Exclude<View, 'detail'>, string> = {
+  queue: 'Incoming referrals triaged by the clinic decision tree — confirm, correct, or reject.',
+  surgeon: 'Only the exceptions that need your call — everything else was handled without you.',
+  workup:
+    'Approved referrals with pre-visit tests outstanding — sorted by risk so nothing falls through.',
+}
+
+const BACK_LABELS: Record<Exclude<View, 'detail'>, string> = {
+  queue: '← Queue',
+  surgeon: '← Surgeon brief',
+  workup: '← Workup',
 }
 
 export default function DashboardPage() {
@@ -56,9 +71,7 @@ export default function DashboardPage() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0">
             <h1 className="font-serif text-[17px] font-semibold text-ink">Referral Review</h1>
-            <p className="text-[11.5px] text-muted">
-              Incoming referrals triaged by the clinic decision tree — confirm, correct, or reject.
-            </p>
+            <p className="truncate text-[11.5px] text-muted">{SUBTITLES[navActive]}</p>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-3">
             <nav className="inline-flex rounded-lg border border-line bg-bg p-0.5">
@@ -86,24 +99,25 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Demo administration — admin role only */}
+      {role === 'admin' && <AdminBar />}
+
       {/* Body — the page owns its scroll; sticky group headers stick to it */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {view === 'queue' ? (
           <QueueScreen onOpen={openReferral} />
         ) : view === 'surgeon' ? (
           <SurgeonScreen onOpen={openReferral} />
-        ) : view === 'detail' && selectedId ? (
+        ) : view === 'workup' ? (
+          <WorkupScreen onOpen={openReferral} />
+        ) : selectedId ? (
           <DetailScreen
             referralId={selectedId}
             onBack={() => setView(cameFrom)}
-            backLabel={cameFrom === 'surgeon' ? '← Surgeon brief' : '← Queue'}
+            backLabel={BACK_LABELS[cameFrom]}
           />
         ) : (
-          <div className="mx-auto max-w-3xl px-4 py-6">
-            <SectionCard title="Workup tracking">
-              <p className="text-[13px] text-muted">Coming in a later step.</p>
-            </SectionCard>
-          </div>
+          <QueueScreen onOpen={openReferral} />
         )}
       </div>
     </div>

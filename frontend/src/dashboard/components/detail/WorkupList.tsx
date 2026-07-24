@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { describeKeyedCondition } from '../../../lib/conditionText'
 import type { WithheldWorkupItem } from '../../../lib/engine'
-import { formatDate, isAtRisk } from '../../lib/demoClock'
+import { formatDate } from '../../lib/demoClock'
 import { useDashboardStore } from '../../lib/reviewStore'
+import { mergeWorkupItems } from '../../lib/workupMerge'
+import WarningIcon from '../shared/WarningIcon'
 import type { DashboardWorkupItem, WorkupStatus } from '../../types'
 
 /**
@@ -18,26 +20,6 @@ const STATUS_STYLES: Record<WorkupStatus, string> = {
   scheduled: 'bg-sky text-accent-strong',
   resulted: 'bg-success-soft text-success-deep',
   reviewed: 'bg-success-soft text-success-deep',
-}
-
-function WarningIcon() {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      className="inline-block align-[-1px]"
-    >
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-      <path d="M12 9v4M12 17h.01" />
-    </svg>
-  )
 }
 
 function WorkupRow({ item }: { item: DashboardWorkupItem }) {
@@ -115,15 +97,9 @@ export default function WorkupList({
   visitDate?: string
 }) {
   const { workupOverrides } = useDashboardStore()
-  const overrides = workupOverrides[referralId] ?? {}
-  // Live status overrides (from review actions) win over the fixture state;
-  // at-risk is recomputed so a resulted item stops shouting.
-  const merged = items.map((item) => {
-    const status = overrides[item.name] ?? item.status
-    return status === item.status
-      ? item
-      : { ...item, status, atRisk: isAtRisk({ status, dueBy: item.dueBy }, visitDate) }
-  })
+  // Shared merge (lib/workupMerge): live status overrides win over the fixture
+  // state, and at-risk is recomputed so a resulted item stops shouting.
+  const merged = mergeWorkupItems(items, workupOverrides[referralId] ?? {}, visitDate)
 
   if (merged.length === 0 && withheld.length === 0) {
     return <p className="text-[12.5px] text-muted">No pre-visit workup required.</p>
