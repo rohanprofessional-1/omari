@@ -13,6 +13,7 @@ const TEST_FILES = [
   'src/lib/deltas/deltas.test.ts',
   'src/lib/nodePlacement.test.ts',
   'src/lib/edgeRouting.test.ts',
+  'src/dashboard/lib/deriveTreeResult.test.ts',
 ]
 
 for (const entry of TEST_FILES) {
