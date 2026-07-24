@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import RoleSwitcher from './components/RoleSwitcher'
+import DetailScreen from './components/detail/DetailScreen'
 import QueueScreen from './components/queue/QueueScreen'
 import SectionCard from './components/shared/SectionCard'
 import { useDashboardStore } from './lib/reviewStore'
@@ -85,26 +86,8 @@ export default function DashboardPage() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         {view === 'queue' ? (
           <QueueScreen onOpen={openReferral} />
-        ) : view === 'detail' ? (
-          <div className="mx-auto max-w-3xl px-4 py-6">
-            <SectionCard
-              title="Referral detail — next build step"
-              action={
-                <button
-                  onClick={() => setView('queue')}
-                  className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-muted hover:text-ink"
-                >
-                  ← Back to queue
-                </button>
-              }
-            >
-              <p className="text-[13px] text-muted">
-                Full review screen for <span className="font-medium text-ink">{selectedId}</span>{' '}
-                arrives in the next step — extraction provenance, decision path, and the
-                approve / correct / reject actions.
-              </p>
-            </SectionCard>
-          </div>
+        ) : view === 'detail' && selectedId ? (
+          <DetailScreen referralId={selectedId} onBack={() => setView('queue')} />
         ) : (
           <div className="mx-auto max-w-3xl px-4 py-6">
             <SectionCard title={view === 'surgeon' ? 'Surgeon review' : 'Workup tracking'}>

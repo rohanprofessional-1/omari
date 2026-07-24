@@ -98,6 +98,8 @@ export interface TreeResult {
   terminalCitation?: string
   confirmWithDrLi?: boolean
   suggestedRedirect?: string
+  /** Why the scope annotation flagged this referral (out-of-scope only). */
+  scopeReason?: string
   flags: { ambiguousBetween?: [string, string]; statedReasonMismatch?: boolean }
   visitDate?: string
 }

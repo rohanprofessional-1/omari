@@ -1,5 +1,6 @@
 import { dukeNerveTree } from '../../data/dukeNerveTree'
 import { compile } from '../../lib/deltas/compile'
+import { describeDelta } from '../../lib/deltas/describe'
 import { DeltaSchema, type Delta } from '../../lib/deltas/schema'
 import type { Tree } from '../../types/tree'
 
@@ -96,4 +97,36 @@ export const OVERRIDE_NODE_IDS: Set<string> = new Set(
 
 if (OVERRIDE_NODE_IDS.size === 0) {
   throw new Error('dashboardDeltas integrity: no override node ids — deltas did not touch any node.')
+}
+
+/* ── Override provenance for the detail screen ────────────────────────────── */
+
+export interface OverrideInfo {
+  author: string
+  rationale: string
+  /** Verbatim CPG text the clinic deviated from (captured at authoring time). */
+  cpgBasis?: string
+  /** One-sentence human rendering of the delta op. */
+  opSummary: string
+}
+
+const OVERRIDE_INFO_BY_NODE = new Map<string, OverrideInfo>(
+  compiled.results.flatMap((result) => {
+    const delta = DASHBOARD_DELTAS.find((d) => d.id === result.deltaId)
+    if (!delta?.provenance.deviatesFromCpg) return []
+    const info: OverrideInfo = {
+      author: delta.provenance.author,
+      rationale: delta.provenance.rationale,
+      cpgBasis: delta.provenance.cpgBasis,
+      // describeDelta appends '— DEVIATES FROM CPG: {rationale}'; the detail
+      // screen shows rationale separately, so keep just the op sentence.
+      opSummary: describeDelta(delta).split(' — DEVIATES FROM CPG')[0],
+    }
+    return result.nodeIds.map((nodeId): [string, OverrideInfo] => [nodeId, info])
+  }),
+)
+
+/** Delta provenance for a clinic-overridden node, or null when untouched. */
+export function overrideInfoForNode(nodeId: string): OverrideInfo | null {
+  return OVERRIDE_INFO_BY_NODE.get(nodeId) ?? null
 }

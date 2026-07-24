@@ -162,6 +162,7 @@ export function deriveTreeResult(fixture: ReferralFixture): TreeResult {
     base.urgency = null
     base.requiredWorkup = []
     base.suggestedRedirect = annotations.scope.suggestedRedirect
+    base.scopeReason = annotations.scope.reason
   }
 
   return base
