@@ -211,6 +211,19 @@ const checks: Check[] = [
       return null
     },
   },
+  {
+    name: 'info_requested referrals stay active in needs_info (not done)',
+    run: () => {
+      const r = deriveTreeResult(byId('REF-2026-0147'))
+      const group = queueGroupFor(r, {
+        referralId: 'REF-2026-0147',
+        status: 'info_requested',
+        reviewer: 'coordinator',
+      })
+      if (group !== 'needs_info') return `expected needs_info, got ${group}`
+      return null
+    },
+  },
 ]
 
 let failures = 0

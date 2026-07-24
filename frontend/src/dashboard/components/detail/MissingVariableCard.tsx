@@ -3,10 +3,16 @@ import type { MissingVariableInfo } from '../../types'
 /**
  * Dashboard detail — the ONE variable blocking this referral's route: what is
  * missing, what hangs on each possible answer, and who can supply it. The
- * request action itself arrives in the next build step.
+ * request button opens the request-info modal (via `onRequest`).
  */
 
-export default function MissingVariableCard({ info }: { info: MissingVariableInfo }) {
+export default function MissingVariableCard({
+  info,
+  onRequest,
+}: {
+  info: MissingVariableInfo
+  onRequest?: () => void
+}) {
   return (
     <section className="rounded-xl border border-danger/40 bg-danger/[0.04] p-4">
       <p className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-danger">
@@ -35,9 +41,9 @@ export default function MissingVariableCard({ info }: { info: MissingVariableInf
           Who can supply: <span className="ml-1 font-medium text-ink">{info.whoCanSupply}</span>
         </span>
         <button
-          disabled
-          title="Actions arrive in the next step"
-          className="ml-auto cursor-not-allowed rounded-md border border-line bg-canvas px-2.5 py-1 text-[12px] font-medium text-muted opacity-60"
+          onClick={onRequest}
+          disabled={!onRequest}
+          className="ml-auto rounded-md border border-line bg-canvas px-2.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-bg disabled:cursor-not-allowed disabled:text-muted disabled:opacity-60"
         >
           Request information
         </button>

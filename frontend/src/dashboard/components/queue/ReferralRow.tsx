@@ -1,4 +1,4 @@
-import type { ReviewableReferral } from '../../types'
+import type { ReviewState, ReviewableReferral } from '../../types'
 import { DEMO_NOW, ageFromDob, waitingSince } from '../../lib/demoClock'
 import ChannelBadge from '../shared/ChannelBadge'
 import ConfidencePill from '../shared/ConfidencePill'
@@ -17,12 +17,14 @@ const MS_PER_DAY = 86_400_000
 
 export default function ReferralRow({
   referral,
+  review,
   selectable = false,
   selected = false,
   onToggle,
   onOpen,
 }: {
   referral: ReviewableReferral
+  review?: ReviewState
   selectable?: boolean
   selected?: boolean
   onToggle?: (referralId: string) => void
@@ -32,6 +34,7 @@ export default function ReferralRow({
   const id = payload.referralId
   const age = ageFromDob(payload.patient.dob)
   const missing = result.missingVariables.length
+  const infoRequested = review?.status === 'info_requested'
   const waitedDays = (DEMO_NOW.getTime() - new Date(payload.receivedAt).getTime()) / MS_PER_DAY
   const stale = waitedDays > 3
 
@@ -91,10 +94,23 @@ export default function ReferralRow({
         <ConfidencePill level={result.confidence} title={result.confidenceReason} />
       </span>
 
-      {/* Missing info count */}
-      <span className={missing > 0 ? 'font-medium text-danger' : 'text-muted'}>
-        {missing > 0 ? `${missing} missing` : '—'}
-      </span>
+      {/* Missing info count — or the 'requested' sub-pill once info was asked for */}
+      {infoRequested ? (
+        <span>
+          <span
+            className="inline-flex rounded bg-sky px-1.5 py-0.5 text-[10px] font-medium text-accent-strong"
+            title={`Information requested by ${review?.reviewer ?? 'reviewer'} — still waiting${
+              missing > 0 ? ` (${missing} missing)` : ''
+            }`}
+          >
+            requested
+          </span>
+        </span>
+      ) : (
+        <span className={missing > 0 ? 'font-medium text-danger' : 'text-muted'}>
+          {missing > 0 ? `${missing} missing` : '—'}
+        </span>
+      )}
 
       {/* Waiting time */}
       <span

@@ -6,12 +6,16 @@ import type { QueueGroup, ReviewState, TreeResult } from '../types'
  * Every referral lands in exactly one worklist group. Order of checks is
  * clinical priority: reviewed referrals leave the queue, safety escalations
  * first, then scope, then blockers, then judgment calls, then ready.
+ *
+ * 'info_requested' is NOT done — the referral is still waiting on information,
+ * so it stays in the active needs_info group (the row shows a 'requested' pill).
  */
 
 export function queueGroupFor(
   result: TreeResult,
   review: ReviewState | undefined,
 ): QueueGroup | 'done' {
+  if (review?.status === 'info_requested') return 'needs_info'
   if (review && review.status !== 'pending') return 'done'
   if (result.escalated) return 'escalated'
   if (!result.inScope) return 'out_of_scope'

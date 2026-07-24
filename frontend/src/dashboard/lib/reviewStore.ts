@@ -133,6 +133,28 @@ export function applyAction(
   notify()
 }
 
+/** Return a reviewed referral to the pending queue; audited. */
+export function reopenReview(referralId: string, actor: string, role: Role): void {
+  const at = new Date().toISOString()
+  const review: ReviewState = { referralId, status: 'pending' }
+  const event: AuditEvent = {
+    id: newEventId(),
+    referralId,
+    at,
+    actor,
+    role,
+    action: 'pending',
+    note: 'Reopened for review',
+  }
+  snapshot = {
+    ...snapshot,
+    reviews: { ...snapshot.reviews, [referralId]: review },
+    audit: [...snapshot.audit, event],
+  }
+  persist()
+  notify()
+}
+
 export function setRole(role: Role): void {
   if (role === snapshot.role) return
   snapshot = { ...snapshot, role }
@@ -197,6 +219,7 @@ export function useDashboardStore() {
     workupOverrides: snap.workupOverrides,
     role: snap.role,
     applyAction,
+    reopenReview,
     setRole,
     setWorkupStatus,
     resetDemoData,

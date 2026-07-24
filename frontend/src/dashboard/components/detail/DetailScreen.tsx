@@ -4,13 +4,17 @@ import { ageFromDob, waitingSince } from '../../lib/demoClock'
 import { useDashboardStore } from '../../lib/reviewStore'
 import type { ReviewStatus, ReviewableReferral } from '../../types'
 import ChannelBadge from '../shared/ChannelBadge'
+import ActionBar from './ActionBar'
+import ActionModal, { type ActionModalMode } from './ActionModal'
 import ConclusionPanel from './ConclusionPanel'
 import IncomingPanel from './IncomingPanel'
 
 /**
- * Dashboard detail — one referral, read side. Left column: what came in
- * (the referrer's document). Right column: what the tree concluded and why.
- * Actions (approve / correct / reject / request info) arrive in the next step.
+ * Dashboard detail — one referral. Left column: what came in (the referrer's
+ * document). Right column: what the tree concluded and why. The sticky
+ * ActionBar at the bottom carries the decision (approve / correct / reject /
+ * request info / escalate); structured input happens in ActionModal. After an
+ * action the screen stays open showing the new state.
  */
 
 const REVIEW_PILL: Record<ReviewStatus, { label: string; cls: string }> = {
@@ -83,6 +87,7 @@ export default function DetailScreen({
   const { reviews } = useDashboardStore()
   const [referral, setReferral] = useState<ReviewableReferral | null>(null)
   const [loading, setLoading] = useState(true)
+  const [modalMode, setModalMode] = useState<ActionModalMode | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -121,11 +126,12 @@ export default function DetailScreen({
 
   const { payload } = referral
   const { patient } = payload
-  const status: ReviewStatus = reviews[referralId]?.status ?? 'pending'
+  const review = reviews[referralId]
+  const status: ReviewStatus = review?.status ?? 'pending'
   const pill = REVIEW_PILL[status]
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-4">
+    <div className="mx-auto max-w-6xl px-4 pt-4">
       {/* Header row */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <button
@@ -168,9 +174,20 @@ export default function DetailScreen({
           <IncomingPanel payload={payload} />
         </div>
         <div className="min-h-0 overflow-y-auto">
-          <ConclusionPanel referral={referral} />
+          <ConclusionPanel referral={referral} onOpenModal={setModalMode} />
         </div>
       </div>
+
+      {/* Decision layer */}
+      <ActionBar
+        referral={referral}
+        review={review}
+        modalOpen={modalMode !== null}
+        onOpenModal={setModalMode}
+      />
+      {modalMode && (
+        <ActionModal mode={modalMode} referral={referral} onClose={() => setModalMode(null)} />
+      )}
     </div>
   )
 }

@@ -160,6 +160,7 @@ export default function QueueScreen({ onOpen }: { onOpen: (referralId: string) =
               <ReferralRow
                 key={r.payload.referralId}
                 referral={r}
+                review={reviews[r.payload.referralId]}
                 selectable={isReady}
                 selected={liveSelected.has(r.payload.referralId)}
                 onToggle={toggle}

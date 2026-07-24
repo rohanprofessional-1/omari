@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { ReviewableReferral, TreeResult } from '../../types'
+import type { ActionModalMode } from './ActionModal'
 import ConfidencePill from '../shared/ConfidencePill'
 import SectionCard from '../shared/SectionCard'
 import UrgencyBadge from '../shared/UrgencyBadge'
@@ -127,20 +128,43 @@ function conclusionSummary(result: TreeResult): string {
   return 'a pause for missing information'
 }
 
-function MismatchStrip({ referral }: { referral: ReviewableReferral }) {
+function MismatchStrip({
+  referral,
+  onChangeDestination,
+}: {
+  referral: ReviewableReferral
+  onChangeDestination?: () => void
+}) {
   return (
     <div className="rounded-lg bg-accent/10 px-3 py-2 text-[12px] leading-snug text-ink">
       <span className="font-semibold text-accent-strong">Differs from referrer's ask:</span>{' '}
       referrer requested{' '}
       <span className="font-medium">“{referral.payload.reasonForReferral}”</span> — the tree
       concluded <span className="font-medium">{conclusionSummary(referral.result)}</span>.
+      {onChangeDestination && (
+        <>
+          {' '}
+          <button
+            onClick={onChangeDestination}
+            className="font-medium text-accent-strong underline decoration-accent/40 underline-offset-2 hover:decoration-accent-strong"
+          >
+            Change destination
+          </button>
+        </>
+      )}
     </div>
   )
 }
 
 /* ── The panel ────────────────────────────────────────────────────────────── */
 
-export default function ConclusionPanel({ referral }: { referral: ReviewableReferral }) {
+export default function ConclusionPanel({
+  referral,
+  onOpenModal,
+}: {
+  referral: ReviewableReferral
+  onOpenModal?: (mode: ActionModalMode) => void
+}) {
   const { payload, result } = referral
   const header = !result.inScope ? (
     <OutOfScopeHeader result={result} />
@@ -155,14 +179,23 @@ export default function ConclusionPanel({ referral }: { referral: ReviewableRefe
   return (
     <div className="space-y-3">
       {header}
-      {result.flags.statedReasonMismatch && <MismatchStrip referral={referral} />}
+      {result.flags.statedReasonMismatch && (
+        <MismatchStrip
+          referral={referral}
+          onChangeDestination={onOpenModal && (() => onOpenModal('change_destination'))}
+        />
+      )}
 
       <SectionCard title="Decision path">
         <DecisionChain result={result} />
       </SectionCard>
 
       {result.missingVariables.map((info) => (
-        <MissingVariableCard key={info.variableKey} info={info} />
+        <MissingVariableCard
+          key={info.variableKey}
+          info={info}
+          onRequest={onOpenModal && (() => onOpenModal('request_info'))}
+        />
       ))}
 
       <SectionCard title="Pre-visit workup">
