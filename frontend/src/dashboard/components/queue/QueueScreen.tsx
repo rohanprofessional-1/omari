@@ -4,10 +4,11 @@ import { getReferralSource } from '../../data/adapter'
 import { DEMO_NOW } from '../../lib/demoClock'
 import { QUEUE_GROUP_ORDER, queueGroupFor } from '../../lib/queueStatus'
 import { reviewerNameFor, useDashboardStore } from '../../lib/reviewStore'
+import Badge, { type BadgeTone } from '../shared/Badge'
 import BulkApproveBar from './BulkApproveBar'
 import QueueFilters, { DEFAULT_FILTERS, type QueueFilterState } from './QueueFilters'
 import QueueGroup from './QueueGroup'
-import ReferralRow, { ROW_GRID } from './ReferralRow'
+import ReferralRow, { ROW_GRID, type RowRail } from './ReferralRow'
 
 /**
  * The coordinator's worklist: every referral in exactly one group, ordered by
@@ -44,12 +45,19 @@ function matchesFilters(r: ReviewableReferral, group: QueueGroupId | 'done', f: 
   return true
 }
 
-const DONE_PILL: Partial<Record<ReviewStatus, string>> = {
-  approved: 'bg-success-soft text-success-deep',
-  corrected: 'bg-accent/10 text-accent-strong',
-  rejected: 'bg-danger/10 text-danger',
-  escalated: 'bg-danger/10 text-danger',
-  info_requested: 'bg-accent/10 text-accent-strong',
+const DONE_TONE: Partial<Record<ReviewStatus, BadgeTone>> = {
+  approved: 'green',
+  corrected: 'accent',
+  rejected: 'red',
+  escalated: 'red',
+  info_requested: 'accent',
+}
+
+/** Quiet 2px left rail on attention tiers only (Phase 5). */
+const GROUP_RAIL: Partial<Record<QueueGroupId, RowRail>> = {
+  needs_info: 'amber',
+  needs_judgment: 'amber',
+  escalated: 'red',
 }
 
 export default function QueueScreen({ onOpen }: { onOpen: (referralId: string) => void }) {
@@ -114,10 +122,12 @@ export default function QueueScreen({ onOpen }: { onOpen: (referralId: string) =
 
   if (!referrals) {
     return (
-      <div className="px-4 py-3">
-        {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} className="mb-2 h-10 animate-pulse rounded-lg bg-line/50" />
-        ))}
+      <div className="min-h-full bg-dash-bg">
+        <div className="mx-auto w-full max-w-dash-page p-6">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="mb-2 h-12 animate-pulse rounded-dash-card bg-dash-line/60" />
+          ))}
+        </div>
       </div>
     )
   }
@@ -126,117 +136,122 @@ export default function QueueScreen({ onOpen }: { onOpen: (referralId: string) =
   const nothingPending = visibleGroups.length === 0
 
   return (
-    <div className="flex flex-col">
-      <QueueFilters referrals={referrals} filters={filters} onChange={setFilters} />
+    <div className="min-h-full bg-dash-bg">
+      <div className="mx-auto w-full max-w-dash-page p-6">
+        <QueueFilters referrals={referrals} filters={filters} onChange={setFilters} />
 
-      {nothingPending && (
-        <p className="px-4 py-8 text-center text-[13px] text-muted">
-          {done.length > 0
-            ? 'Queue clear — every matching referral has been reviewed.'
-            : 'No referrals match the current filters.'}
-        </p>
-      )}
+        {nothingPending && (
+          <p className="py-8 text-center text-dash-body text-dash-muted">
+            {done.length > 0
+              ? 'Queue clear — every matching referral has been reviewed.'
+              : 'No referrals match the current filters.'}
+          </p>
+        )}
 
-      {visibleGroups.map((groupId) => {
-        const rows = groups.get(groupId) ?? []
-        const isReady = groupId === 'ready'
-        return (
-          <QueueGroup
-            key={groupId}
-            group={groupId}
-            count={rows.length}
-            headerControls={
-              isReady ? (
-                <BulkApproveBar
-                  readyCount={readyIds.length}
-                  selectedCount={liveSelected.size}
-                  onToggleAll={toggleAll}
-                  onApprove={approveSelected}
-                />
-              ) : undefined
-            }
-          >
-            {rows.map((r) => (
-              <ReferralRow
-                key={r.payload.referralId}
-                referral={r}
-                review={reviews[r.payload.referralId]}
-                selectable={isReady}
-                selected={liveSelected.has(r.payload.referralId)}
-                onToggle={toggle}
-                onOpen={onOpen}
-              />
-            ))}
-          </QueueGroup>
-        )
-      })}
-
-      {/* Completed strip — collapsed by default */}
-      {done.length > 0 && (
-        <section className="mt-2 border-t border-line">
-          <button
-            onClick={() => setDoneOpen((v) => !v)}
-            aria-expanded={doneOpen}
-            className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11.5px] font-semibold uppercase tracking-[0.08em] text-muted hover:text-ink"
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-              className={`transition-transform ${doneOpen ? 'rotate-90' : ''}`}
-            >
-              <path d="M9 18l6-6-6-6" />
-            </svg>
-            Completed today ({done.length})
-          </button>
-          {doneOpen &&
-            done.map((r) => {
-              const review = reviews[r.payload.referralId]
+        {(visibleGroups.length > 0 || done.length > 0) && (
+          <div className="rounded-dash-card border border-dash-line bg-dash-surface shadow-dash-card">
+            {visibleGroups.map((groupId) => {
+              const rows = groups.get(groupId) ?? []
+              const isReady = groupId === 'ready'
               return (
-                <div
-                  key={r.payload.referralId}
-                  onClick={() => onOpen(r.payload.referralId)}
-                  className={`${ROW_GRID} h-9 cursor-pointer border-b border-line/60 px-4 text-[12px] text-muted hover:bg-sky/50`}
+                <QueueGroup
+                  key={groupId}
+                  group={groupId}
+                  count={rows.length}
+                  headerControls={
+                    isReady ? (
+                      <BulkApproveBar
+                        readyCount={readyIds.length}
+                        selectedCount={liveSelected.size}
+                        onToggleAll={toggleAll}
+                        onApprove={approveSelected}
+                      />
+                    ) : undefined
+                  }
                 >
-                  <span />
-                  <span className="truncate text-ink">{r.payload.patient.name}</span>
-                  <span>
-                    <span
-                      className={`inline-flex rounded px-1.5 py-0.5 text-[10.5px] font-medium ${
-                        DONE_PILL[review?.status ?? 'pending'] ?? 'bg-bg text-muted'
-                      }`}
-                    >
-                      {(review?.status ?? '—').replace('_', ' ')}
-                    </span>
-                  </span>
-                  <span className="truncate">{review?.reviewer}</span>
-                  <span className="truncate">
-                    {review?.correction
-                      ? `${review.correction.field}: ${review.correction.from} → ${review.correction.to}`
-                      : r.result.routedTo
-                        ? `→ ${r.result.routedTo.specialistName}`
-                        : ''}
-                  </span>
-                  <span className="col-span-3" />
-                  <span className="text-right tabular-nums">
-                    {review?.reviewedAt
-                      ? new Date(review.reviewedAt).toLocaleTimeString([], {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })
-                      : ''}
-                  </span>
-                </div>
+                  {rows.map((r) => (
+                    <ReferralRow
+                      key={r.payload.referralId}
+                      referral={r}
+                      review={reviews[r.payload.referralId]}
+                      selectable={isReady}
+                      selected={liveSelected.has(r.payload.referralId)}
+                      rail={GROUP_RAIL[groupId]}
+                      onToggle={toggle}
+                      onOpen={onOpen}
+                    />
+                  ))}
+                </QueueGroup>
               )
             })}
-        </section>
-      )}
+
+            {/* Completed strip — collapsed by default */}
+            {done.length > 0 && (
+              <section>
+                <button
+                  onClick={() => setDoneOpen((v) => !v)}
+                  aria-expanded={doneOpen}
+                  className="flex w-full items-center gap-2 px-4 py-2 text-left text-dash-band uppercase text-dash-muted transition-colors hover:text-dash-ink"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                    className={`transition-transform ${doneOpen ? 'rotate-90' : ''}`}
+                  >
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                  Completed today ({done.length})
+                </button>
+                {doneOpen &&
+                  done.map((r) => {
+                    const review = reviews[r.payload.referralId]
+                    return (
+                      <div
+                        key={r.payload.referralId}
+                        onClick={() => onOpen(r.payload.referralId)}
+                        className={`${ROW_GRID} h-10 cursor-pointer border-t border-l-2 border-t-dash-line border-l-transparent px-4 text-dash-micro text-dash-muted transition-colors hover:bg-dash-bg`}
+                      >
+                        <span />
+                        <span className="truncate font-medium text-dash-strong">
+                          {r.payload.patient.name}
+                        </span>
+                        <span>
+                          <Badge tone={DONE_TONE[review?.status ?? 'pending'] ?? 'neutral'}>
+                            {(review?.status ?? '—').replace('_', ' ')}
+                          </Badge>
+                        </span>
+                        <span className="truncate">{review?.reviewer}</span>
+                        <span className="truncate">
+                          {review?.correction
+                            ? `${review.correction.field}: ${review.correction.from} → ${review.correction.to}`
+                            : r.result.routedTo
+                              ? `→ ${r.result.routedTo.specialistName}`
+                              : ''}
+                        </span>
+                        <span className="col-span-3" />
+                        <span className="text-right tabular-nums">
+                          {review?.reviewedAt
+                            ? new Date(review.reviewedAt).toLocaleTimeString([], {
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })
+                            : ''}
+                        </span>
+                      </div>
+                    )
+                  })}
+              </section>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

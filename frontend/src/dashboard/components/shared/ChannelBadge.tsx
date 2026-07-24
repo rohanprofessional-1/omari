@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react'
 import type { SourceChannel } from '../../types'
+import Badge, { type BadgeTone } from './Badge'
 
 /** How the referral arrived: Epic (in-network EHR), fax, or phone. */
 
-const STYLES: Record<SourceChannel, string> = {
-  epic: 'bg-sky text-accent-strong',
-  fax: 'border border-line bg-bg text-muted',
-  phone: 'border border-line bg-bg text-muted',
+const TONES: Record<SourceChannel, BadgeTone> = {
+  epic: 'accent',
+  fax: 'neutral',
+  phone: 'neutral',
 }
 
 const LABELS: Record<SourceChannel, string> = {
@@ -59,12 +60,9 @@ const ICONS: Record<SourceChannel, ReactNode> = {
 
 export default function ChannelBadge({ channel }: { channel: SourceChannel }) {
   return (
-    <span
-      title={`Received via ${LABELS[channel]}`}
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] font-medium ${STYLES[channel]}`}
-    >
+    <Badge tone={TONES[channel]} title={`Received via ${LABELS[channel]}`}>
       {ICONS[channel]}
       {LABELS[channel]}
-    </span>
+    </Badge>
   )
 }

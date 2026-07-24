@@ -1,11 +1,12 @@
 import type { ConfidenceLevel } from '../../types'
+import Badge, { type BadgeTone } from './Badge'
 
 /** Extraction-confidence pill: High / Medium / Low. */
 
-const STYLES: Record<ConfidenceLevel, string> = {
-  high: 'bg-success-soft text-success-deep',
-  medium: 'bg-accent/10 text-accent-strong',
-  low: 'bg-danger/10 text-danger',
+const TONES: Record<ConfidenceLevel, BadgeTone> = {
+  high: 'green',
+  medium: 'neutral',
+  low: 'amber',
 }
 
 const LABELS: Record<ConfidenceLevel, string> = {
@@ -16,11 +17,8 @@ const LABELS: Record<ConfidenceLevel, string> = {
 
 export default function ConfidencePill({ level, title }: { level: ConfidenceLevel; title?: string }) {
   return (
-    <span
-      title={title}
-      className={`inline-flex rounded px-1.5 py-0.5 text-[10.5px] font-medium ${STYLES[level]}`}
-    >
+    <Badge tone={TONES[level]} title={title}>
       {LABELS[level]}
-    </span>
+    </Badge>
   )
 }

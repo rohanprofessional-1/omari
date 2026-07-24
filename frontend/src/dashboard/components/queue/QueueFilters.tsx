@@ -26,7 +26,7 @@ export const DEFAULT_FILTERS: QueueFilterState = {
 }
 
 const SELECT =
-  'rounded-md border border-line bg-canvas px-2 py-1 text-[12px] text-ink'
+  'rounded-dash-ctl border border-dash-line bg-dash-surface px-2 py-1 text-dash-micro text-dash-ink'
 
 export default function QueueFilters({
   referrals,
@@ -49,7 +49,7 @@ export default function QueueFilters({
     onChange({ ...filters, [key]: value })
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-line bg-canvas px-4 py-2">
+    <div className="mb-4 flex flex-wrap items-center gap-2">
       <select
         value={filters.destination}
         onChange={(e) => set('destination', e.target.value)}
@@ -111,7 +111,7 @@ export default function QueueFilters({
         onChange={(e) => set('search', e.target.value)}
         placeholder="Search patient or provider…"
         aria-label="Search patient or provider name"
-        className="min-w-[180px] flex-1 rounded-md border border-line bg-canvas px-2 py-1 text-[12px] text-ink placeholder:text-muted/70 md:max-w-[260px]"
+        className="min-w-48 flex-1 rounded-dash-ctl border border-dash-line bg-dash-surface px-2 py-1 text-dash-micro text-dash-ink placeholder:text-dash-faint md:max-w-64"
       />
     </div>
   )

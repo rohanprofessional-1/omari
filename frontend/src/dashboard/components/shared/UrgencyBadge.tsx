@@ -1,11 +1,13 @@
-/** Routing urgency pill. Urgent shouts; routine whispers. */
+import Badge, { type BadgeTone } from './Badge'
+
+/** Routing urgency pill. Urgent shouts (quietly); routine whispers. */
 
 type Urgency = 'routine' | 'expedited' | 'urgent'
 
-const STYLES: Record<Urgency, string> = {
-  routine: 'border border-line bg-bg text-muted',
-  expedited: 'bg-accent/10 text-accent-strong',
-  urgent: 'bg-danger/10 font-semibold uppercase tracking-[0.05em] text-danger',
+const TONES: Record<Urgency, BadgeTone> = {
+  routine: 'neutral',
+  expedited: 'slate',
+  urgent: 'amber',
 }
 
 const LABELS: Record<Urgency, string> = {
@@ -16,10 +18,11 @@ const LABELS: Record<Urgency, string> = {
 
 export default function UrgencyBadge({ urgency }: { urgency: Urgency }) {
   return (
-    <span
-      className={`inline-flex shrink-0 rounded px-1.5 py-0.5 text-[10.5px] font-medium ${STYLES[urgency]}`}
+    <Badge
+      tone={TONES[urgency]}
+      className={`shrink-0 ${urgency === 'urgent' ? 'font-semibold uppercase tracking-wide' : ''}`}
     >
       {LABELS[urgency]}
-    </span>
+    </Badge>
   )
 }

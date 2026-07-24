@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/inter' // self-hosted Inter (all weights via variable axis)
 import '@fontsource-variable/source-serif-4' // self-hosted editorial serif (display headlines)
 import '../index.css'
+import './dashboard.css' // dashboard-only `dash-` tokens — must load after index.css
 import DashboardPage from './DashboardPage'
 
 /**

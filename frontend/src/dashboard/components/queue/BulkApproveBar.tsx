@@ -17,23 +17,26 @@ export default function BulkApproveBar({
 }) {
   const allSelected = readyCount > 0 && selectedCount === readyCount
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-3">
       {selectedCount > 0 && (
-        <span className="text-[12px] font-medium text-ink">{selectedCount} selected</span>
+        <span className="text-dash-micro font-medium tabular-nums text-dash-ink">
+          {selectedCount} selected
+        </span>
       )}
-      <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-muted">
+      <label className="flex cursor-pointer items-center gap-1 text-dash-micro text-dash-muted">
         <input
           type="checkbox"
           checked={allSelected}
           onChange={onToggleAll}
           aria-label="Select all ready referrals"
+          className="h-4 w-4 accent-dash-accent-strong"
         />
         Select all
       </label>
       {selectedCount > 0 && (
         <button
           onClick={onApprove}
-          className="rounded-md bg-accent-strong px-3 py-1 text-[12px] font-semibold text-white disabled:opacity-40"
+          className="rounded-dash-ctl bg-dash-accent-strong px-3 py-1 text-dash-micro font-semibold text-white transition-colors hover:bg-dash-accent disabled:opacity-40"
         >
           Approve {selectedCount} referral{selectedCount === 1 ? '' : 's'}
         </button>
