@@ -9,6 +9,7 @@ import BulkApproveBar from './BulkApproveBar'
 import QueueFilters, { DEFAULT_FILTERS, type QueueFilterState } from './QueueFilters'
 import QueueGroup from './QueueGroup'
 import ReferralRow, { ROW_GRID, type RowRail } from './ReferralRow'
+import { useOpenReferral } from '../../lib/useOpenReferral'
 
 /**
  * The coordinator's worklist: every referral in exactly one group, ordered by
@@ -60,7 +61,8 @@ const GROUP_RAIL: Partial<Record<QueueGroupId, RowRail>> = {
   escalated: 'red',
 }
 
-export default function QueueScreen({ onOpen }: { onOpen: (referralId: string) => void }) {
+export default function QueueScreen() {
+  const onOpen = useOpenReferral()
   const { reviews, role, applyAction } = useDashboardStore()
   const [referrals, setReferrals] = useState<ReviewableReferral[] | null>(null)
   const [filters, setFilters] = useState<QueueFilterState>(DEFAULT_FILTERS)

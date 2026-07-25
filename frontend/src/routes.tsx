@@ -5,7 +5,11 @@ import { useAuth } from './auth/authStore'
 import AppShell from './shell/AppShell'
 import Placeholder from './shell/Placeholder'
 import { homeFor } from './shell/nav'
-import DashboardPage from './dashboard/DashboardPage'
+import ReferralsLayout from './dashboard/layouts/ReferralsLayout'
+import DetailScreen from './dashboard/components/detail/DetailScreen'
+import QueueScreen from './dashboard/components/queue/QueueScreen'
+import SurgeonScreen from './dashboard/components/surgeon/SurgeonScreen'
+import WorkupScreen from './dashboard/components/workup/WorkupScreen'
 import Builder from './pages/Builder'
 import Generate from './pages/Generate'
 import KnowledgeBase from './pages/KnowledgeBase'
@@ -45,7 +49,13 @@ export default function AppRoutes() {
         {/* ── Admin — the clinic. Everything. ─────────────────────────────── */}
         <Route element={<RequireRole role="admin" />}>
           <Route path="/admin" element={<Navigate to="/admin/referrals" replace />} />
-          <Route path="/admin/referrals" element={<DashboardPage />} />
+          <Route path="/admin/referrals" element={<ReferralsLayout />}>
+            <Route index element={<Navigate to="queue" replace />} />
+            <Route path="queue" element={<QueueScreen />} />
+            <Route path="escalations" element={<SurgeonScreen />} />
+            <Route path="workup" element={<WorkupScreen />} />
+            <Route path=":referralId" element={<DetailScreen />} />
+          </Route>
           <Route
             path="/admin/clinic"
             element={
@@ -81,7 +91,13 @@ export default function AppRoutes() {
         {/* ── Surgeon — their own referrals, plus the two tools they use. ─── */}
         <Route element={<RequireRole role="surgeon" />}>
           <Route path="/surgeon" element={<Navigate to="/surgeon/referrals" replace />} />
-          <Route path="/surgeon/referrals" element={<DashboardPage />} />
+          <Route path="/surgeon/referrals" element={<ReferralsLayout />}>
+            <Route index element={<Navigate to="cases" replace />} />
+            <Route path="cases" element={<QueueScreen />} />
+            <Route path="escalations" element={<SurgeonScreen />} />
+            <Route path="workup" element={<WorkupScreen />} />
+            <Route path=":referralId" element={<DetailScreen />} />
+          </Route>
           <Route path="/surgeon/builder" element={<Builder />} />
           <Route path="/surgeon/knowledge" element={<KnowledgeBase />} />
         </Route>

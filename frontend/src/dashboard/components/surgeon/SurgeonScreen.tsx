@@ -25,6 +25,7 @@ import SurgeonRow, {
   surgeonBtnPrimary,
   type CardRail,
 } from './SurgeonRow'
+import { useOpenReferral } from '../../lib/useOpenReferral'
 
 /**
  * The surgeon's brief — NOT a filtered queue. Three short exception sections
@@ -117,7 +118,8 @@ function HandledStrip({
   )
 }
 
-export default function SurgeonScreen({ onOpen }: { onOpen: (referralId: string) => void }) {
+export default function SurgeonScreen() {
+  const onOpen = useOpenReferral()
   const { reviews, audit, role, surgeonLastVisit } = useDashboardStore()
   const [referrals, setReferrals] = useState<ReviewableReferral[] | null>(null)
   /** Escalated-with-no-route rows route inline via the existing modal. */

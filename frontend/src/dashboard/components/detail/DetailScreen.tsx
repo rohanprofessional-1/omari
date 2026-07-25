@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { getReferralSource } from '../../data/adapter'
+import { backLabelFor } from '../../lib/useOpenReferral'
 import { ageFromDob, waitingSince } from '../../lib/demoClock'
 import { useDashboardStore } from '../../lib/reviewStore'
 import type { ReviewStatus, ReviewableReferral } from '../../types'
@@ -79,16 +81,19 @@ function ReviewStepper({ decided }: { decided: boolean }) {
   )
 }
 
-export default function DetailScreen({
-  referralId,
-  onBack,
-  backLabel = '← Queue',
-}: {
-  referralId: string
-  onBack: () => void
-  /** Back-button text — reflects where the referral was opened from. */
-  backLabel?: string
-}) {
+export default function DetailScreen() {
+  const { referralId = '' } = useParams()
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Which list this was opened from — set by useOpenReferral, absent on a cold
+  // deep link, in which case the label degrades to a generic "← Back".
+  const origin = (location.state as { from?: string } | null)?.from
+  const backLabel = backLabelFor(origin)
+  // navigate(-1) keeps the list's scroll position and filters; a cold deep link
+  // has nothing to go back to, so send it to the section instead.
+  const onBack = () => (origin ? navigate(-1) : navigate('..'))
+
   const { reviews } = useDashboardStore()
   const [referral, setReferral] = useState<ReviewableReferral | null>(null)
   const [loading, setLoading] = useState(true)

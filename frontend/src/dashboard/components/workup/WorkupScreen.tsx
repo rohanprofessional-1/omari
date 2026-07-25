@@ -4,6 +4,7 @@ import { useDashboardStore } from '../../lib/reviewStore'
 import { buildWorkupEntries, type WorkupEntry } from '../../lib/workupMerge'
 import WorkupRow from './WorkupRow'
 import type { ReviewableReferral } from '../../types'
+import { useOpenReferral } from '../../lib/useOpenReferral'
 
 /**
  * Workup tracking — the core value claim on one screen: approved referrals do
@@ -65,7 +66,8 @@ function StatChip({
   )
 }
 
-export default function WorkupScreen({ onOpen }: { onOpen: (referralId: string) => void }) {
+export default function WorkupScreen() {
+  const onOpen = useOpenReferral()
   const { reviews, workupOverrides } = useDashboardStore()
   const [referrals, setReferrals] = useState<ReviewableReferral[] | null>(null)
   const [destination, setDestination] = useState('any')
