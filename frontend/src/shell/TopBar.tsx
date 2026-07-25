@@ -1,71 +1,81 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import type { Page } from '../App'
-
-interface TopAppBarProps {
-  page: Page
-  onNavigate: (page: Page) => void
-}
-
-const links: { id: Page; label: string }[] = [
-  { id: 'generate', label: 'Generate' },
-  { id: 'builder', label: 'Builder' },
-  { id: 'knowledge', label: 'Knowledge' },
-  { id: 'runner', label: 'Runner' },
-]
+import { Link, NavLink, useNavigate } from 'react-router-dom'
+import DemoRoleChip from '../auth/DemoRoleChip'
+import { useAuth } from '../auth/authStore'
+import { isEmbedded } from './embed'
+import { SECTIONS } from './nav'
 
 /**
- * Slim global app bar: wordmark + Builder/Runner page nav on the left, and the
- * Settings + account/login controls on the right (the space freed up when the
- * tree actions moved into the canvas toolbar).
+ * Slim global app bar: wordmark + the signed-in role's section nav on the left,
+ * the DEMO role chip, and the Settings + account controls on the right.
+ *
+ * Which sections appear is a function of `user.role` alone (see ./nav.ts).
+ * Hiding a section is a convenience, not a boundary — RequireRole guards the
+ * routes themselves.
+ *
+ * EMBEDDED (see ./embed.ts), the identity furniture comes off: the host page
+ * already has a wordmark, an account and a patient banner, and repeating them
+ * makes Omari look pasted on rather than built in. The section nav stays —
+ * that is the app's own navigation, one level below the host's.
  */
-function TopAppBar({ page, onNavigate }: TopAppBarProps) {
-  return (
-    <header className="omari-enter-bar relative z-10 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-canvas pl-2 pr-4">
-      {/* Wordmark — Omari logo mark + name (tight, single unit, logo navy) */}
-      <span className="flex items-center">
-        <img src="/omari-logo.png" alt="" aria-hidden className="h-12 w-12 object-contain" />
-        <span className="-ml-0.5 font-serif text-[19px] font-semibold tracking-tight text-accent-strong">
-          Omari
-        </span>
-      </span>
+export default function TopBar() {
+  const { user } = useAuth()
+  const sections = user ? SECTIONS[user.role] : []
 
-      {/* Segmented page nav */}
-      <nav className="inline-flex rounded-lg border border-line bg-bg p-0.5">
-        {links.map((link) => {
-          const active = page === link.id
-          return (
-            <button
-              key={link.id}
-              onClick={() => onNavigate(link.id)}
-              aria-current={active ? 'page' : undefined}
-              className={
-                'rounded-[7px] px-3 py-1 text-sm font-medium transition-colors ' +
-                (active
-                  ? 'bg-accent-strong text-white shadow-[0_1px_2px_rgba(31,36,33,0.10)]'
+  return (
+    <header
+      className={`omari-enter-bar relative z-10 flex shrink-0 items-center gap-4 border-b border-line bg-canvas pr-4 ${
+        isEmbedded ? 'h-12 pl-4' : 'h-14 pl-2'
+      }`}
+    >
+      {/* Wordmark — Omari logo mark + name (tight, single unit, logo navy) */}
+      {!isEmbedded && (
+        <Link to="/" className="flex items-center" title="Omari">
+          <img src="/omari-logo.png" alt="" aria-hidden className="h-12 w-12 object-contain" />
+          <span className="-ml-0.5 font-serif text-[19px] font-semibold tracking-tight text-accent-strong">
+            Omari
+          </span>
+        </Link>
+      )}
+
+      {/* Segmented section nav — driven entirely by role */}
+      {sections.length > 0 && (
+        <nav className="inline-flex rounded-lg border border-line bg-bg p-0.5">
+          {sections.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                'rounded-md px-3 py-1 text-sm font-medium transition-colors ' +
+                (isActive
+                  ? 'bg-accent-strong text-white shadow-subtle'
                   : 'text-muted hover:text-ink')
               }
             >
-              {link.label}
-            </button>
-          )
-        })}
-      </nav>
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      )}
 
-      <AccountTools />
+      {!isEmbedded && (
+        <div className="ml-auto flex items-center gap-3">
+          <DemoRoleChip />
+          <AccountTools />
+        </div>
+      )}
     </header>
   )
 }
 
 /* -------------------------------------------------------------------------- */
-/* Right-side cluster: Settings menu + account / login                        */
+/* Right-side cluster: Settings menu + account                                */
 /* -------------------------------------------------------------------------- */
 
-const DEMO_EMAIL = 'gkancharla@gmail.com'
-
 function AccountTools() {
+  const { user, signOut } = useAuth()
+  const navigate = useNavigate()
   const [menu, setMenu] = useState<null | 'settings' | 'account'>(null)
-  const [signedIn, setSignedIn] = useState(false)
-  const [email, setEmail] = useState(DEMO_EMAIL)
   const [reduceMotion, setReduceMotion] = useState(
     () => typeof localStorage !== 'undefined' && localStorage.getItem('omari:reduce-motion') === '1',
   )
@@ -95,10 +105,10 @@ function AccountTools() {
   const toggle = (which: 'settings' | 'account') =>
     setMenu((m) => (m === which ? null : which))
 
-  const initial = (email.trim()[0] || 'U').toUpperCase()
+  const initial = (user?.name.trim()[0] || 'U').toUpperCase()
 
   return (
-    <div ref={wrapRef} className="ml-auto flex items-center gap-1.5">
+    <div ref={wrapRef} className="flex items-center gap-1.5">
       {/* Settings */}
       <div className="relative">
         <button
@@ -136,9 +146,9 @@ function AccountTools() {
         )}
       </div>
 
-      {/* Account / login */}
+      {/* Account */}
       <div className="relative">
-        {signedIn ? (
+        {user ? (
           <button
             aria-label="Account"
             aria-haspopup="menu"
@@ -149,59 +159,49 @@ function AccountTools() {
             {initial}
           </button>
         ) : (
-          <button
-            onClick={() => toggle('account')}
+          <Link
+            to="/signin"
             className="inline-flex items-center gap-1.5 rounded-md border border-accent-strong/40 bg-canvas px-3 py-1.5 text-[13px] font-medium text-accent-strong transition-colors hover:border-accent-strong/70 hover:bg-sky"
           >
             <UserIcon />
             Sign in
-          </button>
+          </Link>
         )}
 
-        {menu === 'account' &&
-          (signedIn ? (
-            <Dropdown>
-              <div className="flex items-center gap-2.5 px-2.5 py-2">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-strong text-sm font-semibold text-white">
-                  {initial}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-[13px] font-medium text-ink">
-                    Omari account
-                  </span>
-                  <span className="block truncate text-[11px] text-muted">{email}</span>
-                </span>
-              </div>
-              <Divider />
-              <MenuItem onClick={() => setMenu(null)} icon={<UserIcon />}>
-                Profile
-              </MenuItem>
-              <MenuItem onClick={() => setMenu('settings')} icon={<GearIcon />}>
-                Settings
-              </MenuItem>
-              <Divider />
-              <MenuItem
-                onClick={() => {
-                  setSignedIn(false)
-                  setMenu(null)
-                }}
-                icon={<SignOutIcon />}
-                danger
-              >
-                Sign out
-              </MenuItem>
-            </Dropdown>
-          ) : (
-            <SignInForm
-              email={email}
-              setEmail={setEmail}
-              onSignIn={() => {
-                if (!email.trim()) setEmail(DEMO_EMAIL)
-                setSignedIn(true)
+        {menu === 'account' && user && (
+          <Dropdown>
+            <div className="flex items-center gap-2.5 px-2.5 py-2">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-strong text-sm font-semibold text-white">
+                {initial}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-medium text-ink">{user.name}</span>
+                <span className="block truncate text-[11px] text-muted">{user.email}</span>
+              </span>
+            </div>
+            <div className="px-2.5 pb-1.5">
+              <span className="rounded bg-bg px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                {user.role}
+              </span>
+            </div>
+            <Divider />
+            <MenuItem onClick={() => setMenu('settings')} icon={<GearIcon />}>
+              Settings
+            </MenuItem>
+            <Divider />
+            <MenuItem
+              onClick={() => {
                 setMenu(null)
+                signOut()
+                navigate('/signin', { replace: true })
               }}
-            />
-          ))}
+              icon={<SignOutIcon />}
+              danger
+            >
+              Sign out
+            </MenuItem>
+          </Dropdown>
+        )}
       </div>
     </div>
   )
@@ -213,7 +213,7 @@ function Dropdown({ children, width = 'w-60' }: { children: ReactNode; width?: s
   return (
     <div
       role="menu"
-      className={`omari-msg absolute right-0 top-full z-50 mt-2 ${width} rounded-xl border border-line bg-canvas p-1.5 shadow-[0_10px_30px_rgba(24,20,16,0.14)]`}
+      className={`omari-msg absolute right-0 top-full z-50 mt-2 ${width} rounded-xl border border-line bg-canvas p-1.5 shadow-subtle`}
     >
       {children}
     </div>
@@ -285,63 +285,6 @@ function ToggleRow({
   )
 }
 
-function SignInForm({
-  email,
-  setEmail,
-  onSignIn,
-}: {
-  email: string
-  setEmail: (v: string) => void
-  onSignIn: () => void
-}) {
-  const [password, setPassword] = useState('')
-  const input =
-    'w-full rounded-md border border-line bg-canvas px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted/70 focus:border-accent-strong focus:outline-none focus:ring-2 focus:ring-accent-strong/15'
-  return (
-    <Dropdown width="w-72">
-      <form
-        className="p-1.5"
-        onSubmit={(e) => {
-          e.preventDefault()
-          onSignIn()
-        }}
-      >
-        <p className="px-1 pb-2 text-[13px] font-semibold text-ink">Sign in to Omari</p>
-        <label className="mb-2 block">
-          <span className="mb-1 block text-[11px] font-medium text-muted">Email</span>
-          <input
-            type="email"
-            className={input}
-            placeholder="you@clinic.org"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoFocus
-          />
-        </label>
-        <label className="mb-3 block">
-          <span className="mb-1 block text-[11px] font-medium text-muted">Password</span>
-          <input
-            type="password"
-            className={input}
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </label>
-        <button
-          type="submit"
-          className="w-full rounded-md bg-accent-strong px-3 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-[#24489c]"
-        >
-          Sign in
-        </button>
-        <p className="px-1 pt-2 text-center text-[10.5px] text-muted">
-          Demo sign-in — no account is created.
-        </p>
-      </form>
-    </Dropdown>
-  )
-}
-
 /* ── Icons (small stroke set) ────────────────────────────────────────────── */
 
 function Svg({ children }: { children: ReactNode }) {
@@ -396,5 +339,3 @@ const HelpIcon = () => (
     <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01" />
   </Svg>
 )
-
-export default TopAppBar

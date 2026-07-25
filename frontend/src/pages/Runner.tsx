@@ -1,7 +1,9 @@
-import { Fragment, useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { sampleTree } from '../data/sampleTree'
 import { useTreeLibrary, type TreeLibrary } from '../lib/treeLibrary'
 import TreePicker from '../components/TreePicker'
+import StatusStepper from '../components/StatusStepper'
+import type { ChatMessage, Phase } from './runner/chatTypes'
 import { VARIABLE_SPECS } from '../data/variableSpecs'
 import { nodeDisplayName } from '../lib/treeToFlow'
 import { planConversationStep, type Extraction, type OrchestratorStep } from '../lib/orchestrator'
@@ -90,40 +92,25 @@ const INTRO =
   "sure the right person sees you. To start, just tell me what’s going on in your own words — " +
   "take your time."
 
-export type Phase = 'intro' | 'thinking' | 'awaiting' | 'done' | 'error'
-export interface ChatMessage {
-  id: number
-  from: 'bot' | 'patient'
-  text: string
-}
 
-/* -------------------------------------------------------------------------- */
-/* Presentation mode (session-persisted)                                       */
-/* -------------------------------------------------------------------------- */
+/**
+ * Who is looking at this conversation.
+ *
+ * 'clinician' — the authoring/inspection view: tree picker, the transcript as
+ *               chat cards, and the behind-the-scenes decision panel.
+ * 'patient'   — the ORB. One question at a time, spoken by a presence that
+ *               reacts to the voice, with nothing else on screen.
+ *
+ * The orb used to be "Presentation mode": a toggle on the clinician page that
+ * hid the scaffolding for a demo. That was backwards — it made the real
+ * product a costume the clinician view could put on. The orb IS the patient
+ * intake now, always, and the clinician view is the one with the extra layers.
+ *
+ * Both share ALL state and every handler; only the surrounding layers differ.
+ */
+export type RunnerAudience = 'clinician' | 'patient'
 
-const PRESENTATION_KEY = 'omari:presentation'
-
-function usePresentationMode(): [boolean, (next: boolean) => void] {
-  const [on, setOn] = useState<boolean>(() => {
-    try {
-      return sessionStorage.getItem(PRESENTATION_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
-  const set = (next: boolean) => {
-    setOn(next)
-    try {
-      sessionStorage.setItem(PRESENTATION_KEY, next ? '1' : '0')
-    } catch {
-      /* sessionStorage unavailable — keep in-memory only */
-    }
-  }
-  return [on, set]
-}
-
-function Runner() {
-  const [presentation, setPresentation] = usePresentationMode()
+function Runner({ audience = 'clinician' }: { audience?: RunnerAudience } = {}) {
   const library = useTreeLibrary()
 
   // The active DB tree, or the built-in sample when the library is empty/offline.
@@ -133,17 +120,13 @@ function Runner() {
   // Re-key on each tree switch so the Runner always starts a fresh conversation
   // on the LATEST tree (sessionNonce bumps whenever the active tree loads).
   return (
-    <>
-      <RunnerSession
-        key={`${tree.treeId}:${library.activeId ?? 'sample'}:${library.sessionNonce}`}
-        tree={tree}
-        library={library}
-        usingSample={usingSample}
-        presentation={presentation}
-        onTogglePresentation={() => setPresentation(!presentation)}
-      />
-      {presentation && <ExitPresentation onExit={() => setPresentation(false)} />}
-    </>
+    <RunnerSession
+      key={`${tree.treeId}:${library.activeId ?? 'sample'}:${library.sessionNonce}`}
+      tree={tree}
+      library={library}
+      usingSample={usingSample}
+      audience={audience}
+    />
   )
 }
 
@@ -151,14 +134,12 @@ function RunnerSession({
   tree,
   library,
   usingSample,
-  presentation,
-  onTogglePresentation,
+  audience,
 }: {
   tree: Tree
   library: TreeLibrary
   usingSample: boolean
-  presentation: boolean
-  onTogglePresentation: () => void
+  audience: RunnerAudience
 }) {
   const idRef = useRef(0)
   const nextId = () => ++idRef.current
@@ -429,10 +410,10 @@ function RunnerSession({
     void runExtraction(lastTextRef.current)
   }
 
-  // ── Presentation mode ON → the immersive ORB experience (same engine state &
-  // handlers, just a one-step-at-a-time speaking-orb VIEW). Presentation mode OFF
-  // falls through to the unchanged normal Runner below. Nothing else differs.
-  if (presentation) {
+  // ── PATIENT → the orb: same engine state and the same handlers, rendered as
+  // one question at a time by a speaking presence. The clinician view below is
+  // the same conversation with the scaffolding left on.
+  if (audience === 'patient') {
     return (
       <OrbExperience
         messages={messages}
@@ -451,23 +432,18 @@ function RunnerSession({
     )
   }
 
+  const clinician = audience === 'clinician'
+
   return (
-    <div className={`mx-auto w-full px-6 ${presentation ? 'max-w-2xl py-10' : 'max-w-6xl py-8'}`}>
-      {/* ── LAYER 1 · Presenter / demo apparatus (hidden in Presentation mode) ── */}
-      {!presentation && (
-        <PresenterBar
-          library={library}
-          currentTree={tree}
-          usingSample={usingSample}
-          onEnterPresentation={onTogglePresentation}
-        />
+    <div className={`mx-auto w-full px-6 ${clinician ? 'max-w-6xl py-8' : 'max-w-2xl py-8'}`}>
+      {/* ── LAYER 1 · Presenter / demo apparatus (clinician only) ── */}
+      {clinician && (
+        <PresenterBar library={library} currentTree={tree} usingSample={usingSample} />
       )}
 
       {/* ── LAYERS 2 + 3 · Patient app (hero) + behind-the-scenes (clinician) ── */}
       <div
-        className={
-          presentation ? '' : 'mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]'
-        }
+        className={clinician ? 'mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]' : 'mt-2'}
       >
         {/* LAYER 2 · the real product */}
         <div className="min-w-0 space-y-4 lg:flex lg:flex-col">
@@ -485,6 +461,12 @@ function RunnerSession({
             onRefresh={reset}
           />
 
+          {/* TODO(epic): intake ENDS here, locally. Nothing is POSTed — the
+              "referral sent" card is UI only. The completed packet (filled
+              variables, chosen specialist, resolved workup, transcript) should
+              POST to /api/v1/referrals, which forwards to Epic. Until then the
+              patient's status screen reads a pinned fixture; the binding lives
+              in src/auth/demoUsers.ts. */}
           {phase === 'done' && step?.kind === 'route' && (
             <ReferralSentCard specialist={step.specialist} />
           )}
@@ -504,8 +486,10 @@ function RunnerSession({
           )}
         </div>
 
-        {/* LAYER 3 · behind-the-scenes (clinician view) — hidden in Presentation mode */}
-        {!presentation && (
+        {/* LAYER 3 · behind-the-scenes — CLINICIAN ONLY. This panel shows the
+            matched specialist, urgency, full workup, confidences, and the raw
+            decision path. The patient must never see it. */}
+        {clinician && (
           <BehindScenes
             tree={tree}
             filled={filled}
@@ -526,37 +510,15 @@ function PresenterBar({
   library,
   currentTree,
   usingSample,
-  onEnterPresentation,
 }: {
   library: TreeLibrary
   currentTree: Tree
   usingSample: boolean
-  onEnterPresentation: () => void
 }) {
   return (
     <div className="omari-enter-bar flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line/70 pb-3">
       <TreePicker library={library} currentTree={currentTree} usingSample={usingSample} />
-      <button
-        onClick={onEnterPresentation}
-        className="omari-grad omari-grad-hover ml-auto inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(27,58,107,0.30)] transition-all hover:shadow-[0_2px_10px_rgba(27,58,107,0.30)] active:translate-y-px"
-        title="Hide all demo + clinician scaffolding for a pure patient view"
-      >
-        <span aria-hidden>▶</span> Presentation mode
-      </button>
     </div>
-  )
-}
-
-/** Small, unobtrusive way back out of Presentation mode. */
-function ExitPresentation({ onExit }: { onExit: () => void }) {
-  return (
-    <button
-      onClick={onExit}
-      className="omari-msg fixed bottom-4 right-4 z-50 inline-flex items-center gap-1.5 rounded-full border border-line bg-canvas/90 px-3 py-1.5 text-xs font-medium text-muted shadow-[0_2px_10px_rgba(24,20,16,0.12)] backdrop-blur transition-colors hover:text-ink"
-      title="Leave Presentation mode and show the demo + clinician panels again"
-    >
-      <span aria-hidden>✕</span> Exit presentation
-    </button>
   )
 }
 
@@ -600,7 +562,7 @@ function PatientApp({
   const showFooter = phase === 'intro' || phase === 'awaiting'
 
   return (
-    <div className="omari-msg flex flex-col overflow-hidden rounded-2xl border border-line bg-canvas shadow-[0_1px_3px_rgba(24,20,16,0.07)] lg:h-full lg:flex-1">
+    <div className="omari-msg flex flex-col overflow-hidden rounded-2xl border border-line bg-canvas shadow-subtle lg:h-full lg:flex-1">
       {/* Product header — reads like a real clinic intake widget */}
       <div className="flex items-center gap-2.5 border-b border-line px-5 py-3">
         <img src="/omari-logo.png" alt="" aria-hidden className="h-8 w-8 shrink-0 object-contain" />
@@ -695,7 +657,7 @@ function SendButton({ onClick, disabled }: { onClick: () => void; disabled?: boo
     <button
       onClick={onClick}
       disabled={disabled}
-      className="omari-grad omari-grad-hover rounded-md px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(24,20,16,0.22)] transition-all hover:shadow-[0_2px_10px_rgba(24,20,16,0.22)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+      className="omari-grad omari-grad-hover rounded-md px-4 py-2 text-sm font-semibold text-white shadow-subtle transition-all hover:shadow-subtle active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
     >
       Send
     </button>
@@ -714,7 +676,7 @@ function ChatBubble({ from, text }: { from: 'bot' | 'patient'; text: string }) {
         className={`max-w-[82%] px-3.5 py-2 text-sm leading-snug ${
           isBot
             ? 'rounded-2xl rounded-tl-sm border border-line bg-bg text-ink'
-            : 'omari-grad rounded-2xl rounded-tr-sm text-white shadow-[0_1px_3px_rgba(27,58,107,0.25)]'
+            : 'omari-grad rounded-2xl rounded-tr-sm text-white shadow-subtle'
         }`}
       >
         {text}
@@ -838,7 +800,7 @@ function ConfirmInput({ onYes, onNo }: { onYes: () => void; onNo: () => void }) 
       <div className="flex gap-2">
         <button
           onClick={onYes}
-          className="omari-grad omari-grad-hover rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-[0_1px_3px_rgba(24,20,16,0.22)] transition-all hover:shadow-[0_2px_10px_rgba(24,20,16,0.22)] active:translate-y-px"
+          className="omari-grad omari-grad-hover rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-subtle transition-all hover:shadow-subtle active:translate-y-px"
         >
           Yes, that's right
         </button>
@@ -866,7 +828,7 @@ function ConfirmInput({ onYes, onNo }: { onYes: () => void; onNo: () => void }) 
  */
 function ReferralSentCard({ specialist }: { specialist: Specialist }) {
   return (
-    <div className="omari-reveal overflow-hidden rounded-2xl border border-line bg-canvas shadow-[0_2px_12px_rgba(24,20,16,0.08)]">
+    <div className="omari-reveal overflow-hidden rounded-2xl border border-line bg-canvas shadow-subtle">
       {/* Calm, "in progress" header — a soft tint, not a solid "done" banner */}
       <div className="flex items-center gap-2 border-b border-line bg-nodespec/8 px-5 py-3">
         <span
@@ -902,95 +864,11 @@ function ReferralSentCard({ specialist }: { specialist: Specialist }) {
 }
 
 /**
- * Honest, simple referral-status stages: Submitted → In review → Confirmed →
- * Scheduled. The current state is "In review" — a REAL workflow step (a human
- * confirms on the doctor dashboard), shown with later stages greyed/upcoming.
- */
-export function StatusStepper({
-  reviewerLabel,
-  tone = 'accent',
-}: {
-  reviewerLabel: string
-  tone?: 'accent' | 'amber' | 'green'
-}) {
-  const stages = [
-    { label: 'Submitted', state: 'done' as const },
-    { label: 'In review', state: 'current' as const },
-    { label: 'Confirmed', state: 'upcoming' as const },
-    { label: 'Scheduled', state: 'upcoming' as const },
-  ]
-  // Full static class strings (Tailwind can't see constructed class names).
-  const t =
-    tone === 'amber'
-      ? {
-          dotDone: 'bg-nodeesc border-nodeesc text-white',
-          dotCurrent: 'bg-canvas border-nodeesc text-nodeesc ring-4 ring-nodeesc/15',
-          connector: 'bg-nodeesc',
-        }
-      : tone === 'green'
-        ? {
-            dotDone: 'bg-success border-success text-white',
-            dotCurrent: 'bg-canvas border-success text-success ring-4 ring-success/15',
-            connector: 'bg-success',
-          }
-        : {
-            dotDone: 'bg-accent border-accent text-white',
-            dotCurrent: 'bg-canvas border-accent text-accent ring-4 ring-accent/15',
-            connector: 'bg-accent',
-          }
-
-  const dotClass = (state: 'done' | 'current' | 'upcoming') => {
-    const base =
-      'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] font-semibold'
-    if (state === 'done') return `${base} ${t.dotDone}`
-    if (state === 'current') return `${base} ${t.dotCurrent}`
-    return `${base} bg-canvas border-line text-muted`
-  }
-
-  return (
-    <div>
-      <p className="mb-2 font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
-        Referral status
-      </p>
-      {/* dots + connectors */}
-      <div className="flex items-center">
-        {stages.map((s, i) => (
-          <Fragment key={i}>
-            {i > 0 && (
-              <span
-                className={`h-0.5 flex-1 ${stages[i - 1].state === 'done' ? t.connector : 'bg-line'}`}
-              />
-            )}
-            <span className={dotClass(s.state)}>{s.state === 'done' ? '✓' : i + 1}</span>
-          </Fragment>
-        ))}
-      </div>
-      {/* labels */}
-      <div className="mt-1.5 flex">
-        {stages.map((s, i) => (
-          <span
-            key={i}
-            className={`flex-1 text-center text-[10px] leading-tight ${
-              s.state === 'upcoming' ? 'text-muted' : 'font-medium text-ink'
-            }`}
-          >
-            {s.label}
-          </span>
-        ))}
-      </div>
-      <p className="mt-2 text-center text-[11px] text-muted">
-        Currently in review by <span className="font-medium text-ink">{reviewerLabel}</span>.
-      </p>
-    </div>
-  )
-}
-
-/**
  * CLINICIAN view of the routed outcome — the reviewable referral packet that the
  * doctor dashboard will surface: matched specialist, urgency, reasoning, the FULL
  * proposed workup, and the decision path. This is the detail withheld from the
- * patient until a human confirms. Hidden in Presentation mode with the rest of
- * the behind-the-scenes panel.
+ * patient until a human confirms — it lives in the clinician panel, which the
+ * patient's orb view never renders.
  */
 /**
  * Auditable "Why this route?" block — the engine's own logic replayed in plain
@@ -1139,7 +1017,7 @@ function ReferralPacket({
  */
 function EscalatedCard() {
   return (
-    <div className="omari-reveal overflow-hidden rounded-2xl border border-nodeesc/40 bg-canvas shadow-[0_2px_12px_rgba(208,138,44,0.12)]">
+    <div className="omari-reveal overflow-hidden rounded-2xl border border-nodeesc/40 bg-canvas shadow-subtle">
       <div className="flex items-center gap-2 border-b border-line bg-nodeesc/10 px-5 py-3">
         <span
           aria-hidden
@@ -1198,10 +1076,10 @@ function BehindScenes({
       </div>
 
       {/* Live decision-tree mini-viz — shown for BOTH real-API and simulated
-          runs. Gated ONLY on Presentation mode: it lives in this clinician panel,
-          which is already hidden in Presentation mode, so the patient never sees
-          it. It reads the same orchestrator state either way (collected variables
-          + result), so it works identically with real LLM extraction. */}
+          runs. Not gated on anything: it lives in this clinician panel, which
+          the patient's orb view never renders, so the patient cannot see it. It
+          reads the same orchestrator state either way (collected variables +
+          result), so it works identically with real LLM extraction. */}
       <TreeMiniViz tree={tree} filled={filled} candidates={candidates} step={step} />
 
       {/* Extracted variables + confidence */}

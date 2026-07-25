@@ -592,7 +592,7 @@ export default function BuilderChatPanel({
   }
 
   return (
-    <aside className="omari-enter-side flex w-[360px] shrink-0 flex-col border-l border-line bg-canvas shadow-[-6px_0_16px_rgba(31,36,33,0.07)]">
+    <aside className="omari-enter-side flex w-[360px] shrink-0 flex-col border-l border-line bg-canvas shadow-subtle">
       {/* ── Header — identity hides while the welcome hero is showing ──── */}
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         {messages.length > 0 ? (
@@ -644,7 +644,7 @@ export default function BuilderChatPanel({
               src={sproutLogo}
               alt=""
               aria-hidden
-              className="h-20 w-20 rounded-full shadow-[0_4px_16px_rgba(27,58,107,0.30)]"
+              className="h-20 w-20 rounded-full shadow-subtle"
             />
             <p className="mt-4 font-serif text-[20px] font-semibold text-ink">Sprout</p>
             <p className="mt-1 font-display text-[10px] font-semibold uppercase tracking-[0.12em] text-accent-strong">
@@ -848,7 +848,7 @@ export default function BuilderChatPanel({
             <button
               onClick={() => void send()}
               disabled={!draft.trim() || busy}
-              className="omari-grad omari-grad-hover rounded-md px-3.5 py-1.5 text-[12px] font-semibold text-white shadow-[0_1px_3px_rgba(27,58,107,0.30)] transition-all hover:shadow-[0_2px_10px_rgba(27,58,107,0.30)] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+              className="omari-grad omari-grad-hover rounded-md px-3.5 py-1.5 text-[12px] font-semibold text-white shadow-subtle transition-all hover:shadow-subtle active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
             >
               Send
             </button>

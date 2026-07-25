@@ -26,7 +26,7 @@ class Urgency(str, enum.Enum):
 class Node(Base, TimestampMixin):
     __tablename__ = "nodes"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    id: Mapped[str] = mapped_column(String(100), primary_key=True, default=lambda: str(uuid.uuid4()))
     tree_id: Mapped[str] = mapped_column(String(36), ForeignKey("trees.id", ondelete="CASCADE"), primary_key=True)
     node_type: Mapped[NodeType] = mapped_column(Enum(NodeType, name="node_type_enum"), nullable=False)
 

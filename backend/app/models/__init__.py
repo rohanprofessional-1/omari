@@ -2,6 +2,7 @@
 from app.models.base import Base
 from app.models.clinic import Clinic
 from app.models.tree import Tree, TreeVersion
+from app.models.delta import TreeDelta
 from app.models.node import Node
 from app.models.branch import Branch
 from app.models.condition import Condition
@@ -27,6 +28,7 @@ __all__ = [
     "Clinic",
     "Tree",
     "TreeVersion",
+    "TreeDelta",
     "Node",
     "Branch",
     "Condition",

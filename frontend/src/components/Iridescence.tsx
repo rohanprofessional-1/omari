@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Mesh, Program, Renderer, Triangle } from 'ogl'
 
 /**
@@ -14,6 +14,12 @@ import { Mesh, Program, Renderer, Triangle } from 'ogl'
  *    referral-sent beat stays a gentle transition.
  *  - Sizes to its container via ResizeObserver and cleans up the GL context,
  *    canvas, and RAF on unmount.
+ *  - DEGRADES instead of dying. WebGL is not universally available — remote
+ *    desktops, hardened browsers, old GPUs and headless Chrome all refuse a
+ *    context — and ogl's Renderer throws outright when it cannot get one. That
+ *    threw during render of the patient's INTAKE screen, which is now the orb,
+ *    so a missing GPU took the whole app to a blank page. It now falls back to
+ *    a painted orb: same size, same colour, no shader.
  */
 
 const vertexShader = /* glsl */ `
@@ -70,15 +76,27 @@ export default function Iridescence({
   const container = useRef<HTMLDivElement | null>(null)
   const propsRef = useRef({ color, speed, amplitude })
   propsRef.current = { color, speed, amplitude }
+  /** No GL context — paint the orb instead of taking the screen down. */
+  const [noWebgl, setNoWebgl] = useState(false)
 
   useEffect(() => {
     const el = container.current
     if (!el) return
 
-    const renderer = new Renderer({
-      dpr: Math.min(window.devicePixelRatio || 1, 2),
-      alpha: false,
-    })
+    let renderer: Renderer
+    try {
+      renderer = new Renderer({
+        dpr: Math.min(window.devicePixelRatio || 1, 2),
+        alpha: false,
+      })
+      // ogl reports failure by leaving `gl` unusable rather than by throwing
+      // every time, so check it as well as catching.
+      if (!renderer.gl) throw new Error('no webgl context')
+    } catch {
+      setNoWebgl(true)
+      return
+    }
+
     const { gl } = renderer
     gl.canvas.style.width = '100%'
     gl.canvas.style.height = '100%'
@@ -134,5 +152,21 @@ export default function Iridescence({
     }
   }, [])
 
-  return <div ref={container} className={className ?? 'h-full w-full'} />
+  // The fallback is a soft radial paint in the same colour the shader eases
+  // toward, so the orb still reads as a lit sphere and still turns green on
+  // referral-sent — it simply stops shimmering.
+  const [r, g, b] = color.map((c) => Math.round(Math.max(0, Math.min(1, c)) * 255))
+  return (
+    <div
+      ref={container}
+      className={className ?? 'h-full w-full'}
+      style={
+        noWebgl
+          ? {
+              background: `radial-gradient(circle at 36% 30%, rgba(255,255,255,0.55), rgba(${r},${g},${b},0.95) 42%, rgba(${Math.round(r * 0.45)},${Math.round(g * 0.45)},${Math.round(b * 0.55)},1) 100%)`,
+            }
+          : undefined
+      }
+    />
+  )
 }

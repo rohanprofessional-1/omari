@@ -1,0 +1,102 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Referral-review dashboard design tokens — `dash-` namespace.
+
+   Loaded from src/main.tsx immediately AFTER ./index.css — that ORDER is
+   load-bearing, not incidental. The namespace keeps
+   these tokens from colliding with the main app's; this file is its own
+   Tailwind root (it imports only utilities.css — index.css already ships
+   preflight + the default theme) so `--color-dash-ink` becomes `text-dash-ink`
+   and so on.
+
+   The system — NEAR-ACHROMATIC CHROME, ONE NAVY ACCENT, TRAFFIC-LIGHT SIGNAL
+   (see src/index.css for the full rulebook; this namespace mirrors it):
+   • Grays: ink → strong → muted → faint → line (hairline) → line-strong
+     (section separators) → header (band fill) → bg (page) → surface (white).
+     Surfaces are white cards on the light-gray page; borders hairline 1px.
+     Nothing lighter than #737373 ever carries text — meta is quiet by SIZE and
+     WEIGHT, never by being too light to read. `faint` and `muted` are the same
+     value on purpose: hierarchy is typographic, not tonal.
+   • Accent: ONE ink navy, matching the logo — `accent` for links/small UI,
+     `accent-strong` for primary buttons, `accent-soft` for selected rows and
+     soft chips. It marks what is INTERACTIVE; it never encodes a status.
+   • Signal — the ONLY colour, borrowed from the macOS window controls:
+     red #ff5f57 = emergency / no path / overdue · amber #febc2e = at risk /
+     needs attention / unsure · green #28c840 = on track / confirmed / complete.
+     Slate is NOT a fourth hue — `slate` is gray, for judgment/expedited.
+     Signal appears ONLY as solid fills: 6px band dots, 2px row rails, progress
+     segments, and badge capsules whose TEXT IS INK. It is never used for text,
+     thin icon strokes, or borders — at 12px a #febc2e glyph on white is ~1.7:1.
+   • Type ramp: dash-title 24/600 tight · dash-row 15/600 · dash-body 14/400 ·
+     dash-band 13/600 uppercase-tracked · dash-col 12/600 caption-tracked ·
+     dash-micro 12. `tabular-nums` on every aligned number.
+   • Spacing: Tailwind's 4px scale only (1 / 2 / 3 / 4 / 6 / 8 / 12) — no
+     bracket values. Radius: 18px interactive (dash-ctl), 24px cards
+     (dash-card) — pill geometry, no square corners, nothing in between.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+@theme {
+  /* Grays */
+  --color-dash-ink: #0a0a0a; /* primary text — near-black */
+  --color-dash-strong: #171717; /* strong secondary text */
+  --color-dash-muted: #737373; /* muted support text */
+  --color-dash-faint: #737373; /* meta text — never lighter than muted */
+  --color-dash-line: #e5e5e5; /* hairline borders (rows, cards) */
+  --color-dash-line-strong: #e5e5e5; /* section separators, control borders */
+  --color-dash-bg: #f5f5f5; /* page background — canvas */
+  /* Named `header`, not `band`: `--text-dash-band` already owns the
+     `text-dash-band` utility, and a same-named color would collide with it. */
+  --color-dash-header: #fafafa; /* group / column header bands */
+  --color-dash-surface: #ffffff; /* card surfaces — paper */
+
+  /* The one accent — the logo's ink navy. Interactive roles only, never status */
+  --color-dash-accent: #24549b; /* links, focus, small UI */
+  --color-dash-accent-strong: #1e4685; /* primary buttons */
+  --color-dash-accent-soft: #eef3f9; /* selected rows / soft chips */
+
+  /* Signal palette — solid fills only; `-soft` tints carry INK text */
+  --color-dash-red: #ff5f57; /* emergency / no-path / rejected */
+  --color-dash-red-soft: #ffecea;
+  --color-dash-amber: #febc2e; /* at risk / needs attention */
+  --color-dash-amber-soft: #fff4de;
+  --color-dash-slate: #737373; /* expedited / judgment — GRAY, not a hue */
+  --color-dash-slate-soft: #f5f5f5;
+  --color-dash-green: #28c840; /* on-track / complete / confirmed */
+  --color-dash-green-soft: #e4f8e8;
+  --color-dash-neutral-soft: #f5f5f5; /* routine / neutral chip tint */
+
+  /* Type ramp (size + line-height + weight travel together). Tracking tightens
+     at display sizes and loosens at small uppercase labels — never outside
+     ±0.05em. */
+  --text-dash-title: 1.5rem; /* 24px — screen titles */
+  --text-dash-title--line-height: 1.33;
+  --text-dash-title--font-weight: 600;
+  --text-dash-title--letter-spacing: -0.025em;
+  --text-dash-row: 0.9375rem; /* 15px — row-primary anchors (patient name) */
+  --text-dash-row--line-height: 1.35;
+  --text-dash-row--font-weight: 600;
+  --text-dash-body: 0.875rem; /* 14px — default body */
+  --text-dash-body--line-height: 1.45;
+  --text-dash-band: 0.8125rem; /* 13px — tier band labels (pair with uppercase) */
+  --text-dash-band--line-height: 1.4;
+  --text-dash-band--font-weight: 600;
+  --text-dash-band--letter-spacing: 0.05em;
+  --text-dash-col: 0.75rem; /* 12px — caption / column headers (pair with uppercase) */
+  --text-dash-col--line-height: 1.33;
+  --text-dash-col--font-weight: 600;
+  --text-dash-col--letter-spacing: 0.05em;
+  --text-dash-micro: 0.75rem; /* 12px — badges, meta, counts */
+  --text-dash-micro--line-height: 1.33;
+
+  /* Radius + elevation — pill interactive, 24px containers, whisper shadow */
+  --radius-dash-ctl: 18px; /* controls, badges, inputs, buttons */
+  --radius-dash-card: 24px; /* cards */
+  --shadow-dash-card: 0 0 0 1px rgb(23 23 23 / 0.05), 0 1px 3px rgb(0 0 0 / 0.1),
+    0 1px 2px -1px rgb(0 0 0 / 0.1);
+
+  /* Content column — kills the dead right gutter (max-w-dash-page) */
+  --container-dash-page: 80rem; /* 1280px, centered */
+}
+
+/* Generate utilities for the tokens above. Preflight and the default theme
+   already come from ../index.css, so only the utilities layer is needed here. */
+@import "tailwindcss/utilities.css" layer(utilities);

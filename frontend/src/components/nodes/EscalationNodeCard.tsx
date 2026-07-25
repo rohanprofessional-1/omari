@@ -17,7 +17,7 @@ function EscalationNodeCard({ data, selected }: NodeProps<BuilderFlowNode>) {
 
   return (
     <div
-      className={`group relative w-[300px] rounded-[11px] border border-line bg-canvas transition-shadow duration-200 shadow-[0_1px_2px_rgba(24,20,16,0.06)] ${
+      className={`group relative w-[300px] rounded-xl border border-line bg-canvas transition-shadow duration-200 shadow-subtle ${
         selected ? 'ring-2 ring-bright' : ''
       }`}
     >

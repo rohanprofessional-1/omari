@@ -269,6 +269,90 @@ const checks: Check[] = [
       return null
     },
   },
+  {
+    name: 'insert_branch places the branch at the given index (first-match order preserved)',
+    run: () => {
+      const result = applyOps(
+        fixture,
+        ops([
+          {
+            op: 'insert_branch',
+            nodeId: 'var_side',
+            index: 0,
+            branch: { label: 'Bilateral', condition: { op: 'equals', value: 'both' }, nextNodeId: 'spec_chen' },
+          },
+        ]),
+      )
+      if (!result.ok) return `expected ok, got errors: ${result.errors.join('; ')}`
+      const node = result.tree.nodes.find((n) => n.id === 'var_side')
+      if (node?.type !== 'variable') return 'variable node missing'
+      const labels = node.branches.map((b) => b.label)
+      if (labels.join(',') !== 'Bilateral,Left,Right') return `wrong order: ${labels.join(',')}`
+      if (result.changedIds[0] !== 'var_side') return 'node not reported changed'
+
+      const outOfRange = applyOps(
+        fixture,
+        ops([
+          {
+            op: 'insert_branch',
+            nodeId: 'var_side',
+            index: 5,
+            branch: { label: 'X', condition: { op: 'equals', value: 'x' } },
+          },
+        ]),
+      )
+      if (outOfRange.ok) return 'out-of-range index accepted'
+      return null
+    },
+  },
+  {
+    name: 'reorder_branches applies a permutation and rejects non-permutations',
+    run: () => {
+      const result = applyOps(fixture, ops([{ op: 'reorder_branches', nodeId: 'var_side', order: [1, 0] }]))
+      if (!result.ok) return `expected ok, got errors: ${result.errors.join('; ')}`
+      const node = result.tree.nodes.find((n) => n.id === 'var_side')
+      if (node?.type !== 'variable') return 'variable node missing'
+      const labels = node.branches.map((b) => b.label)
+      if (labels.join(',') !== 'Right,Left') return `wrong order: ${labels.join(',')}`
+
+      for (const badOrder of [[0, 0], [0, 2], [0, 1, 2]]) {
+        const bad = applyOps(fixture, ops([{ op: 'reorder_branches', nodeId: 'var_side', order: badOrder }]))
+        if (bad.ok) return `non-permutation [${badOrder.join(',')}] accepted`
+      }
+      return null
+    },
+  },
+  {
+    name: 'idFactory makes new-node ids deterministic and disambiguates collisions',
+    run: () => {
+      const factory = (kind: string) => `det_${kind}`
+      const run1 = applyOps(
+        fixture,
+        ops([
+          { op: 'add_specialist', specialistName: 'Dr. A' },
+          { op: 'add_specialist', specialistName: 'Dr. B' },
+        ]),
+        { idFactory: factory },
+      )
+      const run2 = applyOps(
+        fixture,
+        ops([
+          { op: 'add_specialist', specialistName: 'Dr. A' },
+          { op: 'add_specialist', specialistName: 'Dr. B' },
+        ]),
+        { idFactory: factory },
+      )
+      if (!run1.ok || !run2.ok) return `expected ok: ${run1.errors.join('; ')}${run2.errors.join('; ')}`
+      if (run1.addedIds.join(',') !== run2.addedIds.join(',')) {
+        return `non-deterministic ids: ${run1.addedIds} vs ${run2.addedIds}`
+      }
+      if (run1.addedIds[0] !== 'det_specialist') return `unexpected first id: ${run1.addedIds[0]}`
+      // Second add collides with the first — must get a stable suffix, not loop.
+      if (run1.addedIds[1] !== 'det_specialist_2') return `unexpected collision id: ${run1.addedIds[1]}`
+      if (JSON.stringify(run1.tree) !== JSON.stringify(run2.tree)) return 'trees not byte-identical'
+      return null
+    },
+  },
 ]
 
 let failures = 0

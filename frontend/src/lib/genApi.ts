@@ -9,6 +9,10 @@ import type { InducedRuleSummary } from './generator/induce'
 import type { GapFinding } from './generator/gaps'
 import type { ValidationReport } from './generator/validate'
 
+// Re-exported so callers of this client (e.g. pages/Generate.tsx) import the
+// roster shape from the same module as the session functions that consume it.
+export type { GenRosterEntry } from './generator/types'
+
 /**
  * Blume — generator API client (/api/v1/gen via the Vite proxy → FastAPI).
  * Maps the backend's snake_case rows to the camelCase types the pure
@@ -412,5 +416,41 @@ export async function registerVariableSpecs(specs: VariableSpec[]): Promise<void
     } catch {
       // Key may already exist (global registry) — that's fine; move on.
     }
+  }
+}
+
+/* ── cpg-to-scaffold (additive tree generation) ── */
+
+export interface CPGBaseMeta {
+  docId: string
+  documentName: string
+  subspecialty?: string
+  sections?: string[]
+}
+
+export async function generateCPGScaffold(
+  sessionId: string,
+  file: File
+): Promise<{ tree: Tree; placeholderCount: number; validationIssues: any[]; baseMeta: CPGBaseMeta | null }> {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const res = await fetch(`${API_BASE}/gen/sessions/${sessionId}/cpg-scaffold`, {
+    method: 'POST',
+    // Do NOT set Content-Type header when using FormData; fetch handles the multipart boundary automatically
+    body: formData,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`POST /cpg-scaffold failed (${res.status}): ${text.slice(0, 300)}`)
+  }
+
+  const data = await res.json()
+  return {
+    tree: data.tree,
+    placeholderCount: data.placeholder_count,
+    validationIssues: data.validation_issues,
+    baseMeta: data.base_meta ?? null,
   }
 }

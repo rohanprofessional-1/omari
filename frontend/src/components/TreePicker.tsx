@@ -108,7 +108,7 @@ export default function TreePicker({
           onClick={() => setOpen((o) => !o)}
           aria-haspopup="listbox"
           aria-expanded={open}
-          className="inline-flex min-w-[200px] items-center justify-between gap-2 rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm font-medium text-ink shadow-[0_1px_2px_rgba(24,20,16,0.05)] transition-colors hover:bg-bg"
+          className="inline-flex min-w-[200px] items-center justify-between gap-2 rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm font-medium text-ink shadow-subtle transition-colors hover:bg-bg"
         >
           <span className="flex items-center gap-2 truncate">
             <span
@@ -153,7 +153,7 @@ export default function TreePicker({
             <div
               role="listbox"
               style={{ left: coords.left, top: coords.top }}
-              className="omari-msg fixed z-[61] w-[340px] overflow-hidden rounded-xl border border-line bg-canvas shadow-[0_12px_40px_rgba(24,20,16,0.22)]"
+              className="omari-msg fixed z-[61] w-[340px] overflow-hidden rounded-xl border border-line bg-canvas shadow-subtle"
             >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-line px-3 py-2">

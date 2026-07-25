@@ -1,7 +1,25 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react'
 import { fetchClinics, fetchTrees, previewKnowledgeBase, type ClinicSummary, type KnowledgeBasePreviewResponse, type TreeSummary } from '../lib/api'
 
+/**
+ * Omari — the clinic knowledge base: teach the intake model what this clinic
+ * actually treats, by uploading the source documents.
+ *
+ * The screen is a single left-to-right sentence — SET UP (clinic, tree, files)
+ * then READ (what the model pulled out) — so the left column is one uninterrupted
+ * form and the right column is one uninterrupted result. Everything that used to
+ * wrap a control in its own bordered box is gone: nesting a card inside a card
+ * inside a card made three levels of chrome for one level of meaning, and the
+ * eye had to re-enter a new container for every field.
+ *
+ * Lists are chips, not boxed rows. A caption plus wrapped chips says "these are
+ * the terms" in one visual move; a bordered card per list, with a bordered row
+ * per item, said it in three and buried the content.
+ */
+
 type UploadState = 'idle' | 'loading' | 'success' | 'error'
+
+const ACCEPT = '.pdf,.epub,.txt,.md,.html,.htm,application/pdf,application/epub+zip'
 
 function KnowledgeBase() {
   const [clinics, setClinics] = useState<ClinicSummary[]>([])
@@ -56,8 +74,19 @@ function KnowledgeBase() {
     }
   }, [selectedClinicId, selectedTreeId, trees])
 
+  const addFiles = (incoming: FileList | null) => {
+    if (!incoming || incoming.length === 0) return
+    setSelectedFiles((prev) => [...prev, ...Array.from(incoming)])
+  }
+
   const handleFiles = (event: ChangeEvent<HTMLInputElement>) => {
-    setSelectedFiles(Array.from(event.target.files ?? []))
+    addFiles(event.target.files)
+    event.target.value = ''
+  }
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    addFiles(event.dataTransfer.files)
   }
 
   const handleUpload = async () => {
@@ -94,230 +123,269 @@ function KnowledgeBase() {
     }
   }
 
-  const fileCountLabel = selectedFiles.length
-    ? `${selectedFiles.length} file${selectedFiles.length === 1 ? '' : 's'} selected`
-    : 'No files selected yet'
+  const ready = Boolean(selectedClinicId && selectedTreeId && selectedFiles.length)
+  const hint = !selectedClinicId
+    ? 'Pick a clinic to begin.'
+    : !selectedTreeId
+      ? 'Pick the tree that decides what matters.'
+      : selectedFiles.length === 0
+        ? 'Add at least one document.'
+        : `${selectedFiles.length} file${selectedFiles.length === 1 ? '' : 's'} · ${selectedClinic?.name ?? ''} · ${selectedTree?.name ?? ''}`
 
   return (
-    <div className="h-full overflow-y-auto bg-[radial-gradient(circle_at_top,_rgba(31,36,33,0.05),_transparent_38%),linear-gradient(180deg,_#f8f7f3_0%,_#fbfbf8_100%)]">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-5 py-6 lg:px-8">
-        <section className="rounded-3xl border border-line bg-canvas p-6 shadow-[0_18px_40px_rgba(18,24,40,0.08)]">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted">Clinic knowledge base</p>
-              <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight text-ink">
-                Upload the docs that teach the intake LLM what this clinic actually treats.
-              </h1>
-              <p className="mt-3 text-sm leading-6 text-muted">
-                Select the clinic and routing tree, then upload PDFs or EPUBs. The backend trims the
-                docs down to tree-relevant material so only diagnosis- and specialist-specific
-                information is kept in the preview.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-accent-strong/15 bg-sky px-4 py-3 text-sm text-muted lg:max-w-sm">
-              <span className="block font-medium text-ink">Supported now</span>
-              <span>PDF, EPUB, plain text, and HTML. Large documents are chunked before extraction.</span>
-            </div>
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Section header — the same object as every other section's header */}
+      <div className="border-b border-line bg-canvas">
+        <div className="flex w-full flex-wrap items-center gap-3 px-6 py-3">
+          <div className="min-w-0">
+            <h1 className="min-w-0 truncate text-heading-sm text-ink">Knowledge</h1>
+            <p className="truncate text-meta text-muted">
+              Teach the intake model what this clinic actually treats.
+            </p>
           </div>
-        </section>
+          {result && (
+            <span className="ml-auto shrink-0 rounded-md bg-sky px-3 py-1 text-meta font-medium text-accent-strong">
+              {result.persisted ? 'Saved to the clinic' : 'Preview only'}
+            </span>
+          )}
+        </div>
+      </div>
 
-        <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="space-y-4 rounded-3xl border border-line bg-canvas p-5 shadow-[0_14px_32px_rgba(18,24,40,0.06)]">
-            <div>
-              <h2 className="font-display text-xl font-semibold text-ink">Upload settings</h2>
-              <p className="mt-1 text-sm text-muted">Choose the clinic and tree that define what information matters.</p>
-            </div>
-
-            <label className="block space-y-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Clinic</span>
-              <select
-                value={selectedClinicId}
-                onChange={(event) => setSelectedClinicId(event.target.value)}
-                className="w-full rounded-2xl border border-line bg-bg px-4 py-3 text-sm text-ink outline-none transition-colors focus:border-accent-strong"
-              >
-                {clinics.length === 0 && <option value="">No clinics found</option>}
-                {clinics.map((clinic) => (
-                  <option key={clinic.id} value={clinic.id}>
-                    {clinic.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block space-y-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Tree</span>
-              <select
-                value={selectedTreeId}
-                onChange={(event) => setSelectedTreeId(event.target.value)}
-                className="w-full rounded-2xl border border-line bg-bg px-4 py-3 text-sm text-ink outline-none transition-colors focus:border-accent-strong"
-              >
-                {trees.length === 0 && <option value="">No trees found</option>}
-                {trees
-                  .filter((tree) => !selectedClinicId || tree.clinic_id === selectedClinicId || !tree.clinic_id)
-                  .map((tree) => (
-                    <option key={tree.id} value={tree.id}>
-                      {tree.name}
+      <div className="min-h-0 flex-1 overflow-y-auto bg-bg">
+        <div className="mx-auto grid w-full max-w-6xl gap-6 px-6 py-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+          {/* ── Set up: one card, one column, no boxes inside boxes ───────── */}
+          <div className="space-y-4 self-start lg:sticky lg:top-6">
+            <div className="space-y-4 rounded-xl border border-line bg-canvas p-5 shadow-subtle">
+              <Field label="Clinic">
+                <select
+                  value={selectedClinicId}
+                  onChange={(event) => setSelectedClinicId(event.target.value)}
+                  className={control}
+                >
+                  {clinics.length === 0 && <option value="">No clinics found</option>}
+                  {clinics.map((clinic) => (
+                    <option key={clinic.id} value={clinic.id}>
+                      {clinic.name}
                     </option>
                   ))}
-              </select>
-            </label>
+                </select>
+              </Field>
 
-            <label className="block space-y-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Files</span>
-              <div className="rounded-3xl border border-dashed border-line bg-bg p-4">
+              <Field label="Tree" hint="Decides which material counts as relevant.">
+                <select
+                  value={selectedTreeId}
+                  onChange={(event) => setSelectedTreeId(event.target.value)}
+                  className={control}
+                >
+                  {trees.length === 0 && <option value="">No trees found</option>}
+                  {trees
+                    .filter((tree) => !selectedClinicId || tree.clinic_id === selectedClinicId || !tree.clinic_id)
+                    .map((tree) => (
+                      <option key={tree.id} value={tree.id}>
+                        {tree.name}
+                      </option>
+                    ))}
+                </select>
+              </Field>
+
+              <Field label="Documents">
+                <div
+                  onDrop={handleDrop}
+                  onDragOver={(e) => e.preventDefault()}
+                  className="relative rounded-md border border-dashed border-line px-4 py-5 text-center transition-colors hover:border-accent/50 hover:bg-sky/30"
+                >
+                  <p className="text-[13px] font-medium text-ink">Drop files here</p>
+                  <p className="mt-1 text-meta text-muted">
+                    or click to browse · PDF, EPUB, TXT, HTML
+                  </p>
+                  <input
+                    type="file"
+                    multiple
+                    accept={ACCEPT}
+                    onChange={handleFiles}
+                    aria-label="Choose documents"
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  />
+                </div>
+
+                {selectedFiles.length > 0 && (
+                  <ul className="mt-2 divide-y divide-line">
+                    {selectedFiles.map((file, i) => (
+                      <li key={`${file.name}-${i}`} className="flex items-center gap-2 py-1.5">
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-ink" title={file.name}>
+                          {file.name}
+                        </span>
+                        <span className="shrink-0 text-meta tabular-nums text-muted">
+                          {(file.size / 1024 / 1024).toFixed(1)} MB
+                        </span>
+                        <button
+                          onClick={() => setSelectedFiles((prev) => prev.filter((_, j) => j !== i))}
+                          aria-label={`Remove ${file.name}`}
+                          className="shrink-0 rounded-md px-1 text-meta text-muted transition-colors hover:text-danger"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Field>
+
+              {/* Plain control row — a checkbox does not need a card */}
+              <label className="flex cursor-pointer items-start gap-2.5 pt-1">
                 <input
-                  type="file"
-                  multiple
-                  accept=".pdf,.epub,.txt,.md,.html,.htm,application/pdf,application/epub+zip"
-                  onChange={handleFiles}
-                  className="block w-full text-sm text-muted file:mr-4 file:rounded-xl file:border-0 file:bg-accent-strong file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-accent"
+                  type="checkbox"
+                  checked={persist}
+                  onChange={() => setPersist((value) => !value)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-accent-strong"
                 />
-                <p className="mt-3 text-xs leading-5 text-muted">
-                  Best for large surgical handbooks, journal chapters, or specialty manuals. Upload all
-                  related sources together so the preview can merge them.
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-medium text-ink">Save to the clinic</span>
+                  <span className="block text-meta leading-snug text-muted">
+                    Otherwise this run is a preview and nothing is stored.
+                  </span>
+                </span>
+              </label>
+
+              <div>
+                <button
+                  onClick={handleUpload}
+                  disabled={status === 'loading' || !ready}
+                  className="w-full rounded-md bg-accent-strong px-4 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#27508f] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {status === 'loading' ? 'Reading documents…' : 'Extract knowledge'}
+                </button>
+                <p className="mt-2 truncate text-center text-meta text-muted" title={hint}>
+                  {hint}
                 </p>
               </div>
-            </label>
-
-            <label className="flex items-center justify-between rounded-2xl border border-line bg-bg px-4 py-3">
-              <div>
-                <span className="block text-sm font-medium text-ink">Persist preview</span>
-                <span className="block text-xs text-muted">Store the generated knowledge payload on the clinic record for now.</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={persist}
-                onChange={() => setPersist((value) => !value)}
-                className="h-4 w-4 rounded border-line text-accent-strong focus:ring-accent-strong"
-              />
-            </label>
-
-            <button
-              onClick={handleUpload}
-              disabled={status === 'loading' || !selectedFiles.length || !selectedTreeId || !selectedClinicId}
-              className="inline-flex w-full items-center justify-center rounded-2xl bg-accent-strong px-4 py-3 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(33,74,149,0.22)] transition-all hover:-translate-y-[1px] hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {status === 'loading' ? 'Analyzing documents…' : 'Upload and extract knowledge'}
-            </button>
-
-            <div className="rounded-2xl border border-line bg-bg px-4 py-3 text-sm text-muted">
-              <span className="block font-medium text-ink">{fileCountLabel}</span>
-              <span className="block mt-1">{selectedClinic ? `Clinic: ${selectedClinic.name}` : 'Select a clinic.'}</span>
-              <span className="block">{selectedTree ? `Tree: ${selectedTree.name}` : 'Select a tree.'}</span>
             </div>
 
             {error && (
-              <div className="rounded-2xl border border-danger/20 bg-danger/8 px-4 py-3 text-sm text-danger">
+              <p className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 text-[13px] text-danger">
                 {error}
-              </div>
+              </p>
             )}
           </div>
 
-          <div className="space-y-4">
-            <div className="rounded-3xl border border-line bg-canvas p-5 shadow-[0_14px_32px_rgba(18,24,40,0.06)]">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="font-display text-xl font-semibold text-ink">Preview</h2>
-                  <p className="mt-1 text-sm text-muted">What the model extracted after focusing on the tree.</p>
-                </div>
-                {result && (
-                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${result.persisted ? 'bg-accent-strong/10 text-accent-strong' : 'bg-nodeesc/12 text-nodeesc'}`}>
-                    {result.persisted ? 'Persisted' : 'Preview only'}
-                  </span>
-                )}
+          {/* ── Read: what the model pulled out ───────────────────────────── */}
+          <div className="min-w-0">
+            {result ? (
+              <div className="space-y-4">
+                <section className="rounded-xl border border-line bg-canvas p-5 shadow-subtle">
+                  <Caption>Overview</Caption>
+                  <p className="mt-2 text-body leading-6 text-ink">{result.overview}</p>
+                  <div className="mt-4 border-t border-line pt-4">
+                    <Chips label="Focus terms" items={result.focus_terms} />
+                  </div>
+                </section>
+
+                {result.files.map((file) => (
+                  <article
+                    key={file.filename}
+                    className="rounded-xl border border-line bg-canvas p-5 shadow-subtle"
+                  >
+                    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                      <h2 className="min-w-0 truncate text-body font-semibold text-ink">
+                        {file.filename}
+                      </h2>
+                      <p className="text-meta tabular-nums text-muted">
+                        {file.file_type.toUpperCase()} · {file.text_length.toLocaleString()} chars ·{' '}
+                        {file.selected_chunk_count} focused chunk
+                        {file.selected_chunk_count === 1 ? '' : 's'}
+                        {file.model_used && ` · ${file.model_used}`}
+                      </p>
+                    </div>
+
+                    <p className="mt-3 text-body leading-6 text-ink">{file.summary}</p>
+
+                    <div className="mt-4 space-y-3 border-t border-line pt-4">
+                      <Chips label="Relevant topics" items={file.relevant_topics} />
+                      <Chips label="Specialist alignment" items={file.matched_specialists} />
+                      <Chips label="Diagnosis cues" items={file.matched_diagnoses} />
+                      <Chips label="Key points" items={file.key_points} />
+                    </div>
+
+                    {file.evidence_quotes.length > 0 && (
+                      <div className="mt-4 border-t border-line pt-4">
+                        <Caption>Evidence quotes</Caption>
+                        <ul className="mt-2 space-y-2">
+                          {file.evidence_quotes.map((quote) => (
+                            <li
+                              key={quote}
+                              className="border-l-2 border-line pl-3 text-[13px] leading-6 text-muted"
+                            >
+                              {quote}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </article>
+                ))}
               </div>
-
-              {result ? (
-                <div className="mt-5 space-y-5">
-                  <div className="rounded-2xl border border-sky bg-bg p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">Overview</p>
-                    <p className="mt-2 text-sm leading-6 text-ink">{result.overview}</p>
-                  </div>
-
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <SummaryList title="Focus terms" items={result.focus_terms} />
-                    <SummaryList title="Files processed" items={result.files.map((file) => file.filename)} />
-                  </div>
-
-                  <div className="space-y-4">
-                    {result.files.map((file) => (
-                      <article key={file.filename} className="rounded-2xl border border-line bg-bg p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <h3 className="font-medium text-ink">{file.filename}</h3>
-                            <p className="text-xs text-muted">{file.file_type.toUpperCase()} · {file.text_length.toLocaleString()} chars scanned · {file.selected_chunk_count} focused chunk(s)</p>
-                          </div>
-                          {file.model_used && (
-                            <span className="rounded-full bg-accent-strong/10 px-3 py-1 text-[11px] font-semibold text-accent-strong">{file.model_used}</span>
-                          )}
-                        </div>
-
-                        <p className="mt-3 text-sm leading-6 text-ink">{file.summary}</p>
-
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          <SummaryList title="Relevant topics" items={file.relevant_topics} />
-                          <SummaryList title="Specialist alignment" items={file.matched_specialists} />
-                        </div>
-
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          <SummaryList title="Diagnosis cues" items={file.matched_diagnoses} />
-                          <SummaryList title="Key points" items={file.key_points} />
-                        </div>
-
-                        {file.evidence_quotes.length > 0 && (
-                          <div className="mt-4 rounded-xl border border-line bg-canvas p-3 text-xs leading-5 text-muted">
-                            <p className="mb-2 font-semibold uppercase tracking-[0.12em] text-ink">Evidence quotes</p>
-                            <ul className="space-y-2">
-                              {file.evidence_quotes.map((quote) => (
-                                <li key={quote} className="rounded-lg bg-bg px-3 py-2">{quote}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <EmptyState status={status} />
-              )}
-            </div>
+            ) : (
+              /* No 400px dashed slab — an empty result is a sentence, not a room */
+              <p className="px-6 py-16 text-center text-body text-muted">
+                {status === 'loading'
+                  ? 'Reading the documents and narrowing them to what the tree cares about…'
+                  : 'Nothing extracted yet. Add documents on the left to see a tree-focused summary here.'}
+              </p>
+            )}
           </div>
-        </section>
+        </div>
       </div>
     </div>
   )
 }
 
-function SummaryList({ title, items }: { title: string; items: string[] }) {
+/* ─────────────────────────── shared primitives ─────────────────────────── */
+
+/** Resting input fill, pill radius, no border until focus — the system's input. */
+const control =
+  'w-full rounded-md border border-line bg-bg px-3 py-2 text-[13px] text-ink transition-colors hover:border-line focus:border-accent-strong focus:outline-none'
+
+function Caption({ children }: { children: ReactNode }) {
+  return <p className="text-caption uppercase text-muted">{children}</p>
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: ReactNode
+}) {
   return (
-    <div className="rounded-2xl border border-line bg-canvas p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted">{title}</p>
+    <div>
+      <Caption>{label}</Caption>
+      {hint && <p className="mb-1.5 mt-0.5 text-meta leading-snug text-muted">{hint}</p>}
+      <div className={hint ? '' : 'mt-1.5'}>{children}</div>
+    </div>
+  )
+}
+
+/** A caption and its values as wrapped chips — one visual move, not three. */
+function Chips({ label, items }: { label: string; items: string[] }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1.5">
+      <span className="w-40 shrink-0 text-caption uppercase text-muted">{label}</span>
       {items.length > 0 ? (
-        <ul className="mt-3 space-y-2 text-sm text-ink">
+        <span className="flex min-w-0 flex-1 flex-wrap gap-1.5">
           {items.map((item) => (
-            <li key={item} className="rounded-lg bg-bg px-3 py-2 leading-5">{item}</li>
+            <span
+              key={item}
+              className="rounded-md bg-bg px-2 py-0.5 text-meta leading-relaxed text-ink"
+            >
+              {item}
+            </span>
           ))}
-        </ul>
+        </span>
       ) : (
-        <p className="mt-3 text-sm text-muted">No items extracted.</p>
+        <span className="text-meta text-muted">None found</span>
       )}
-    </div>
-  )
-}
-
-function EmptyState({ status }: { status: UploadState }) {
-  const text =
-    status === 'loading'
-      ? 'The backend is chunking the documents and narrowing them to tree-relevant content.'
-      : 'Upload documents to see a tree-focused summary here.'
-
-  return (
-    <div className="grid min-h-[420px] place-items-center rounded-2xl border border-dashed border-line bg-bg px-6 py-10 text-center">
-      <div className="max-w-lg">
-        <h3 className="font-display text-2xl font-semibold text-ink">No preview yet</h3>
-        <p className="mt-3 text-sm leading-6 text-muted">{text}</p>
-      </div>
     </div>
   )
 }

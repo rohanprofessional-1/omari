@@ -8,9 +8,9 @@ database, not browser state, is the record.
 """
 import logging
 import re
-from typing import Any, List
+from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +54,8 @@ from app.schemas.generator import (
     ValidationRunRead,
 )
 from app.services.anthropic import anthropic_service
+from app.schemas.cpg import CPGScaffoldResponse
+from app.services.cpg_service import generate_scaffold_from_cpg
 
 logger = logging.getLogger(__name__)
 
@@ -738,3 +740,67 @@ async def persist_validation_run(
     await db.commit()
     await db.refresh(run)
     return run
+
+
+# --- CPG scaffold generation ---------------------------------------------------
+
+
+@router.post("/sessions/{session_id}/cpg-scaffold", response_model=CPGScaffoldResponse)
+async def generate_cpg_scaffold(
+    session_id: str,
+    file: Optional[UploadFile] = File(None),
+    document_text: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Generate a draft tree scaffold from a Clinical Practice Guideline.
+
+    Accepts either a file upload (PDF, EPUB, TXT) or raw text via
+    document_text.  The generated scaffold lands as an editable draft
+    the clinician reviews and completes in the Builder.
+    """
+    session = await _get_session(session_id, db)
+
+    if not anthropic_service.is_available:
+        raise HTTPException(
+            status_code=503,
+            detail="Anthropic API key not configured — required for CPG extraction.",
+        )
+
+    # Read file bytes if uploaded
+    file_data: bytes | None = None
+    filename: str | None = None
+    content_type: str | None = None
+    if file:
+        file_data = await file.read()
+        filename = file.filename
+        content_type = file.content_type
+    elif not document_text or not document_text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Provide either a file upload or document_text.",
+        )
+
+    try:
+        result = await generate_scaffold_from_cpg(
+            subspecialty=session.subspecialty,
+            document_text=document_text,
+            file_data=file_data,
+            filename=filename,
+            content_type=content_type,
+            existing_tree=session.draft_tree_json,
+        )
+    except ValueError as e:
+        import traceback
+        logger.error(f"[gen] ValueError during CPG scaffold generation: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        import traceback
+        logger.error(f"[gen] Exception during CPG scaffold generation: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Persist the draft tree on the session
+    session.draft_tree_json = result.tree
+    session.stage = "assemble"
+    await db.commit()
+
+    return result

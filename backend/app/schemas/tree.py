@@ -139,6 +139,10 @@ class TreeFullCreate(BaseModel):
     authored_by: Optional[str] = None
     rootNodeId: str
     nodes: List[NodeIn]
+    # Delta layer: the raw CPG scaffold this tree compiles from, plus its
+    # anchoring metadata (CPGScaffoldResponse.base_meta). Stored verbatim.
+    baseTree: Optional[dict] = None
+    baseMeta: Optional[dict] = None
 
 
 class TreeFullUpdate(BaseModel):

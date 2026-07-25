@@ -1355,7 +1355,7 @@ function BuilderCanvas() {
           />
           <div
             ref={wrapperRef}
-            className="relative min-h-0 flex-1 overflow-hidden rounded-[12px] border border-line bg-canvas shadow-[0_1px_2px_rgba(31,36,33,0.04)]"
+            className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-line bg-canvas shadow-subtle"
             onDrop={onDrop}
             onDragOver={onDragOver}
           >
@@ -1409,7 +1409,7 @@ function BuilderCanvas() {
               connectionLineStyle={{ stroke: '#4385BE', strokeWidth: 2 }}
               proOptions={{ hideAttribution: true }}
             >
-              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#E3E1DA" />
+              <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#e5e5e5" />
               <Controls showInteractive={false} />
               {/* MiniMap lives in the left column now (see LeftColumn), not here. */}
 
@@ -1426,7 +1426,7 @@ function BuilderCanvas() {
             {/* Preview banner — the canvas is showing Sprout's CANDIDATE tree,
                 read-only, until the proposal is applied or dismissed. */}
             {previewing && (
-              <div className="omari-reveal absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-accent/40 bg-sky px-4 py-1.5 shadow-[0_4px_14px_rgba(27,58,107,0.15)]">
+              <div className="omari-reveal absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-accent/40 bg-sky px-4 py-1.5 shadow-subtle">
                 <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden />
                 <span className="text-[12px] font-medium text-accent-strong">
                   Previewing Sprout’s proposal — nothing is applied, editing is paused
@@ -1447,7 +1447,7 @@ function BuilderCanvas() {
               <button
                 onClick={() => setAssistantOpen(true)}
                 title="Sprout — AI assistant. Drafts tree edits you approve, answers questions about the tree."
-                className="omari-reveal absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-full bg-accent-strong py-1.5 pl-1.5 pr-4 shadow-[0_4px_18px_rgba(27,58,107,0.38)] transition-all duration-150 hover:-translate-y-0.5 hover:shadow-[0_8px_26px_rgba(27,58,107,0.5)] active:translate-y-0"
+                className="omari-reveal absolute bottom-4 right-4 z-10 flex items-center gap-0.5 rounded-full bg-accent-strong py-1.5 pl-1.5 pr-4 shadow-subtle transition-all duration-150 hover:-translate-y-0.5 hover:shadow-subtle active:translate-y-0"
               >
                 <img src={sproutLogo} alt="" aria-hidden className="h-9 w-9 rounded-full" />
                 <span className="font-display text-[13px] font-semibold text-white">Ask Sprout</span>
@@ -1563,7 +1563,7 @@ function OverviewMap() {
           width={r.w}
           height={r.h}
           rx={10}
-          fill={MINIMAP_COLORS[r.type] ?? '#D9D8D3'}
+          fill={MINIMAP_COLORS[r.type] ?? '#d4d4d4'}
           fillOpacity={0.9}
         />
       ))}
@@ -1787,7 +1787,7 @@ function CanvasToolbar({
     'inline-flex items-center gap-1.5 rounded-md border border-accent-strong/40 bg-canvas px-2.5 py-1.5 text-[12.5px] font-medium text-accent-strong transition-colors hover:border-accent-strong/70 hover:bg-sky'
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-[10px] border border-line bg-canvas px-2 py-1.5 shadow-[0_1px_2px_rgba(31,36,33,0.04)]">
+    <div className="flex flex-wrap items-center gap-1.5 rounded-nested border border-line bg-canvas px-2 py-1.5 shadow-subtle">
       <OpenTreePicker
         trees={trees}
         openTreeId={openTreeId}
@@ -1920,7 +1920,7 @@ function SaveToLibraryButton({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1.5 w-72 rounded-lg border border-line bg-canvas p-3 shadow-[0_10px_30px_rgba(31,36,33,0.18)]">
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-72 rounded-lg border border-line bg-canvas p-3 shadow-subtle">
           {updateName && (
             <>
               <button
@@ -2065,7 +2065,7 @@ function OpenTreePicker({
       </button>
 
       {open && (
-        <div className="absolute left-0 top-full z-50 mt-1.5 w-72 overflow-hidden rounded-lg border border-line bg-canvas shadow-[0_10px_30px_rgba(31,36,33,0.18)]">
+        <div className="absolute left-0 top-full z-50 mt-1.5 w-72 overflow-hidden rounded-lg border border-line bg-canvas shadow-subtle">
           <div className="flex items-center justify-between border-b border-line px-3 py-2">
             <p className="font-display text-[10px] font-semibold uppercase tracking-[0.1em] text-muted">
               Open a tree
@@ -2160,7 +2160,7 @@ function SaveResultBanner({
   const textTone = clean ? 'text-accent' : ok ? 'text-nodeesc' : 'text-danger'
 
   return (
-    <div className="mb-3 w-[440px] max-w-[80vw] overflow-hidden rounded-[10px] border border-line bg-canvas shadow-[0_6px_20px_rgba(31,36,33,0.10)]">
+    <div className="mb-3 w-[440px] max-w-[80vw] overflow-hidden rounded-nested border border-line bg-canvas shadow-subtle">
       <div className={`flex items-center justify-between px-3 py-2 ${headTone}`}>
         <span className={`font-display text-[12.5px] font-medium ${textTone}`}>
           {clean

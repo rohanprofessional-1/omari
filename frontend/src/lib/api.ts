@@ -4,6 +4,19 @@ import { TreeSchema } from '../types/tree'
 // Relative — Vite proxies /api/v1 → FastAPI (Postgres). See vite.config.ts.
 const API_BASE = '/api/v1'
 
+/**
+ * Auth headers for every request in this file.
+ *
+ * TODO(auth): returns {} today — the backend has no authentication at all
+ * (no users table, no JWT, no dependency). Once POST /api/v1/auth/login lands
+ * (docs/tree-generator-technical-architecture.md §7 D4), attach
+ * `Authorization: Bearer <token>` HERE and route every fetch through it, rather
+ * than threading a token through each call site.
+ */
+export function authHeaders(): Record<string, string> {
+  return {}
+}
+
 /** Tree metadata as returned by the list endpoint (TreeRead). */
 export interface TreeSummary {
   id: string
@@ -61,7 +74,11 @@ function mapCondition(c: any): Condition {
     else if (!isNaN(Number(val))) val = Number(val)
     return { op: 'equals', value: val }
   } else if (c.condition_type === 'range') {
-    return { op: 'range', min: c.min_value ?? undefined, max: c.max_value ?? undefined }
+    return {
+      op: 'range',
+      min: c.min_value != null ? Number(c.min_value) : undefined,
+      max: c.max_value != null ? Number(c.max_value) : undefined
+    }
   } else if (c.condition_type === 'in') {
     return { op: 'in', values: c.values_list ? JSON.parse(c.values_list) : [] }
   }
@@ -113,7 +130,7 @@ export async function fetchTree(id: string): Promise<Tree> {
       if (n.node_type === 'variable') {
         base.variableKey = n.variable_key
         base.prompt = n.prompt
-        base.dataSource = n.data_source
+        base.dataSource = n.data_source || 'patient'
         base.branches = n.branches.map((b: any) => ({
           label: b.label,
           patientLabel: b.patient_label || undefined,
@@ -123,8 +140,8 @@ export async function fetchTree(id: string): Promise<Tree> {
       } else if (n.node_type === 'specialist') {
         base.specialistName = n.specialist_name
         base.specialty = n.specialty
-        base.urgency = n.urgency
-        base.reasoningTemplate = n.reasoning_template
+        base.urgency = n.urgency || 'routine'
+        base.reasoningTemplate = n.reasoning_template || ''
         base.clinicalBasis = n.clinical_basis || undefined
         base.confirmWithDrLi = n.confirm_with_dr_li || undefined
         // Prefer the v2 path-conditioned spec (JSONB); fall back to the legacy
@@ -200,7 +217,7 @@ export async function getConversation(conversationId: string) {
 export async function createTreeFull(
   name: string,
   tree: Tree,
-  opts: { description?: string } = {},
+  opts: { description?: string; baseTree?: unknown; baseMeta?: unknown } = {},
 ): Promise<TreeSummary> {
   const res = await fetch(`${API_BASE}/trees/full`, {
     method: 'POST',
@@ -210,6 +227,9 @@ export async function createTreeFull(
       description: opts.description,
       rootNodeId: tree.rootNodeId,
       nodes: tree.nodes,
+      // Delta layer: raw CPG scaffold + anchoring metadata, stored verbatim.
+      baseTree: opts.baseTree,
+      baseMeta: opts.baseMeta,
     }),
   })
   if (!res.ok) throw new Error(`Failed to save tree: ${await res.text()}`)
@@ -233,6 +253,20 @@ export async function updateTreeFull(
     }),
   })
   if (!res.ok) throw new Error(`Failed to update tree: ${await res.text()}`)
+  return res.json()
+}
+
+/** Publish the draft as an immutable, optionally signed version. */
+export async function publishTree(
+  id: string,
+  opts: { signedBy?: string; validationSummary?: Record<string, unknown> } = {},
+): Promise<{ id: string; version_no: number; signed_by?: string | null }> {
+  const res = await fetch(`${API_BASE}/trees/${id}/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ signed_by: opts.signedBy, validation_summary: opts.validationSummary }),
+  })
+  if (!res.ok) throw new Error(`Failed to publish tree: ${await res.text()}`)
   return res.json()
 }
 

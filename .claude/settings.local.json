@@ -147,7 +147,28 @@
       "Bash(node orb-shot.mjs)",
       "Bash(node orb-voice-test.mjs)",
       "Bash(open -a Docker)",
-      "Bash(docker info *)"
+      "Bash(docker info *)",
+      "Skill(run)",
+      "Read(//Users/shivankkancharla/Downloads/**)",
+      "Bash(git -C \"/Users/shivankkancharla/Project Omari\" status --short)",
+      "Bash(node scripts/run-tests.mjs)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(perl -pi -e 's{\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./Users/shivankkancharla/Project Omari/frontend/src}{/Users/shivankkancharla/Project Omari/frontend/src}g' __TRACKED_VAR__/preview.ts)",
+      "Bash(git checkout *)",
+      "Bash(node -e \"console.log\\(require\\('./frontend/package.json'\\).devDependencies, require\\('./frontend/package.json'\\).dependencies\\)\")",
+      "Bash(node -e \"const p=require\\('./frontend/package.json'\\);console.log\\(p.scripts\\)\")",
+      "Bash(lsof -ti:5173)",
+      "Bash(awk '{print $2, $9, $11, $12, $13}')",
+      "Bash(node shot.mjs)",
+      "Bash(npm i *)",
+      "Bash(npx playwright *)",
+      "Bash(npx eslint *)",
+      "Bash(xargs kill)",
+      "Bash(node -e \"try{console.log\\(require\\('./package.json'\\).scripts\\)}catch\\(e\\){console.log\\('no root package.json'\\)}\")",
+      "Bash(python3 - dist/assets/index-D1REdyS_.css)",
+      "Bash(node clinic.mjs)",
+      "Bash(rm src/dashboard/components/trees/TreesDeployedScreen.tsx)",
+      "Bash(rmdir src/dashboard/components/trees)"
     ]
   }
 }

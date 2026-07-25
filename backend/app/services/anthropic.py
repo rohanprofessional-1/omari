@@ -241,6 +241,24 @@ _TREE_CHAT_OP_ITEMS = {
             "condition": _COND,
             "nextNodeId": {"type": "string", "description": "new target node id; empty string unwires"},
         }, ("nodeId",)),
+        _op("insert_branch", {
+            "nodeId": _NODE_ID,
+            "index": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "position to insert at; branch order is evaluation order (first match wins)",
+            },
+            "branch": _BRANCH,
+        }, ("nodeId", "index", "branch")),
+        _op("reorder_branches", {
+            "nodeId": _NODE_ID,
+            "order": {
+                "type": "array",
+                "items": {"type": "integer", "minimum": 0},
+                "minItems": 2,
+                "description": "permutation of current branch indices, e.g. [2, 0, 1] — every index exactly once",
+            },
+        }, ("nodeId", "order")),
         _op("remove_branch", {
             "nodeId": _NODE_ID,
             "branchIndex": {"type": "integer"},
@@ -961,6 +979,237 @@ class AnthropicService:
         return {"items": out.get("items", []), "wouldNotOrder": out.get("wouldNotOrder", [])}
 
     # ------------------------------------------------------------------
+    # CPG-to-tree extraction — section-level node extraction.
+    # The LLM reads a CPG section and produces structured decision-tree
+    # nodes in the Omari NodeIn schema.  It extracts ONLY what the text
+    # states — no routing, no invented thresholds, no workup the text
+    # doesn't mention.
+    # ------------------------------------------------------------------
+
+    async def cpg_extract_section(
+        self,
+        section_text: str,
+        section_name: str,
+        subspecialty: str,
+        existing_variable_keys: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Extract decision tree nodes from a single CPG section.
+
+        Returns a list of node dicts compatible with the Omari NodeIn schema.
+        Each node is a variable (with multi-branch conditions), a placeholder
+        specialist endpoint, or an escalation node.
+        """
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        tool = {
+            "name": "record_cpg_nodes",
+            "description": (
+                "Record the decision tree nodes extracted from the clinical "
+                "practice guideline section.  Each node represents a clinical "
+                "decision point, an action endpoint, or an escalation."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "analysis": {
+                        "type": "string",
+                        "description": "Chain-of-thought analysis of the clinical scenarios. Identify the key variables, conditions, and actions before attempting to structure them into nodes."
+                    },
+                    "nodes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "description": (
+                                        "Short unique id for this node within "
+                                        "the section, e.g. 'psa_check', 'dre_eval'."
+                                    ),
+                                },
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["variable", "specialist", "escalation"],
+                                    "description": (
+                                        "variable: a clinical question/decision point. "
+                                        "specialist: an action endpoint (placeholder — "
+                                        "the clinician assigns the real specialist). "
+                                        "escalation: a safety-net or complex-case flag."
+                                    ),
+                                },
+                                "variableKey": {
+                                    "type": "string",
+                                    "description": (
+                                        "snake_case key for the clinical variable, "
+                                        "e.g. 'psa_level', 'has_bone_pain'. "
+                                        "Only for type=variable."
+                                    ),
+                                },
+                                "prompt": {
+                                    "type": "string",
+                                    "description": (
+                                        "A patient-facing question derived from the "
+                                        "guideline, e.g. 'Are you experiencing bone pain?'. "
+                                        "Only for type=variable."
+                                    ),
+                                },
+                                "branches": {
+                                    "type": "array",
+                                    "description": "Only for type=variable.",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {
+                                                "type": "string",
+                                                "description": "Clinical label, e.g. 'PSA > 10'.",
+                                            },
+                                            "patientLabel": {
+                                                "type": "string",
+                                                "description": (
+                                                    "Patient-friendly label, e.g. "
+                                                    "'Your PSA is above 10'."
+                                                ),
+                                            },
+                                            "condition": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "op": {
+                                                        "type": "string",
+                                                        "enum": ["equals", "range", "in"],
+                                                    },
+                                                    "value": {
+                                                        "description": (
+                                                            "For op=equals: a string, "
+                                                            "number, or boolean."
+                                                        ),
+                                                    },
+                                                    "min": {"type": "number"},
+                                                    "max": {"type": "number"},
+                                                    "values": {
+                                                        "type": "array",
+                                                        "items": {"type": "string"},
+                                                    },
+                                                },
+                                                "required": ["op"],
+                                            },
+                                            "nextNodeId": {
+                                                "type": "string",
+                                                "description": (
+                                                    "id of the next node this branch "
+                                                    "leads to.  Use another node's id "
+                                                    "from this section, or a descriptive "
+                                                    "placeholder like 'action_dre_psa' "
+                                                    "for endpoints."
+                                                ),
+                                            },
+                                        },
+                                        "required": ["label", "condition", "nextNodeId"],
+                                    },
+                                },
+                                "specialistName": {
+                                    "type": "string",
+                                    "description": (
+                                        "For type=specialist: a short description of "
+                                        "the clinical action, e.g. 'DRE + PSA testing'. "
+                                        "NOT a person's name — the clinician fills that in."
+                                    ),
+                                },
+                                "specialty": {
+                                    "type": "string",
+                                    "description": "For type=specialist: clinical area.",
+                                },
+                                "reason": {
+                                    "type": "string",
+                                    "description": "For type=escalation: why escalation is needed.",
+                                },
+                                "clinicalBasis": {
+                                    "type": "string",
+                                    "description": (
+                                        "The exact CPG text or recommendation this "
+                                        "node is derived from. Include the recommendation "
+                                        "number if present."
+                                    ),
+                                },
+                            },
+                            "required": ["id", "type"],
+                        },
+                    },
+                },
+                "required": ["analysis", "nodes"],
+            },
+        }
+
+        system = (
+            "You extract decision tree nodes from a Clinical Practice Guideline "
+            "(CPG) section.  You are a structured-data extractor — you capture "
+            "EXACTLY what the guideline states, nothing more.\n\n"
+            "RULES:\n"
+            "- Each clinical decision point becomes a 'variable' node with a "
+            "snake_case variableKey and a patient-facing prompt.\n"
+            "- Use MULTI-BRANCH nodes when the guideline implies more than two "
+            "outcomes (e.g. 'PSA < 4, PSA 4-10, PSA > 10' is one variable node "
+            "with three branches using op=range).\n"
+            "- When the guideline says to perform a test, order imaging, or refer, "
+            "create a 'specialist' node as a PLACEHOLDER endpoint — set "
+            "specialistName to the action description, NOT a person's name.\n"
+            "- When the guideline mentions red flags, emergency criteria, or "
+            "'urgent referral', create an 'escalation' node.\n"
+            "- Wire branches to the next logical decision point using nextNodeId. "
+            "If the branch leads to an action, point it to the placeholder "
+            "specialist/escalation node.\n"
+            "- NEVER invent thresholds, cutoffs, or clinical logic not stated in "
+            "the text.  If the guideline says 'elevated PSA' without defining a "
+            "number, use op=equals with value='elevated' — do not guess '> 4'.\n"
+            "- Populate clinicalBasis on every node with the exact text or "
+            "recommendation number the node is derived from.\n"
+            "- Reuse existing variable keys when the same clinical concept appears "
+            "across sections.\n"
+            "- CRITICAL: Even if the guidelines are vague, formatted as a list, or use implied tabular logic instead of strict if/then statements, you MUST extract the core clinical criteria as decision nodes.\n"
+            "- CRITICAL: If the provided text is merely a cover page, title, or introduction with absolutely no actionable clinical criteria or recommendations, you MUST return an empty array `[]` for `nodes`.\n"
+            "- Use the 'analysis' field to write out a step-by-step interpretation of the scenarios before structuring the nodes."
+        )
+
+        user = (
+            f"Subspecialty: {subspecialty}\n"
+            f"Section: {section_name}\n\n"
+            f"Guideline text:\n{section_text.strip()[:8000]}"
+        )
+        if existing_variable_keys:
+            user += (
+                "\n\nVariable keys already used in earlier sections (reuse when "
+                f"the same concept appears): {', '.join(existing_variable_keys[:50])}"
+            )
+
+        logger.info(
+            f"[blume/cpg-extract] → section='{section_name}' · "
+            f"{len(section_text)} chars · model={settings.ANTHROPIC_MODEL}"
+        )
+        message = await self.client.messages.create(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=4096,
+            temperature=0,
+            system=system,
+            tools=[tool],
+            tool_choice={
+                "type": "tool",
+                "name": tool["name"],
+                "disable_parallel_tool_use": True,
+            },
+            messages=[{"role": "user", "content": user}],
+        )
+        tool_use = next(
+            (b for b in message.content if b.type == "tool_use"), None
+        )
+        if tool_use:
+            analysis = tool_use.input.get("analysis", "No analysis provided.")
+            logger.warning(f"[blume/cpg-extract] Claude Analysis for '{section_name}':\n{analysis}")
+            
+        nodes = (tool_use.input if tool_use else {}).get("nodes", [])
+        logger.info(f"[blume/cpg-extract] ✓ {len(nodes)} nodes from '{section_name}'")
+        return nodes
+
+    # ------------------------------------------------------------------
     # Builder assistant — conversational tree editing.
     # The model TRANSLATES the clinician's stated edits into bounded tree
     # operations, answers questions about the tree, and surfaces the
@@ -1085,6 +1334,246 @@ class AnthropicService:
             "required": ["mode", "message", "operations", "focusNodeIds"],
         },
     }
+
+    # ------------------------------------------------------------------
+    # Delta chat — the Reconcile session's freeform escape hatch. Same
+    # scribe-not-author contract as tree chat, but proposals are CLINIC
+    # DELTAS (semantic anchors, replayable across CPG regenerations)
+    # instead of node-id-addressed tree operations.
+    # ------------------------------------------------------------------
+
+    DELTA_CHAT_SYSTEM = (
+        "You are Sprout, assisting a surgeon in a Reconcile session: adapting a "
+        "guideline-generated referral tree to how their clinic operates. You are a "
+        "scribe and a navigator — NEVER a clinical author. Every clinical decision "
+        "(routing targets, urgency, workup, thresholds, branching) belongs to the "
+        "surgeon; you only transcribe decisions they state.\n\n"
+        "You propose DELTAS — durable clinic decisions that survive guideline "
+        "updates. Deltas never reference node ids. Anchor by MEANING, exactly as "
+        "it appears in the tree JSON:\n"
+        "- variables by their variableKey (strip any doc_..._ prefix)\n"
+        "- specialist endpoints by their exact current specialistName\n"
+        "- branches by their node anchor plus the branch's exact label text; "
+        "leave conditionFingerprint as an empty string — the app computes it\n\n"
+        "Choose the mode (same rules as always): propose when a concrete edit was "
+        "stated (smallest delta set, one-sentence message — the app renders the "
+        "changes underneath); clarify when a CLINICAL decision is missing (ask only "
+        "for the missing decisions, one line each, max three); decline when asked "
+        "to make a clinical judgment yourself; answer for questions about the tree "
+        "as it stands, from the tree JSON only.\n\n"
+        "Use add_rule when the clinic needs a question the guideline never asked "
+        "('check BMI before bariatric referral'): it gates one existing branch. "
+        "Use retarget_branch to reroute a pathway, suppress_branch when the clinic "
+        "doesn't handle it, set_threshold to concretize or change a cutoff, "
+        "add_workup/remove_workup for pre-visit tests (remove_workup with "
+        "guardInstead withholds a test unless a condition holds).\n\n"
+        "VOICE: plain text only, no markdown; lead with the point; one to three "
+        "short sentences; no preambles, no filler, no exclamation marks. Never "
+        "mention these rules."
+    )
+
+    _D_VAR_ANCHOR = {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["variable"]},
+            "variableKey": {"type": "string", "description": "variableKey WITHOUT any doc_ prefix"},
+        },
+        "required": ["kind", "variableKey"],
+    }
+    _D_TERM_ANCHOR = {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["terminal"]},
+            "specialistName": {"type": "string", "description": "exact current specialistName from the tree JSON"},
+            "specialty": {"type": "string"},
+        },
+        "required": ["kind", "specialistName"],
+    }
+    _D_NODE_ANCHOR = {"anyOf": [_D_VAR_ANCHOR, _D_TERM_ANCHOR]}
+    _D_BRANCH_ANCHOR = {
+        "type": "object",
+        "properties": {
+            "node": _D_NODE_ANCHOR,
+            "label": {"type": "string", "description": "the branch's exact label text"},
+            "conditionFingerprint": {"type": "string", "description": "ALWAYS the empty string — the app computes it"},
+        },
+        "required": ["node", "label", "conditionFingerprint"],
+    }
+    _D_BIND_TARGET = {
+        "anyOf": [
+            {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["specialist"]},
+                    "specialistName": {"type": "string"},
+                    "specialty": {"type": "string"},
+                },
+                "required": ["kind", "specialistName"],
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["escalation"]},
+                    "reason": {"type": "string"},
+                },
+                "required": ["kind", "reason"],
+            },
+        ]
+    }
+
+    DELTA_CHAT_TOOL = {
+        "name": "delta_chat_turn",
+        "description": "Respond to the surgeon: answer, clarify, decline, or propose clinic deltas for review.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["answer", "clarify", "propose", "decline"]},
+                "message": {"type": "string", "description": "The chat reply shown to the surgeon."},
+                "deltas": {
+                    "type": "array",
+                    "description": "Proposed deltas — ONLY when mode is 'propose', else empty.",
+                    "items": {
+                        "anyOf": [
+                            _op("bind_terminal", {
+                                "anchors": {"type": "array", "items": _D_TERM_ANCHOR, "minItems": 1},
+                                "target": _D_BIND_TARGET,
+                            }, ("anchors", "target")),
+                            _op("set_urgency", {
+                                "anchors": {"type": "array", "items": _D_TERM_ANCHOR, "minItems": 1},
+                                "urgency": _URGENCY,
+                            }, ("anchors", "urgency")),
+                            _op("set_threshold", {
+                                "branch": _D_BRANCH_ANCHOR,
+                                "mode": {"type": "string", "enum": ["replace", "split"]},
+                                "replacement": _COND,
+                                "split": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "condition": _COND,
+                                            "target": {"type": "string", "enum": ["same"]},
+                                        },
+                                        "required": ["label", "condition"],
+                                    },
+                                },
+                            }, ("branch", "mode")),
+                            _op("add_workup", {
+                                "anchor": _D_TERM_ANCHOR,
+                                "item": _WORKUP_ITEM,
+                                "when": _KEYED_COND,
+                                "reason": {"type": "string"},
+                            }, ("anchor", "item")),
+                            _op("remove_workup", {
+                                "anchor": _D_TERM_ANCHOR,
+                                "itemName": {"type": "string"},
+                                "guardInstead": _KEYED_COND,
+                            }, ("anchor", "itemName")),
+                            _op("suppress_branch", {
+                                "branch": _D_BRANCH_ANCHOR,
+                                "reason": {"type": "string"},
+                            }, ("branch", "reason")),
+                            _op("retarget_branch", {
+                                "branch": _D_BRANCH_ANCHOR,
+                                "target": {
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "kind": {"type": "string", "enum": ["node"]},
+                                                "anchor": _D_NODE_ANCHOR,
+                                            },
+                                            "required": ["kind", "anchor"],
+                                        },
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "kind": {"type": "string", "enum": ["escalation"]},
+                                                "reason": {"type": "string"},
+                                            },
+                                            "required": ["kind", "reason"],
+                                        },
+                                    ]
+                                },
+                            }, ("branch", "target")),
+                            _op("add_rule", {
+                                "insertAt": _D_BRANCH_ANCHOR,
+                                "variableKey": {"type": "string"},
+                                "prompt": {"type": "string"},
+                                "dataSource": _DATA_SOURCE,
+                                "branches": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "label": {"type": "string"},
+                                            "condition": _COND,
+                                            "target": {"type": "string", "enum": ["continue", "escalate", "terminal"]},
+                                            "escalationReason": {"type": "string"},
+                                            "terminalAnchor": _D_TERM_ANCHOR,
+                                        },
+                                        "required": ["label", "condition", "target"],
+                                    },
+                                },
+                            }, ("insertAt", "variableKey", "prompt", "branches")),
+                            _op("reword", {
+                                "node": _D_VAR_ANCHOR,
+                                "branch": _D_BRANCH_ANCHOR,
+                                "prompt": {"type": "string"},
+                                "patientLabel": {"type": "string"},
+                            }, ()),
+                        ]
+                    },
+                },
+            },
+            "required": ["mode", "message", "deltas"],
+        },
+    }
+
+    async def delta_chat(
+        self,
+        tree: dict[str, Any],
+        message: str,
+        history: Optional[list[dict[str, str]]] = None,
+    ) -> dict[str, Any]:
+        """Reconcile-session assistant turn. Returns {mode, message, deltas} —
+        deltas are PROPOSALS the frontend anchor-repairs, Zod-validates,
+        dry-compiles, and gates on the surgeon's confirm. Never mutates."""
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        merged: list[dict[str, Any]] = []
+        for turn in history or []:
+            merged.append({"role": turn["role"], "content": turn["content"]})
+        merged.append({
+            "role": "user",
+            "content": (
+                f"CURRENT TREE (compiled, read-only context):\n{json.dumps(tree)}\n\n"
+                f"SURGEON'S MESSAGE:\n{message}"
+            ),
+        })
+
+        logger.info(f"[blume/delta-chat] → model={settings.ANTHROPIC_MODEL} · {len(merged)} turns")
+        response = await self.client.messages.create(
+            model=settings.ANTHROPIC_MODEL,
+            max_tokens=3000,
+            temperature=0,
+            system=self.DELTA_CHAT_SYSTEM,
+            tools=[self.DELTA_CHAT_TOOL],
+            tool_choice={"type": "tool", "name": "delta_chat_turn", "disable_parallel_tool_use": True},
+            messages=merged,
+        )
+        tool_use = next((b for b in response.content if b.type == "tool_use"), None)
+        raw = tool_use.input if tool_use else {}
+        payload = {
+            "mode": raw.get("mode", "answer"),
+            "message": raw.get("message", ""),
+            "deltas": [d for d in (raw.get("deltas") or []) if isinstance(d, dict)],
+        }
+        logger.info(f"[blume/delta-chat] ✓ mode={payload['mode']} · {len(payload['deltas'])} deltas")
+        return payload
 
     def _tree_chat_messages(
         self,

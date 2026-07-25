@@ -90,7 +90,7 @@ Input: sample faxed referral orders, prior-auth forms, PCP clinical notes (de-id
 
 - `icd10_codes` with surrounding context (validate code format deterministically against the public ICD-10-CM list — codes are public domain in the US, ship the table)
 - `jargon_mappings`: `{external_term: "lateral epicondylitis", proposed_internal_variable: "elbow_pain_lateral", evidence_quote}`
-- `referral_reason_patterns`: recurring phrasings of why patients get sent.
+- `referral_reason_patterns`: recurri/ng phrasings of why patients get sent.
 
 Feeds: (1) a clinic-level `synonym_map` table that the *Runner's* extraction job consumes at intake time — so when a real referral arrives saying "lateral epicondylitis," variable filling recognizes it; (2) realism vocabulary for Job 1 case generation (synthetic cases start speaking the way this clinic's actual referrers write, which sharpens the highlight game); (3) `code_mappings` (ICD-10 → variables/paths) as *proposals* — an ICD-10 code on an inbound referral becomes a pre-filled variable suggestion at intake, never an automatic route (referral codes are notoriously wrong; treat them as weak evidence the surgeon-authored tree then interrogates).
 

@@ -95,6 +95,22 @@ export const TreeOpSchema = z.discriminatedUnion('op', [
     nodeId: z.string(),
     branch: BranchInputSchema,
   }),
+  // Insert a branch at a specific index. First-match evaluation makes branch
+  // position semantic — threshold splits must land at the original branch's
+  // index, not be appended after later (broader) branches.
+  z.object({
+    op: z.literal('insert_branch'),
+    nodeId: z.string(),
+    index: z.number().int().nonnegative(),
+    branch: BranchInputSchema,
+  }),
+  // Reorder all branches on a node. `order` is a permutation of the current
+  // branch indices (e.g. [2, 0, 1]) — every index exactly once.
+  z.object({
+    op: z.literal('reorder_branches'),
+    nodeId: z.string(),
+    order: z.array(z.number().int().nonnegative()).min(2),
+  }),
   z.object({
     op: z.literal('update_branch'),
     nodeId: z.string(),
@@ -196,13 +212,23 @@ function fullItem(item: { name: string; protocol?: string; rationale?: string })
   return { name: item.name, protocol: item.protocol ?? '', rationale: item.rationale ?? '' }
 }
 
+export interface ApplyOptions {
+  /**
+   * Generates ids for new nodes. Defaults to `newNodeId` (random). The delta
+   * compiler injects a deterministic factory seeded per delta so compiling the
+   * same (base, deltas) twice yields byte-identical trees. Collisions with
+   * existing ids are suffixed, so a factory need not guarantee uniqueness.
+   */
+  idFactory?: (kind: TreeNode['type']) => string
+}
+
 /**
  * Apply a validated op list to a tree, all-or-nothing. Pure — never mutates
  * the input. New-node ids the assistant invented (e.g. "new_1") are replaced
  * with real generated ids; later ops referencing the invented id resolve
  * through an alias map. Any error rejects the WHOLE proposal.
  */
-export function applyOps(inputTree: Tree, ops: TreeOp[]): ApplyResult {
+export function applyOps(inputTree: Tree, ops: TreeOp[], opts?: ApplyOptions): ApplyResult {
   // Normalize (v1 workup arrays → WorkupSpec) and deep-copy in one step.
   const parsed = TreeSchema.safeParse(inputTree)
   if (!parsed.success) {
@@ -242,10 +268,13 @@ export function applyOps(inputTree: Tree, ops: TreeOp[]): ApplyResult {
     return node as Extract<TreeNode, { type: T }>
   }
 
+  const makeId = opts?.idFactory ?? newNodeId
   const registerNew = (kind: TreeNode['type'], requested?: string): string => {
     const taken = new Set(tree.nodes.map((n) => n.id))
-    let id = requested && !taken.has(requested) ? requested : newNodeId(kind)
-    while (taken.has(id)) id = newNodeId(kind)
+    let id = requested && !taken.has(requested) ? requested : makeId(kind)
+    // Deterministic factories may collide with existing ids — disambiguate
+    // with a stable numeric suffix rather than looping on the factory.
+    for (let bump = 2; taken.has(id); bump++) id = `${makeId(kind)}_${bump}`
     if (requested && requested !== id) alias.set(requested, id)
     addedIds.push(id)
     return id
@@ -354,6 +383,38 @@ export function applyOps(inputTree: Tree, ops: TreeOp[]): ApplyResult {
           condition: raw.branch.condition,
           nextNodeId: raw.branch.nextNodeId ? resolveId(raw.branch.nextNodeId) : '',
         })
+        changedIds.add(node.id)
+        break
+      }
+      case 'insert_branch': {
+        const node = requireNode(raw.nodeId, 'variable', raw.op)
+        if (!node) break
+        if (raw.index > node.branches.length) {
+          errors.push(`insert_branch: index ${raw.index} out of range on "${node.variableKey}" (${node.branches.length} branches)`)
+          break
+        }
+        node.branches.splice(raw.index, 0, {
+          label: raw.branch.label,
+          ...(raw.branch.patientLabel ? { patientLabel: raw.branch.patientLabel } : {}),
+          condition: raw.branch.condition,
+          nextNodeId: raw.branch.nextNodeId ? resolveId(raw.branch.nextNodeId) : '',
+        })
+        changedIds.add(node.id)
+        break
+      }
+      case 'reorder_branches': {
+        const node = requireNode(raw.nodeId, 'variable', raw.op)
+        if (!node) break
+        const n = node.branches.length
+        const isPermutation =
+          raw.order.length === n && [...raw.order].sort((a, b) => a - b).every((v, i) => v === i)
+        if (!isPermutation) {
+          errors.push(
+            `reorder_branches: order [${raw.order.join(', ')}] is not a permutation of 0..${n - 1} on "${node.variableKey}"`,
+          )
+          break
+        }
+        node.branches = raw.order.map((i) => node.branches[i])
         changedIds.add(node.id)
         break
       }

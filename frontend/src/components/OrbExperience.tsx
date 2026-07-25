@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { deriveQuestion, type Choice } from '../lib/runner'
 import type { OrchestratorStep } from '../lib/orchestrator'
-import type { ChatMessage, Phase } from '../pages/Runner'
-import { StatusStepper } from '../pages/Runner'
-import VoiceOrb, { ORB_BLUE, ORB_GREEN, useVoiceCapture, type VoiceCapture } from './VoiceOrb'
+import type { ChatMessage, Phase } from '../pages/runner/chatTypes'
+import StatusStepper from './StatusStepper'
+import VoiceOrb, { ORB_BLUE, useVoiceCapture, type VoiceCapture } from './VoiceOrb'
 
 /**
  * Omari — Presentation-mode ORB experience (presentation-only patient view).
@@ -23,7 +23,7 @@ import VoiceOrb, { ORB_BLUE, ORB_GREEN, useVoiceCapture, type VoiceCapture } fro
  * the input box toggles it, and while live it BOTH streams talk-to-text into
  * the mounted input and animates the orb via the shared level ref. The view
  * also feeds the orb a target colour (blue through the conversation, easing to
- * green on the referral-sent beat) and a `calm` flag under
+ * accent on the referral-sent beat) and a `calm` flag under
  * prefers-reduced-motion. Because the whole experience mounts ONLY in
  * Presentation mode, exactly one WebGL canvas exists, and it unmounts
  * (disposing the context) the moment Presentation mode is turned off.
@@ -52,7 +52,7 @@ const pillBtn =
   'transition-all hover:-translate-y-0.5 hover:border-accent hover:bg-sky hover:text-accent'
 const primaryBtn =
   'omari-grad omari-grad-hover rounded-full px-6 py-2.5 text-sm font-semibold text-white ' +
-  'shadow-[0_2px_10px_rgba(27,58,107,0.30)] transition-all active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40'
+  'shadow-subtle transition-all active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40'
 
 // Boxed input — extra bottom padding leaves room for the mic + send buttons that
 // sit INSIDE the box at the bottom-right. `omari-quiet-focus` replaces the bright
@@ -101,7 +101,7 @@ function VoiceButton({ voice }: { voice: VoiceCapture }) {
       aria-pressed={voice.listening}
       className={
         voice.listening
-          ? 'omari-grad grid h-10 w-10 shrink-0 animate-pulse place-items-center rounded-full text-white shadow-[0_2px_10px_rgba(27,58,107,0.30)] transition-colors'
+          ? 'omari-grad grid h-10 w-10 shrink-0 animate-pulse place-items-center rounded-full text-white shadow-subtle transition-colors'
           : 'grid h-10 w-10 shrink-0 place-items-center rounded-full border border-line bg-canvas text-muted transition-colors hover:border-accent/40 hover:bg-sky hover:text-accent'
       }
     >
@@ -359,11 +359,11 @@ function OrbExperience({
   // "presence"; its motion comes from the patient's voice, not the flow state.
   const displayText = phase === 'error' ? error ?? 'Something went wrong.' : lastBot?.text ?? ''
 
-  // The referral-sent success beat: orb eases to green, a soft green edge glow
-  // frames the screen, and the status timeline appears. Routed AND escalation
-  // handoffs share this patient-facing green treatment.
+  // The referral-sent success beat: a soft accent edge glow frames the screen
+  // and the status timeline appears. The orb itself does not change colour —
+  // the whole app is one blue, and this moment is no exception. Routed AND
+  // escalation handoffs share the treatment.
   const done = phase === 'done'
-  const orbColor = done ? ORB_GREEN : ORB_BLUE
   // Pull the matched specialist straight from the engine's routing result — never
   // hardcoded, so it shows whoever THIS patient was routed to (or escalation).
   const isEscalation = step?.kind === 'escalate'
@@ -424,11 +424,15 @@ function OrbExperience({
     )
 
   return (
+    /* Fills its container rather than the viewport. As "Presentation mode" this
+       was `fixed inset-0` — a deliberate takeover with an exit button. It is
+       the patient's intake tab now, so covering the app bar would strand them:
+       no way to reach their referral or their appointments. */
     <div
-      className="omari-orb-stage fixed inset-0 z-40 flex flex-col"
-      style={{ background: '#f8f8f6' }}
+      className="omari-orb-stage relative flex h-full min-h-0 flex-col"
+      style={{ background: '#f5f5f5' }}
     >
-      {/* Soft, ambient green edge glow — referral-sent success beat ONLY. */}
+      {/* Soft, ambient accent edge glow — referral-sent success beat ONLY. */}
       {done && <div className="omari-success-glow pointer-events-none absolute inset-0 z-0" aria-hidden />}
 
       <div
@@ -438,14 +442,14 @@ function OrbExperience({
         {/* The voice-reactive orb — ANCHORED at a fixed offset + size for the
             ENTIRE experience. It never relayouts/moves between steps; its motion
             (pulse, glow, swirl speed) is driven by the patient's live microphone
-            level, and its colour eases blue → green on referral-sent. The
+            level. Its colour never changes — see VoiceOrb.ORB_BLUE. The
             footprint is kept compact so the content below (question + many
             chips + input) fits. */}
         <div
           className="pointer-events-none shrink-0"
           style={{ width: 'clamp(170px, 26vw, 260px)', height: 'clamp(170px, 26vw, 260px)' }}
         >
-          <VoiceOrb color={orbColor} levelRef={voice.levelRef} calm={reducedMotion} />
+          <VoiceOrb color={ORB_BLUE} levelRef={voice.levelRef} calm={reducedMotion} />
         </div>
 
         {/* Content region BELOW the orb — fills the remaining height and scrolls
@@ -499,7 +503,7 @@ function ThinkingDots() {
  * Referral-sent success beat — a minimal three-beat hierarchy (warm headline →
  * the matched specialist as the bold focal point, specialty muted beneath → one
  * short reassurance line), then the existing referral-status timeline (reused,
- * green tone) which carries the "sent for review / what happens next / nothing
+ * accent tone) which carries the "sent for review / what happens next / nothing
  * to do now" meaning. The specialist is pulled live from the routing result.
  * Layout: orb (above) → headline → specialist → short line → timeline.
  */
@@ -550,7 +554,7 @@ function DoneSuccess({
 
       {/* The timeline carries "sent → in review → confirmed → scheduled". */}
       <div className="w-full max-w-sm text-left">
-        <StatusStepper reviewerLabel={reviewerLabel} tone="green" />
+        <StatusStepper reviewerLabel={reviewerLabel} />
       </div>
     </div>
   )

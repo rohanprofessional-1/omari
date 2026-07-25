@@ -8,42 +8,138 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Omari design tokens — "warm parchment printed artifact" — BLUE-INK-ON-PAPER.
-   Bone-paper surfaces + warm-gray text, with a muted ink-blue accent ramp
-   (inkwell → ink → wash) instead of vivid SaaS blues. Defined once; reused
-   everywhere via Tailwind utilities. No stray hex.
+   Omari design tokens — "clinical blueprint on frosted paper".
+
+   NEAR-ACHROMATIC. Near-black text, white cards, gray secondary tones,
+   hairline borders, pill geometry. Nothing decorative is coloured.
+
+   ONE BRAND HUE — the logo's ink navy — and it is confined to ACCENT ROLES:
+   primary buttons, links, focus rings, selected rows, tree-node marks. It is
+   never a status and never a fill for anything that isn't interactive.
+
+   THE ONLY COLOUR IS SIGNAL. Three values, borrowed from the macOS window
+   controls, and they mean exactly what a traffic light means:
+       red    #ff5f57   stop — emergency, no path, overdue
+       yellow #febc2e   caution — at risk, needs attention, unsure
+       green  #28c840   go — on track, confirmed, complete
+   Plus ember #e7000b, reserved for DESTRUCTIVE actions (delete, revoke) and
+   nothing else.
+
+   HOW SIGNAL COLOUR IS ALLOWED TO APPEAR — solid fills only:
+       • dots (6–8px discs)         • 2–3px rails on a row or card edge
+       • progress segments          • solid badge capsules with INK text
+   Never as text, never as a thin icon stroke, never as a border. At these
+   chromas a 12px yellow glyph on white is ~1.7:1 — invisible. Filled, with
+   #0a0a0a on top, the same yellow is ~10:1. So the colour goes in the fill and
+   the words stay black; that is the whole rule.
+
+   Geometry: 18px radius on everything interactive (buttons, inputs, badges,
+   selects), 24px on containers, 10px nested, 6px small. No square corners.
+   Elevation is a 1px hairline plus a barely-there 1px/2px drop — cards read as
+   raised without drama.
    ───────────────────────────────────────────────────────────────────────── */
 @theme {
-  /* LIGHT system — warm paper surfaces; desaturated "printed ink" blues carry
-     the accent roles (primary buttons, links, nodes, small UI). */
-  --color-bg: #f8f8f6; /* app background — bone parchment */
-  --color-canvas: #ffffff; /* canvas / elevated card surfaces — paper white */
-  --color-ink: #121212; /* primary text — warm carbon, not pure black */
-  --color-muted: #7b7974; /* muted text — ashen warm gray */
-  --color-line: #e7e6e1; /* hairline borders — chalk */
-  --color-accent: #205ea6; /* ink blue — links, highlights, focus */
-  --color-accent-strong: #1b3a6b; /* inkwell navy — primary buttons / small UI */
+  /* ── Surfaces — a three-tone stack that layers without borders ─────────── */
+  --color-bg: #f5f5f5; /* canvas — page background, broadest layer */
+  --color-canvas: #ffffff; /* paper — cards, popovers, primary surfaces */
+  --color-paper: #ffffff; /* alias — reads better at card call sites */
+  --color-surface-alt: #fafafa; /* sidebar / subtle card variant, one step off canvas */
+  --color-fill: #f5f5f5; /* resting input fill, secondary button fill */
+
+  /* ── Type — three grays, and never anything lighter than mid ──────────── */
+  --color-ink: #0a0a0a; /* primary text, headings, icon strokes */
+  --color-ink-soft: #171717; /* filled-control backgrounds, secondary text */
+  --color-muted: #737373; /* muted body, placeholders, helper labels */
+  --color-line: #e5e5e5; /* hairline — borders, inputs, card edges */
+  --color-hairline: #e5e5e5; /* alias */
+
+  /* ── Accent — the logo's ink navy. Interactive roles only. ────────────── */
+  --color-accent: #205ea6; /* links, focus, small UI */
+  --color-accent-strong: #1b3a6b; /* inkwell navy — primary button fill */
   --color-bright: #4385be; /* wash blue — selection rings, highlights */
-  --color-sky: #ecf1f6; /* powder wash — subtle fills / selected rows */
-  --color-danger: #b0413a; /* destructive (text/icon only) — already warm */
+  --color-sky: #ecf1f6; /* powder wash — soft fill / selected row */
+
+  /* ── Signal — the only colour in the system. Fills only. ──────────────── */
+  --color-signal-red: #ff5f57;
+  --color-signal-yellow: #febc2e;
+  --color-signal-green: #28c840;
+  /* Tints for capsule fills that carry ink text at small sizes. */
+  --color-signal-red-soft: #ffecea;
+  --color-signal-yellow-soft: #fff4de;
+  --color-signal-green-soft: #e4f8e8;
+
+  /* Destructive — the one non-signal hue, for delete/revoke text and icons. */
+  --color-danger: #e7000b;
+  --color-ember: #e7000b;
+
+  /* ── Tree-canvas node roles — the accent ramp, light → dark by node type ── */
   --color-nodevar: #205ea6; /* variable node — ink blue */
   --color-nodespec: #4385be; /* specialist node — wash blue */
   --color-nodeesc: #7fabcd; /* escalation node — faded wash */
-  --color-carolina: #4385be; /* kicker-label accent — wash blue */
-  --color-carolina-deep: #3a76a8; /* deeper wash — hover / small legible text */
-  --color-success: #4c7a5c; /* muted sage — legible indicators/text on paper */
-  --color-success-light: #b9d8bf; /* soft sage — orb highlight, fills */
-  --color-success-deep: #38593f; /* deepest sage — depth/harmony */
-  --color-success-soft: #eef2ec; /* soft sage tint (parallels --color-sky) */
+  --color-carolina: #4385be; /* kicker labels */
+  --color-carolina-deep: #3a76a8; /* hover / small legible text */
 
-  /* Inter for all UI text; the serif is reserved for editorial headlines. */
-  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
-  --font-display: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
+  /* Success reads as GO — green signal, with legible ink for any text. */
+  --color-success: #0a0a0a; /* success TEXT stays ink; the dot carries green */
+  --color-success-light: #28c840; /* fills, dots, orb highlight */
+  --color-success-deep: #1fa233; /* pressed / depth on a green fill */
+  --color-success-soft: #e4f8e8; /* soft tint (parallels --color-sky) */
+
+  /* ── Typeface — Geist's geometric neutrality, substituted by Inter ─────
+     (bundled via @fontsource-variable/inter; the OpenType features below pull
+     Inter's letterforms toward Geist's single-storey geometry). */
+  --font-sans: "Geist", "Inter Variable", "Inter", ui-sans-serif, system-ui,
+    -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Geist", "Inter Variable", "Inter", ui-sans-serif, system-ui,
+    -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   /* Editorial serif — the brand signature, weight 400, headlines only. */
   --font-serif: "Source Serif 4 Variable", "Source Serif Pro", Charter, Georgia,
     "Times New Roman", serif;
+
+  /* ── Type scale — tracking tightens at display, loosens at caption ────── */
+  --text-caption: 0.75rem; /* 12px — pairs with UPPERCASE; the tracking needs it */
+  --text-caption--line-height: 1.33;
+  --text-caption--letter-spacing: 0.05em;
+  --text-meta: 0.75rem; /* 12px sentence-case meta — caption without the tracking */
+  --text-meta--line-height: 1.33;
+  --text-body: 0.875rem; /* 14px — the floor for body copy */
+  --text-body--line-height: 1.43;
+  --text-body-lg: 1rem; /* 16px */
+  --text-body-lg--line-height: 1.5;
+  --text-subheading: 1.125rem; /* 18px */
+  --text-subheading--line-height: 1.56;
+  /* 24px is the SECTION-TITLE size — the one every screen header uses. It is
+     deliberately identical to the dashboard's `--text-dash-title`, so
+     "Referral Review" and "Generate" are the same object in two namespaces. */
+  --text-heading-sm: 1.5rem; /* 24px */
+  --text-heading-sm--line-height: 1.33;
+  --text-heading-sm--letter-spacing: -0.025em;
+  --text-heading-sm--font-weight: 600;
+  --text-heading: 1.875rem; /* 30px */
+  --text-heading--line-height: 1.2;
+  --text-heading--letter-spacing: -0.025em;
+  --text-heading--font-weight: 600;
+  --text-heading-lg: 2.25rem; /* 36px */
+  --text-heading-lg--line-height: 1.11;
+  --text-heading-lg--letter-spacing: -0.025em;
+  --text-heading-lg--font-weight: 600;
+  --text-display: 3rem; /* 48px */
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.05em;
+  --text-display--font-weight: 600;
+
+  /* ── Radius — 18px interactive, 24px container. Nothing in between. ───── */
+  --radius-sm: 6px;
+  --radius-md: 18px; /* the workhorse: buttons, inputs, chips */
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-2xl: 24px;
+  --radius-3xl: 24px;
+  --radius-nested: 10px; /* a card inside a card */
+
+  /* ── Elevation — hairline + whisper. Never a dramatic drop. ───────────── */
+  --shadow-subtle: 0 0 0 1px rgb(23 23 23 / 0.05), 0 1px 3px rgb(0 0 0 / 0.1),
+    0 1px 2px -1px rgb(0 0 0 / 0.1);
 }
 
 :root {
@@ -67,14 +163,17 @@ body {
   background: var(--color-bg);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  /* Pulls Inter's letterforms toward Geist's geometry: single-storey 'a',
+     alternate digits. No-ops harmlessly if Geist itself is present. */
+  font-feature-settings: "ss01" on, "cv11" on;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-/* ── Scrollbars — deep-blue thumb (matches the small-UI accent) ───────────── */
+/* ── Scrollbars — a quiet gray thumb; chrome never carries colour ─────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-accent-strong) transparent;
+  scrollbar-color: #d4d4d4 transparent;
 }
 ::-webkit-scrollbar {
   width: 11px;
@@ -84,12 +183,12 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-accent-strong);
+  background: #d4d4d4;
   border-radius: 9999px;
   border: 2px solid var(--color-canvas); /* inset look */
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #27508f;
+  background: var(--color-muted);
 }
 
 /* ── Primary accent helpers (SOLID deep blue — no gradients) ──────────────────
@@ -342,22 +441,28 @@ textarea:focus-visible {
   animation: omari-think 1.3s ease-in-out infinite;
 }
 
-/* Presentation success beat (referral-sent only) — a soft, ambient green edge
-   glow that gently FRAMES the screen (a diffuse vignette, not a hard border).
-   Fades in once and stays steady; it never pulses, and prefers-reduced-motion
-   collapses the fade to instant via the global rule below. */
+/* Referral-sent beat — a soft, ambient ACCENT edge glow that gently FRAMES the
+   screen (a diffuse vignette, not a hard border). Fades in once and stays
+   steady; it never pulses, and prefers-reduced-motion collapses the fade to
+   instant via the global rule below.
+
+   It used to be green. Green is the signal palette's "on track", which is a
+   STATUS the clinic sets — but a referral being sent is not a verdict, it is
+   the app's own primary action landing, and that is the accent's job. It is
+   also the one screen a patient sees at the most anxious moment, and having
+   the product change colour there read as a different app. */
 @keyframes omari-success-glow-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 .omari-success-glow {
-  /* Based on the deeper sage companion (#4c7a5c → rgb 76,122,92) so it actually
-     reads on the near-white screen. Still soft/diffuse. */
-  box-shadow: inset 0 0 150px 46px rgba(76, 122, 92, 0.2);
+  /* The accent (#205ea6 → rgb 32,94,166) as a diffuse frame — the same blue
+     the orb and the primary buttons already use. */
+  box-shadow: inset 0 0 150px 46px rgba(32, 94, 166, 0.16);
   background: radial-gradient(
     125% 95% at 50% 50%,
-    rgba(76, 122, 92, 0) 56%,
-    rgba(76, 122, 92, 0.14) 100%
+    rgba(32, 94, 166, 0) 56%,
+    rgba(32, 94, 166, 0.12) 100%
   );
   animation: omari-success-glow-in 900ms ease both;
 }
@@ -469,7 +574,7 @@ textarea:focus-visible {
 .react-flow__node.omari-node-ghost {
   outline: 2px dashed var(--color-accent);
   outline-offset: 4px;
-  border-radius: 16px;
+  border-radius: 24px;
 }
 .react-flow__node.omari-node-removed {
   outline-color: var(--color-danger);

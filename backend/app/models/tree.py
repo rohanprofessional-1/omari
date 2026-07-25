@@ -21,6 +21,12 @@ class Tree(Base, TimestampMixin):
     subspecialty: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Points at the immutable snapshot the runtime should pin (tree_versions.id).
     current_version_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Delta layer: the last CPG-generated scaffold this tree was compiled from
+    # (frontend camelCase Tree shape), and its anchoring metadata
+    # ({docId, documentName, subspecialty, sections}). The relational node rows
+    # are the COMPILED output = compile(base_tree_json, tree_deltas).
+    base_tree_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    base_meta_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Relationships
     clinic: Mapped["Clinic | None"] = relationship(back_populates="trees")
@@ -29,6 +35,10 @@ class Tree(Base, TimestampMixin):
     versions: Mapped[list["TreeVersion"]] = relationship(
         back_populates="tree", cascade="all, delete-orphan", lazy="noload",
         order_by="TreeVersion.version_no",
+    )
+    deltas: Mapped[list["TreeDelta"]] = relationship(
+        back_populates="tree", cascade="all, delete-orphan", lazy="noload",
+        order_by="TreeDelta.seq",
     )
 
 
