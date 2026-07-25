@@ -1,0 +1,140 @@
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import RequireRole from './auth/RequireRole'
+import SignInPage from './auth/SignInPage'
+import { useAuth } from './auth/authStore'
+import AppShell from './shell/AppShell'
+import Placeholder from './shell/Placeholder'
+import { homeFor } from './shell/nav'
+import DashboardPage from './dashboard/DashboardPage'
+import Builder from './pages/Builder'
+import Generate from './pages/Generate'
+import KnowledgeBase from './pages/KnowledgeBase'
+import Reconcile from './pages/Reconcile'
+import Runner from './pages/Runner'
+
+/**
+ * Omari — the route table.
+ *
+ * Three role-scoped subtrees behind a pathless RequireRole guard each, all
+ * inside one AppShell. Sign-in is the only public route.
+ *
+ * Everything used to be a useState page switch (App.tsx) plus a second Vite
+ * entry for the dashboard at /dashboard/. Both are gone: one app, one URL
+ * space, real deep links and a working back button.
+ */
+
+/** Send someone to their own home — or to sign-in if they don't have one. */
+function HomeRedirect() {
+  const { user } = useAuth()
+  const location = useLocation()
+  if (!user) return <Navigate to="/signin" state={{ from: location }} replace />
+  return <Navigate to={homeFor(user.role)} replace />
+}
+
+export default function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/signin" element={<SignInPage />} />
+
+      <Route element={<AppShell />}>
+        <Route index element={<HomeRedirect />} />
+
+        {/* The dashboard's old standalone entry, so demo links still land. */}
+        <Route path="/dashboard/*" element={<Navigate to="/admin/referrals" replace />} />
+
+        {/* ── Admin — the clinic. Everything. ─────────────────────────────── */}
+        <Route element={<RequireRole role="admin" />}>
+          <Route path="/admin" element={<Navigate to="/admin/referrals" replace />} />
+          <Route path="/admin/referrals" element={<DashboardPage />} />
+          <Route
+            path="/admin/clinic"
+            element={
+              <Placeholder
+                title="Clinic directory"
+                note="Who's in the clinic and what they're carrying — arriving with the directory screen."
+              />
+            }
+          />
+          <Route
+            path="/admin/trees"
+            element={
+              <Placeholder
+                title="Deployed trees"
+                note="Which decision trees are live for this clinic — arriving with the trees screen."
+              />
+            }
+          />
+          <Route path="/admin/generate" element={<GenerateRoute />} />
+          <Route path="/admin/setup" element={<ReconcileRoute />} />
+          <Route path="/admin/builder" element={<Builder />} />
+          <Route path="/admin/knowledge" element={<KnowledgeBase />} />
+          <Route
+            path="/admin/runner"
+            element={
+              <div className="h-full overflow-y-auto">
+                <Runner />
+              </div>
+            }
+          />
+        </Route>
+
+        {/* ── Surgeon — their own referrals, plus the two tools they use. ─── */}
+        <Route element={<RequireRole role="surgeon" />}>
+          <Route path="/surgeon" element={<Navigate to="/surgeon/referrals" replace />} />
+          <Route path="/surgeon/referrals" element={<DashboardPage />} />
+          <Route path="/surgeon/builder" element={<Builder />} />
+          <Route path="/surgeon/knowledge" element={<KnowledgeBase />} />
+        </Route>
+
+        {/* ── Patient — intake and their own referral. Nothing clinical. ──── */}
+        <Route element={<RequireRole role="patient" />}>
+          <Route path="/patient" element={<Navigate to="/patient/intake" replace />} />
+          <Route
+            path="/patient/intake"
+            element={
+              <div className="h-full overflow-y-auto">
+                <Runner audience="patient" />
+              </div>
+            }
+          />
+          <Route
+            path="/patient/status"
+            element={
+              <Placeholder
+                title="My referral"
+                note="Where your referral is and who has it — arriving with the patient status screen."
+              />
+            }
+          />
+          <Route
+            path="/patient/appointments"
+            element={
+              <Placeholder
+                title="Appointments"
+                note="Booking your scans and labs — arriving with the scheduling screen."
+              />
+            }
+          />
+        </Route>
+
+        <Route path="*" element={<HomeRedirect />} />
+      </Route>
+    </Routes>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pages that hand off to another page                                        */
+/* -------------------------------------------------------------------------- */
+/* Both still pass the tree id through localStorage — Builder and Reconcile   */
+/* read those keys on mount — but the navigation itself is now the router's.  */
+
+function GenerateRoute() {
+  const navigate = useNavigate()
+  return <Generate onOpenReconcile={() => navigate('/admin/setup')} />
+}
+
+function ReconcileRoute() {
+  const navigate = useNavigate()
+  return <Reconcile onOpenBuilder={() => navigate('/admin/builder')} />
+}

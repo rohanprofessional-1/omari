@@ -5,17 +5,10 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  build: {
-    rollupOptions: {
-      input: {
-        // Main Omari app and the standalone referral-review dashboard
-        // (served at /dashboard/ — its own page, own URL). Paths are
-        // relative to the Vite root (frontend/).
-        main: 'index.html',
-        dashboard: 'dashboard/index.html',
-      },
-    },
-  },
+  // Single entry (index.html, the Vite default). The referral dashboard used to
+  // be a second entry at /dashboard/; it is now routed inside the main app, so
+  // there is one bundle and one URL space. Vite's default appType 'spa' gives
+  // dev and preview the history fallback that deep links need.
   server: {
     // Forward /api/v1/* to the backend
     proxy: {

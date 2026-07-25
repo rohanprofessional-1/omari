@@ -118,9 +118,26 @@ function usePresentationMode(): [boolean, (next: boolean) => void] {
   return [on, set]
 }
 
-function Runner() {
-  const [presentation, setPresentation] = usePresentationMode()
+/**
+ * Who is looking at this conversation.
+ *
+ * 'clinician' — the full demo/authoring view: tree picker, presentation-mode
+ *               toggle, and the behind-the-scenes decision panel.
+ * 'patient'   — the product itself and nothing else. No picker, no clinician
+ *               panel, no presentation toggle.
+ *
+ * Both share ALL state and every handler; only the surrounding layers differ.
+ */
+export type RunnerAudience = 'clinician' | 'patient'
+
+function Runner({ audience = 'clinician' }: { audience?: RunnerAudience } = {}) {
+  const [presentationPref, setPresentation] = usePresentationMode()
   const library = useTreeLibrary()
+
+  // Presentation mode is clinician stage equipment. It persists in
+  // sessionStorage, so without this guard a leftover '1' from an admin demo
+  // would drop a patient straight into the orb view.
+  const presentation = audience === 'clinician' && presentationPref
 
   // The active DB tree, or the built-in sample when the library is empty/offline.
   const tree = library.activeTree ?? sampleTree
@@ -135,6 +152,7 @@ function Runner() {
         tree={tree}
         library={library}
         usingSample={usingSample}
+        audience={audience}
         presentation={presentation}
         onTogglePresentation={() => setPresentation(!presentation)}
       />
@@ -147,12 +165,14 @@ function RunnerSession({
   tree,
   library,
   usingSample,
+  audience,
   presentation,
   onTogglePresentation,
 }: {
   tree: Tree
   library: TreeLibrary
   usingSample: boolean
+  audience: RunnerAudience
   presentation: boolean
   onTogglePresentation: () => void
 }) {
@@ -447,10 +467,12 @@ function RunnerSession({
     )
   }
 
+  const clinician = audience === 'clinician'
+
   return (
-    <div className={`mx-auto w-full px-6 ${presentation ? 'max-w-2xl py-10' : 'max-w-6xl py-8'}`}>
-      {/* ── LAYER 1 · Presenter / demo apparatus (hidden in Presentation mode) ── */}
-      {!presentation && (
+    <div className={`mx-auto w-full px-6 ${clinician ? 'max-w-6xl py-8' : 'max-w-2xl py-8'}`}>
+      {/* ── LAYER 1 · Presenter / demo apparatus (clinician only) ── */}
+      {clinician && (
         <PresenterBar
           library={library}
           currentTree={tree}
@@ -461,9 +483,7 @@ function RunnerSession({
 
       {/* ── LAYERS 2 + 3 · Patient app (hero) + behind-the-scenes (clinician) ── */}
       <div
-        className={
-          presentation ? '' : 'mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]'
-        }
+        className={clinician ? 'mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]' : 'mt-2'}
       >
         {/* LAYER 2 · the real product */}
         <div className="min-w-0 space-y-4 lg:flex lg:flex-col">
@@ -500,8 +520,10 @@ function RunnerSession({
           )}
         </div>
 
-        {/* LAYER 3 · behind-the-scenes (clinician view) — hidden in Presentation mode */}
-        {!presentation && (
+        {/* LAYER 3 · behind-the-scenes — CLINICIAN ONLY. This panel shows the
+            matched specialist, urgency, full workup, confidences, and the raw
+            decision path. The patient must never see it. */}
+        {clinician && (
           <BehindScenes
             tree={tree}
             filled={filled}
