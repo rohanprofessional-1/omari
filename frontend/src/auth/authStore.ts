@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Role } from '../types/roles'
 import { isRole } from '../types/roles'
+import { localStorageWorks } from '../lib/canStore'
 import { setRole as setDashboardRole } from '../dashboard/lib/reviewStore'
 import { demoUserForRole, findDemoUser } from './demoUsers'
 import type { AuthSnapshot, User } from './types'
@@ -29,7 +30,7 @@ import type { AuthSnapshot, User } from './types'
 
 const USER_KEY = 'omari:auth:user:v1'
 
-const canStore = typeof localStorage !== 'undefined'
+const canStore = localStorageWorks()
 
 function loadUser(): User | null {
   if (!canStore) return null

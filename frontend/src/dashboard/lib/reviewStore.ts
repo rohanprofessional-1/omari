@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { AuditEvent, Correction, ReviewState, ReviewStatus, Role, WorkupStatus } from '../types'
 import { isRole } from '../../types/roles'
+import { localStorageWorks } from '../../lib/canStore'
 
 /**
  * Dashboard — review store. localStorage-backed, module-level state with a
@@ -44,7 +45,7 @@ export function reviewerNameFor(role: Role): string {
   return REVIEWER_NAMES[role]
 }
 
-const canStore = typeof localStorage !== 'undefined'
+const canStore = localStorageWorks()
 
 function loadJson<T>(key: string, fallback: T): T {
   if (!canStore) return fallback

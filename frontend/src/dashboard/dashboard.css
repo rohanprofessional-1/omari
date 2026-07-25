@@ -1,7 +1,8 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    Referral-review dashboard design tokens — `dash-` namespace.
 
-   Loaded from src/dashboard/main.tsx AFTER ../index.css. The namespace keeps
+   Loaded from src/main.tsx immediately AFTER ./index.css — that ORDER is
+   load-bearing, not incidental. The namespace keeps
    these tokens from colliding with the main app's; this file is its own
    Tailwind root (it imports only utilities.css — index.css already ships
    preflight + the default theme) so `--color-dash-ink` becomes `text-dash-ink`

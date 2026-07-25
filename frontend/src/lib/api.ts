@@ -4,6 +4,19 @@ import { TreeSchema } from '../types/tree'
 // Relative — Vite proxies /api/v1 → FastAPI (Postgres). See vite.config.ts.
 const API_BASE = '/api/v1'
 
+/**
+ * Auth headers for every request in this file.
+ *
+ * TODO(auth): returns {} today — the backend has no authentication at all
+ * (no users table, no JWT, no dependency). Once POST /api/v1/auth/login lands
+ * (docs/tree-generator-technical-architecture.md §7 D4), attach
+ * `Authorization: Bearer <token>` HERE and route every fetch through it, rather
+ * than threading a token through each call site.
+ */
+export function authHeaders(): Record<string, string> {
+  return {}
+}
+
 /** Tree metadata as returned by the list endpoint (TreeRead). */
 export interface TreeSummary {
   id: string

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { localStorageWorks } from '../../lib/canStore'
 
 /**
  * Which slot the patient picked, per referral.
@@ -23,7 +24,7 @@ export interface Booking {
 
 export type Bookings = Record<string, Booking>
 
-const canStore = typeof localStorage !== 'undefined'
+const canStore = localStorageWorks()
 
 function load(): Bookings {
   if (!canStore) return {}

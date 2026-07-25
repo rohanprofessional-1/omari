@@ -14,6 +14,11 @@
  * `npm test`. Registered by hand in scripts/run-tests.mjs.
  */
 import type { User } from '../../auth/types'
+import { DEMO_USERS } from '../../auth/demoUsers'
+import { DASHBOARD_TREE } from '../data/dashboardDeltas'
+import { REFERRAL_FIXTURES } from '../data/fixtures/referrals'
+import { deriveTreeResult } from './deriveTreeResult'
+import { reviewerNameFor } from './reviewStore'
 import { destinationOf, filterForUser, isForSpecialist, scopeFor } from './scope'
 import type { Correction, ReviewState, ReviewableReferral, TreeResult } from '../types'
 
@@ -162,6 +167,70 @@ const checks: { name: string; run: () => string | null }[] = [
     },
   },
 ]
+
+/* ── Demo identity bindings ───────────────────────────────────────────────
+ * These are string-matching contracts between three files that have no type
+ * relationship, so nothing but a test catches them drifting. A surgeon whose
+ * specialistName stops matching the tree silently gets an EMPTY queue — which
+ * looks like "a quiet morning", not like a bug.
+ */
+checks.push(
+  {
+    name: 'demo: every surgeon specialistName is a real tree destination',
+    run: () => {
+      const destinations = new Set(
+        DASHBOARD_TREE.nodes
+          .filter((n): n is Extract<typeof n, { type: 'specialist' }> => n.type === 'specialist')
+          .map((n) => n.specialistName),
+      )
+      const bad = DEMO_USERS.filter(
+        (u) => u.role === 'surgeon' && (!u.specialistName || !destinations.has(u.specialistName)),
+      ).map((u) => u.specialistName ?? u.email)
+      return bad.length ? `not routable destinations: ${bad.join(', ')}` : null
+    },
+  },
+  {
+    name: 'demo: reviewerNameFor("surgeon") is a real tree destination too',
+    run: () => {
+      const destinations = new Set(
+        DASHBOARD_TREE.nodes
+          .filter((n): n is Extract<typeof n, { type: 'specialist' }> => n.type === 'specialist')
+          .map((n) => n.specialistName),
+      )
+      const name = reviewerNameFor('surgeon')
+      return destinations.has(name) ? null : `"${name}" routes nowhere in the tree`
+    },
+  },
+  {
+    name: 'demo: the patient MRN matches exactly one fixture referral',
+    run: () => {
+      const patients = DEMO_USERS.filter((u) => u.role === 'patient')
+      if (patients.length === 0) return 'no demo patient seeded'
+      for (const p of patients) {
+        if (!p.mrn) return `${p.email} has no mrn`
+        const hits = REFERRAL_FIXTURES.filter((f) => f.payload.patient.mrn === p.mrn)
+        if (hits.length !== 1) return `${p.mrn} matched ${hits.length} referrals, want exactly 1`
+      }
+      return null
+    },
+  },
+  {
+    name: 'demo: each seeded surgeon actually has referrals to see',
+    run: () => {
+      const referrals = REFERRAL_FIXTURES.map((f) => ({
+        payload: f.payload,
+        extraction: f.extraction,
+        result: deriveTreeResult(f),
+      })) as ReviewableReferral[]
+      const empty = DEMO_USERS.filter((u) => u.role === 'surgeon').filter(
+        (u) => filterForUser(referrals, {}, u).length === 0,
+      )
+      return empty.length
+        ? `these surgeons sign in to an empty queue: ${empty.map((u) => u.name).join(', ')}`
+        : null
+    },
+  },
+)
 
 let failures = 0
 for (const c of checks) {
