@@ -148,7 +148,13 @@
       "Bash(node orb-voice-test.mjs)",
       "Bash(open -a Docker)",
       "Bash(docker info *)",
-      "Skill(run)"
+      "Skill(run)",
+      "Read(//Users/shivankkancharla/Downloads/**)",
+      "Bash(git -C \"/Users/shivankkancharla/Project Omari\" status --short)",
+      "Bash(node scripts/run-tests.mjs)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(perl -pi -e 's{\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./Users/shivankkancharla/Project Omari/frontend/src}{/Users/shivankkancharla/Project Omari/frontend/src}g' __TRACKED_VAR__/preview.ts)",
+      "Bash(git checkout *)"
     ]
   }
 }
