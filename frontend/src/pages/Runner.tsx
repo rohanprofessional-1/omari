@@ -501,6 +501,12 @@ function RunnerSession({
             onRefresh={reset}
           />
 
+          {/* TODO(epic): intake ENDS here, locally. Nothing is POSTed — the
+              "referral sent" card is UI only. The completed packet (filled
+              variables, chosen specialist, resolved workup, transcript) should
+              POST to /api/v1/referrals, which forwards to Epic. Until then the
+              patient's status screen reads a pinned fixture; the binding lives
+              in src/auth/demoUsers.ts. */}
           {phase === 'done' && step?.kind === 'route' && (
             <ReferralSentCard specialist={step.specialist} />
           )}

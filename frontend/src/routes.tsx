@@ -3,7 +3,6 @@ import RequireRole from './auth/RequireRole'
 import SignInPage from './auth/SignInPage'
 import { useAuth } from './auth/authStore'
 import AppShell from './shell/AppShell'
-import Placeholder from './shell/Placeholder'
 import { homeFor } from './shell/nav'
 import ReferralsLayout from './dashboard/layouts/ReferralsLayout'
 import ClinicDirectoryScreen from './dashboard/components/clinic/ClinicDirectoryScreen'
@@ -17,6 +16,8 @@ import Generate from './pages/Generate'
 import KnowledgeBase from './pages/KnowledgeBase'
 import Reconcile from './pages/Reconcile'
 import Runner from './pages/Runner'
+import MyReferralScreen from './pages/patient/MyReferralScreen'
+import AppointmentsScreen from './pages/patient/AppointmentsScreen'
 
 /**
  * Omari — the route table.
@@ -99,24 +100,8 @@ export default function AppRoutes() {
               </div>
             }
           />
-          <Route
-            path="/patient/status"
-            element={
-              <Placeholder
-                title="My referral"
-                note="Where your referral is and who has it — arriving with the patient status screen."
-              />
-            }
-          />
-          <Route
-            path="/patient/appointments"
-            element={
-              <Placeholder
-                title="Appointments"
-                note="Booking your scans and labs — arriving with the scheduling screen."
-              />
-            }
-          />
+          <Route path="/patient/status" element={<MyReferralScreen />} />
+          <Route path="/patient/appointments" element={<AppointmentsScreen />} />
         </Route>
 
         <Route path="*" element={<HomeRedirect />} />

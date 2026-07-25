@@ -27,7 +27,14 @@ import { REFERRALS_OUT_OF_SCOPE } from './referralsOutOfScope'
  */
 
 const SEED_FIXTURES: ReferralFixture[] = [
-  /* 1 ── Clean, high-confidence carpal tunnel → Dr. Saltzman ─────────────── */
+  /* 1 ── Clean, high-confidence carpal tunnel → Dr. Saltzman ───────────────
+   *
+   * ⚠️ BOUND TO THE DEMO PATIENT. src/auth/demoUsers.ts pins the patient
+   * account to MRN-4839201, so this is the referral the patient view shows.
+   * Intake doesn't create referrals yet (nothing is POSTed when the Runner
+   * finishes, and there's no /referrals endpoint), so the patient's status and
+   * appointments screens read this fixture instead. Changing the MRN or the
+   * required workup here changes what the patient sees. */
   {
     payload: {
       referralId: 'REF-2026-0142',
