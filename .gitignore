@@ -48,3 +48,7 @@ Thumbs.db
 
 #Duke-knowledge
 /Duke-Sample/
+
+# Keys
+/backend/epic_private_key.pem
+/backend/epic_public_key.pem
