@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { getReferralSource } from '../data/adapter'
 import { queueGroupFor } from '../lib/queueStatus'
-import { applyAction, getSnapshot, resetDemoData } from '../lib/reviewStore'
+import { applyAction, getSnapshot, resetDemoData, reviewerNameFor } from '../lib/reviewStore'
 
 /**
  * Demo administration — a slim bar shown only to the admin role. Reset wipes
- * all demo review state; "Seed a busy morning" bulk-approves every
- * ready-to-approve referral (as the coordinator) so the Workup and Surgeon
- * views populate instantly for a demo.
+ * all demo review state (but not who you are signed in as); "Seed a busy
+ * morning" bulk-approves every ready-to-approve referral as the front desk, so
+ * the Workup and Surgeon views populate instantly for a demo.
  */
 
 const btn =
@@ -32,8 +32,8 @@ export default function AdminBar() {
     )
     for (const r of ready) {
       applyAction(r.payload.referralId, 'approved', {
-        actor: 'M. Okafor (coordinator)',
-        role: 'coordinator',
+        actor: reviewerNameFor('admin'),
+        role: 'admin',
       })
     }
     setMessage(

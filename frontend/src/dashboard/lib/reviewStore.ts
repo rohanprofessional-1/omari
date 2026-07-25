@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { AuditEvent, Correction, ReviewState, ReviewStatus, Role, WorkupStatus } from '../types'
+import { isRole } from '../../types/roles'
 
 /**
  * Dashboard — review store. localStorage-backed, module-level state with a
@@ -29,10 +30,13 @@ export interface DashboardSnapshot {
   surgeonLastVisit: string | null
 }
 
+// The surgeon name MUST match a specialist destination in the tree verbatim —
+// referral scoping compares it against TreeResult.routedTo.specialistName.
+// (It read 'Dr. N. Li' before, which matched nothing.)
 const REVIEWER_NAMES: Record<Role, string> = {
-  coordinator: 'M. Okafor (coordinator)',
-  surgeon: 'Dr. N. Li',
-  admin: 'Admin',
+  admin: 'M. Okafor (front desk)',
+  surgeon: 'Dr. Neill Li',
+  patient: 'Patient',
 }
 
 /** Display name a role signs reviews with. */
@@ -53,9 +57,11 @@ function loadJson<T>(key: string, fallback: T): T {
 }
 
 function loadRole(): Role {
-  if (!canStore) return 'coordinator'
+  if (!canStore) return 'admin'
   const raw = localStorage.getItem(ROLE_KEY)
-  return raw === 'surgeon' || raw === 'admin' || raw === 'coordinator' ? raw : 'coordinator'
+  // 'coordinator' was folded into 'admin' — migrate anyone who stored it.
+  if (raw === 'coordinator') return 'admin'
+  return isRole(raw) ? raw : 'admin'
 }
 
 /* ── In-module state, loaded once ─────────────────────────────────────────── */
@@ -230,16 +236,23 @@ export function setWorkupStatus(
   notify()
 }
 
-/** Wipe all demo review state (reviews, audit, workup, role, surgeon visit). */
+/**
+ * Wipe all demo review state (reviews, audit, workup, surgeon visit).
+ *
+ * The CURRENT ROLE is deliberately preserved: it is who you are signed in as,
+ * not demo data. Resetting it would sign the admin out of their own view mid-demo.
+ */
 export function resetDemoData(): void {
+  const role = snapshot.role
   if (canStore) {
     for (const key of ALL_KEYS) localStorage.removeItem(key)
+    localStorage.setItem(ROLE_KEY, role)
   }
   snapshot = {
     reviews: {},
     audit: [],
     workupOverrides: {},
-    role: 'coordinator',
+    role,
     surgeonLastVisit: null,
   }
   notify()

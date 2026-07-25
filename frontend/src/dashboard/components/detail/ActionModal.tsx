@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { DASHBOARD_TREE } from '../../data/dashboardDeltas'
 import type { SpecialistNode } from '../../../types/tree'
 import { applyAction, reviewerNameFor, useDashboardStore } from '../../lib/reviewStore'
-import type { Correction, ReviewableReferral } from '../../types'
+import type { Correction, ReviewableReferral, Role } from '../../types'
 import UrgencyBadge from '../shared/UrgencyBadge'
 
 /**
@@ -85,7 +85,7 @@ function ChangeDestinationModal({
 }: {
   referral: ReviewableReferral
   actor: string
-  role: 'coordinator' | 'surgeon' | 'admin'
+  role: Role
   onClose: () => void
 }) {
   const { result } = referral
@@ -217,7 +217,7 @@ function OutOfScopeModal({
 }: {
   referral: ReviewableReferral
   actor: string
-  role: 'coordinator' | 'surgeon' | 'admin'
+  role: Role
   onClose: () => void
 }) {
   const { result } = referral
@@ -292,7 +292,7 @@ function RequestInfoModal({
 }: {
   referral: ReviewableReferral
   actor: string
-  role: 'coordinator' | 'surgeon' | 'admin'
+  role: Role
   onClose: () => void
 }) {
   const missing = referral.result.missingVariables
@@ -393,7 +393,7 @@ function EscalateModal({
 }: {
   referral: ReviewableReferral
   actor: string
-  role: 'coordinator' | 'surgeon' | 'admin'
+  role: Role
   onClose: () => void
 }) {
   const [note, setNote] = useState('')

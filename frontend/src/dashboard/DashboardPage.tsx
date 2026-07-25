@@ -23,10 +23,12 @@ const NAV: { id: Exclude<View, 'detail'>; label: string }[] = [
   { id: 'workup', label: 'Workup' },
 ]
 
+// Temporary — routes supply the per-role landing view once the dashboard moves
+// off useState navigation.
 const DEFAULT_VIEW: Record<Role, View> = {
-  coordinator: 'queue',
-  surgeon: 'surgeon',
   admin: 'queue',
+  surgeon: 'surgeon',
+  patient: 'queue',
 }
 
 /** One-line purpose subtitle per view — the queue's header idiom everywhere. */

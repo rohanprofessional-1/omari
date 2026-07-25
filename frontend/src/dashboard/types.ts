@@ -1,6 +1,7 @@
 import type { FilledVariables } from '../types/tree'
 import type { ResolvedWorkup } from '../lib/engine'
 import type { RouteReason } from '../lib/explain'
+import type { Role } from '../types/roles'
 
 /**
  * Referral-review dashboard — foundation types.
@@ -105,7 +106,11 @@ export interface TreeResult {
 }
 
 export type ReviewStatus = 'pending' | 'approved' | 'corrected' | 'rejected' | 'escalated' | 'info_requested'
-export type Role = 'coordinator' | 'surgeon' | 'admin'
+
+// Roles are app-wide, not dashboard-specific — the auth layer and the referral
+// layer must agree. Re-exported here so the ~10 existing `import type { Role }
+// from '../types'` call sites keep working unchanged.
+export type { Role }
 
 export interface Correction {
   field: 'destination' | 'urgency' | 'scope'

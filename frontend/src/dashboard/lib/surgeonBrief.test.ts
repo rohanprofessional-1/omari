@@ -21,8 +21,8 @@ function evt(overrides: Partial<AuditEvent> & { referralId: string }): AuditEven
   return {
     id: `t-${eventSeq}`,
     at: `2026-07-24T10:${String(eventSeq).padStart(2, '0')}:00.000Z`,
-    actor: 'M. Okafor (coordinator)',
-    role: 'coordinator' as Role,
+    actor: 'M. Okafor (front desk)',
+    role: 'admin' as Role,
     action: 'approved',
     ...overrides,
   }

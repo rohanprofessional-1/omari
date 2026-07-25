@@ -10,9 +10,9 @@ import Badge from './shared/Badge'
  */
 
 const ROLES: { id: Role; label: string }[] = [
-  { id: 'coordinator', label: 'Coordinator' },
-  { id: 'surgeon', label: 'Surgeon' },
   { id: 'admin', label: 'Admin' },
+  { id: 'surgeon', label: 'Surgeon' },
+  { id: 'patient', label: 'Patient' },
 ]
 
 export default function RoleSwitcher() {
