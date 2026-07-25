@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type { ReviewableReferral, TreeResult } from '../../types'
 import type { ActionModalMode } from './ActionModal'
-import Badge, { type BadgeTone } from '../shared/Badge'
+import Badge from '../shared/Badge'
 import ConfidencePill from '../shared/ConfidencePill'
 import SectionCard from '../shared/SectionCard'
 import UrgencyBadge from '../shared/UrgencyBadge'
@@ -9,6 +9,7 @@ import AuditTrail from './AuditTrail'
 import DecisionChain, { CitationToggle, OverrideBadge, OverrideDetails } from './DecisionChain'
 import MissingVariableCard from './MissingVariableCard'
 import WorkupList from './WorkupList'
+import { escalationTone } from '../shared/escalationPalette'
 
 /**
  * Dashboard detail, right column — "what the tree concluded and why": the
@@ -79,13 +80,6 @@ function OutOfScopeHeader({ result }: { result: TreeResult }) {
   )
 }
 
-/** Same calm flag palette as the surgeon brief's escalation badges. */
-const ESCALATION_TONES: Record<'emergency' | 'ambiguous' | 'complex', BadgeTone> = {
-  emergency: 'red',
-  ambiguous: 'amber',
-  complex: 'slate',
-}
-
 function EscalatedHeader({ result }: { result: TreeResult }) {
   return (
     <HeaderCard className="border-l-2 border-l-dash-red">
@@ -95,7 +89,7 @@ function EscalatedHeader({ result }: { result: TreeResult }) {
         </p>
         {result.escalationCategory && (
           <Badge
-            tone={ESCALATION_TONES[result.escalationCategory]}
+            tone={escalationTone(result.escalationCategory)}
             className={
               result.escalationCategory === 'emergency'
                 ? 'font-semibold uppercase tracking-wide'

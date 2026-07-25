@@ -6,6 +6,8 @@ import AppShell from './shell/AppShell'
 import Placeholder from './shell/Placeholder'
 import { homeFor } from './shell/nav'
 import ReferralsLayout from './dashboard/layouts/ReferralsLayout'
+import ClinicDirectoryScreen from './dashboard/components/clinic/ClinicDirectoryScreen'
+import TreesDeployedScreen from './dashboard/components/trees/TreesDeployedScreen'
 import DetailScreen from './dashboard/components/detail/DetailScreen'
 import QueueScreen from './dashboard/components/queue/QueueScreen'
 import SurgeonScreen from './dashboard/components/surgeon/SurgeonScreen'
@@ -56,24 +58,8 @@ export default function AppRoutes() {
             <Route path="workup" element={<WorkupScreen />} />
             <Route path=":referralId" element={<DetailScreen />} />
           </Route>
-          <Route
-            path="/admin/clinic"
-            element={
-              <Placeholder
-                title="Clinic directory"
-                note="Who's in the clinic and what they're carrying — arriving with the directory screen."
-              />
-            }
-          />
-          <Route
-            path="/admin/trees"
-            element={
-              <Placeholder
-                title="Deployed trees"
-                note="Which decision trees are live for this clinic — arriving with the trees screen."
-              />
-            }
-          />
+          <Route path="/admin/clinic" element={<ClinicDirectoryScreen />} />
+          <Route path="/admin/trees" element={<TreesDeployedScreen />} />
           <Route path="/admin/generate" element={<GenerateRoute />} />
           <Route path="/admin/setup" element={<ReconcileRoute />} />
           <Route path="/admin/builder" element={<Builder />} />

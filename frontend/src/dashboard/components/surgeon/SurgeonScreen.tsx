@@ -16,7 +16,7 @@ import {
 } from '../../lib/surgeonBrief'
 import type { ReviewableReferral } from '../../types'
 import ActionModal from '../detail/ActionModal'
-import Badge, { type BadgeTone } from '../shared/Badge'
+import Badge from '../shared/Badge'
 import ConfidencePill from '../shared/ConfidencePill'
 import SurgeonRow, {
   CommentButton,
@@ -27,6 +27,7 @@ import SurgeonRow, {
 import { useOpenReferral } from '../../lib/useOpenReferral'
 import { useAuth } from '../../../auth/authStore'
 import { filterForUser, listForUser } from '../../lib/scope'
+import { escalationLabel, escalationTone } from '../shared/escalationPalette'
 
 /**
  * The surgeon's brief — NOT a filtered queue. Three short exception sections
@@ -35,19 +36,6 @@ import { filterForUser, listForUser } from '../../lib/scope'
  * count of everything handled without the surgeon since their last visit.
  * If this list is ever long, the design has failed.
  */
-
-const ESCALATION_CATEGORY_LABELS: Record<string, string> = {
-  emergency: 'Emergency',
-  ambiguous: 'Ambiguous',
-  complex: 'Complex',
-}
-
-/** Flag color per category — calm clinical palette, badge + rail only. */
-const ESCALATION_TONES: Record<string, BadgeTone & CardRail> = {
-  emergency: 'red',
-  ambiguous: 'amber',
-  complex: 'slate',
-}
 
 /** Band-header idiom shared with the queue: dot · label · count · explainer. */
 const SECTION_DOTS = {
@@ -211,11 +199,10 @@ export default function SurgeonScreen() {
   const escalatedBadge = ({ referral }: EscalatedEntry) => {
     const { result } = referral
     if (!result.escalationCategory) return undefined
-    const category =
-      ESCALATION_CATEGORY_LABELS[result.escalationCategory] ?? result.escalationCategory
+    const category = escalationLabel(result.escalationCategory)
     return (
       <Badge
-        tone={ESCALATION_TONES[result.escalationCategory] ?? 'red'}
+        tone={escalationTone(result.escalationCategory)}
         className="font-semibold uppercase tracking-wide"
       >
         {category}
@@ -224,9 +211,7 @@ export default function SurgeonScreen() {
   }
 
   const escalatedRail = ({ referral }: EscalatedEntry): CardRail =>
-    (referral.result.escalationCategory &&
-      ESCALATION_TONES[referral.result.escalationCategory]) ||
-    'red'
+    escalationTone(referral.result.escalationCategory) as CardRail
 
   const escalatedPayload = ({ referral, coordinatorNote }: EscalatedEntry) => {
     const { result } = referral

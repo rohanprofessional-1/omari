@@ -6,6 +6,7 @@ import type { ReviewableReferral } from '../../types'
 import { useOpenReferral } from '../../lib/useOpenReferral'
 import { useAuth } from '../../../auth/authStore'
 import { filterForUser, listForUser } from '../../lib/scope'
+import StatChip from '../shared/StatChip'
 
 /**
  * Workup tracking — the core value claim on one screen: approved referrals do
@@ -40,30 +41,6 @@ function StratumHeader({
       <span className="text-dash-band tabular-nums text-dash-faint">{count}</span>
       <p className="hidden min-w-0 truncate text-dash-micro text-dash-faint md:block">{hint}</p>
     </header>
-  )
-}
-
-/** Quiet stat chip: tabular number + micro label, keyed to the palette. */
-function StatChip({
-  count,
-  label,
-  tone,
-}: {
-  count: number
-  label: string
-  tone: 'amber' | 'neutral' | 'green'
-}) {
-  const number =
-    tone === 'amber'
-      ? 'text-dash-amber'
-      : tone === 'green'
-        ? 'text-dash-green'
-        : 'text-dash-strong'
-  return (
-    <span className="inline-flex items-baseline gap-1 rounded-dash-ctl border border-dash-line bg-dash-surface px-2 py-1">
-      <span className={`text-dash-body font-semibold tabular-nums ${number}`}>{count}</span>
-      <span className="text-dash-micro text-dash-muted">{label}</span>
-    </span>
   )
 }
 
