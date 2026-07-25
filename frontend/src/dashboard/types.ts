@@ -145,9 +145,29 @@ export interface ReviewableReferral {
   result: TreeResult
 }
 
+/**
+ * Who is asking, expressed as a filter.
+ *
+ * An options bag rather than a positional argument so the Epic swap seam
+ * survives more scoping dimensions: the live source needs `clinicId` for
+ * tenancy (docs §7 stage 1), the surgeon view needs `specialistName`, and the
+ * patient view needs `mrn`. Omitting the scope entirely means "everything the
+ * caller is allowed to see" — which is what admin gets.
+ */
+export interface ReferralScope {
+  /** Match TreeResult.routedTo.specialistName. */
+  specialistName?: string
+  /** Match EpicReferralPayload.patient.mrn. */
+  mrn?: string
+  /** Tenant. Ignored by the mock (one demo clinic); the LIVE source must apply it. */
+  clinicId?: string
+}
+
 export interface ReferralSource {
-  listReferrals(): Promise<ReviewableReferral[]>
-  getReferral(id: string): Promise<ReviewableReferral | null>
+  listReferrals(scope?: ReferralScope): Promise<ReviewableReferral[]>
+  /** Scoped too: a surgeon deep-linking someone else's referral must get null,
+   *  not another specialist's packet. */
+  getReferral(id: string, scope?: ReferralScope): Promise<ReviewableReferral | null>
 }
 
 export type QueueGroup = 'ready' | 'needs_info' | 'needs_judgment' | 'out_of_scope' | 'escalated'

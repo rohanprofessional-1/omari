@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getReferralSource } from '../../data/adapter'
 import {
   addComment,
   applyAction,
@@ -26,6 +25,8 @@ import SurgeonRow, {
   type CardRail,
 } from './SurgeonRow'
 import { useOpenReferral } from '../../lib/useOpenReferral'
+import { useAuth } from '../../../auth/authStore'
+import { filterForUser, listForUser } from '../../lib/scope'
 
 /**
  * The surgeon's brief — NOT a filtered queue. Three short exception sections
@@ -121,21 +122,28 @@ function HandledStrip({
 export default function SurgeonScreen() {
   const onOpen = useOpenReferral()
   const { reviews, audit, role, surgeonLastVisit } = useDashboardStore()
-  const [referrals, setReferrals] = useState<ReviewableReferral[] | null>(null)
+  const { user } = useAuth()
+  const [fetched, setReferrals] = useState<ReviewableReferral[] | null>(null)
   /** Escalated-with-no-route rows route inline via the existing modal. */
   const [routingFor, setRoutingFor] = useState<ReviewableReferral | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    getReferralSource()
-      .listReferrals()
-      .then((rows) => {
-        if (!cancelled) setReferrals(rows)
-      })
+    listForUser(user).then((rows) => {
+      if (!cancelled) setReferrals(rows)
+    })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [user])
+
+  // A destination CORRECTION can move a referral to or from this surgeon, and
+  // the adapter can't see corrections — so narrow here, on every render, rather
+  // than refetching each time someone reviews something.
+  const referrals = useMemo(
+    () => (fetched === null ? null : filterForUser(fetched, reviews, user)),
+    [fetched, reviews, user],
+  )
 
   const summary = useMemo(() => summarizeHandled(audit, surgeonLastVisit), [audit, surgeonLastVisit])
   const sections = useMemo(

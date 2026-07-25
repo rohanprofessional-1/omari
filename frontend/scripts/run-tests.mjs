@@ -23,6 +23,7 @@ const TEST_FILES = [
   'src/dashboard/lib/deriveTreeResult.test.ts',
   'src/dashboard/lib/surgeonBrief.test.ts',
   'src/dashboard/lib/workupMerge.test.ts',
+  'src/dashboard/lib/scope.test.ts',
 ]
 
 for (const entry of TEST_FILES) {

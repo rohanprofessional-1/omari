@@ -109,7 +109,16 @@ function newEventId(): string {
 
 /* ── Actions (module-level → referentially stable) ────────────────────────── */
 
-/** Record a review decision AND its audit event atomically. */
+/**
+ * Record a review decision AND its audit event atomically.
+ *
+ * TODO(epic): every decision in the product funnels through this one function.
+ * The referral queue ultimately belongs to Epic, so an approve / correct /
+ * reject has to round-trip: once `ReferralSource.submitDecision` exists (see
+ * data/adapter.ts), this is where the outbound write is enqueued and where the
+ * optimistic local state reconciles with the server's echo. Do NOT scatter
+ * Epic calls into the screens — keep this the single seam.
+ */
 export function applyAction(
   referralId: string,
   action: ReviewStatus,

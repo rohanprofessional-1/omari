@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { getReferralSource } from '../../data/adapter'
+import { useAuth } from '../../../auth/authStore'
+import { getForUser } from '../../lib/scope'
 import { backLabelFor } from '../../lib/useOpenReferral'
 import { ageFromDob, waitingSince } from '../../lib/demoClock'
 import { useDashboardStore } from '../../lib/reviewStore'
@@ -95,6 +96,7 @@ export default function DetailScreen() {
   const onBack = () => (origin ? navigate(-1) : navigate('..'))
 
   const { reviews } = useDashboardStore()
+  const { user } = useAuth()
   const [referral, setReferral] = useState<ReviewableReferral | null>(null)
   const [loading, setLoading] = useState(true)
   const [modalMode, setModalMode] = useState<ActionModalMode | null>(null)
@@ -103,17 +105,21 @@ export default function DetailScreen() {
     let cancelled = false
     setLoading(true)
     setReferral(null)
-    getReferralSource()
-      .getReferral(referralId)
-      .then((r) => {
-        if (cancelled) return
-        setReferral(r)
-        setLoading(false)
-      })
+    // Scoped: a surgeon deep-linking another specialist's referral gets the
+    // not-found state, not their patient's packet.
+    getForUser(referralId, user, reviews).then((r) => {
+      if (cancelled) return
+      setReferral(r)
+      setLoading(false)
+    })
     return () => {
       cancelled = true
     }
-  }, [referralId])
+    // `reviews` is read for the corrected-destination check but deliberately
+    // NOT a dependency — refetching on every review action would blank the
+    // screen the moment you act on it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [referralId, user])
 
   if (loading) {
     return <p className="px-4 py-8 text-center text-dash-body text-dash-muted">Loading referral…</p>

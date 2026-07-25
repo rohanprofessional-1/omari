@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getReferralSource } from '../../data/adapter'
 import { useDashboardStore } from '../../lib/reviewStore'
 import { buildWorkupEntries, type WorkupEntry } from '../../lib/workupMerge'
 import WorkupRow from './WorkupRow'
 import type { ReviewableReferral } from '../../types'
 import { useOpenReferral } from '../../lib/useOpenReferral'
+import { useAuth } from '../../../auth/authStore'
+import { filterForUser, listForUser } from '../../lib/scope'
 
 /**
  * Workup tracking — the core value claim on one screen: approved referrals do
@@ -69,21 +70,28 @@ function StatChip({
 export default function WorkupScreen() {
   const onOpen = useOpenReferral()
   const { reviews, workupOverrides } = useDashboardStore()
-  const [referrals, setReferrals] = useState<ReviewableReferral[] | null>(null)
+  const { user } = useAuth()
+  const [fetched, setReferrals] = useState<ReviewableReferral[] | null>(null)
   const [destination, setDestination] = useState('any')
   const [showComplete, setShowComplete] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    getReferralSource()
-      .listReferrals()
-      .then((rows) => {
-        if (!cancelled) setReferrals(rows)
-      })
+    listForUser(user).then((rows) => {
+      if (!cancelled) setReferrals(rows)
+    })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [user])
+
+  // A destination CORRECTION can move a referral to or from this surgeon, and
+  // the adapter can't see corrections — so narrow here, on every render, rather
+  // than refetching each time someone reviews something.
+  const referrals = useMemo(
+    () => (fetched === null ? null : filterForUser(fetched, reviews, user)),
+    [fetched, reviews, user],
+  )
 
   /* Stratify (store-driven: advancing a status re-runs this memo live). */
   const strata = useMemo(

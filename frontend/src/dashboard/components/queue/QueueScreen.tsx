@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { QueueGroup as QueueGroupId, ReviewableReferral, ReviewStatus } from '../../types'
-import { getReferralSource } from '../../data/adapter'
 import { DEMO_NOW } from '../../lib/demoClock'
 import { QUEUE_GROUP_ORDER, queueGroupFor } from '../../lib/queueStatus'
 import { reviewerNameFor, useDashboardStore } from '../../lib/reviewStore'
@@ -10,6 +9,8 @@ import QueueFilters, { DEFAULT_FILTERS, type QueueFilterState } from './QueueFil
 import QueueGroup from './QueueGroup'
 import ReferralRow, { ROW_GRID, type RowRail } from './ReferralRow'
 import { useOpenReferral } from '../../lib/useOpenReferral'
+import { useAuth } from '../../../auth/authStore'
+import { filterForUser, listForUser } from '../../lib/scope'
 
 /**
  * The coordinator's worklist: every referral in exactly one group, ordered by
@@ -64,22 +65,29 @@ const GROUP_RAIL: Partial<Record<QueueGroupId, RowRail>> = {
 export default function QueueScreen() {
   const onOpen = useOpenReferral()
   const { reviews, role, applyAction } = useDashboardStore()
-  const [referrals, setReferrals] = useState<ReviewableReferral[] | null>(null)
+  const { user } = useAuth()
+  const [fetched, setReferrals] = useState<ReviewableReferral[] | null>(null)
   const [filters, setFilters] = useState<QueueFilterState>(DEFAULT_FILTERS)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [doneOpen, setDoneOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    getReferralSource()
-      .listReferrals()
-      .then((rows) => {
-        if (!cancelled) setReferrals(rows)
-      })
+    listForUser(user).then((rows) => {
+      if (!cancelled) setReferrals(rows)
+    })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [user])
+
+  // A destination CORRECTION can move a referral to or from this surgeon, and
+  // the adapter can't see corrections — so narrow here, on every render, rather
+  // than refetching each time someone reviews something.
+  const referrals = useMemo(
+    () => (fetched === null ? null : filterForUser(fetched, reviews, user)),
+    [fetched, reviews, user],
+  )
 
   /* Group + filter. Every referral lands in exactly one group (or 'done'). */
   const { groups, done } = useMemo(() => {
