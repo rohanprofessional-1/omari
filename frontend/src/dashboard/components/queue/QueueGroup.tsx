@@ -1,12 +1,17 @@
 import type { ReactNode } from 'react'
 import type { QueueGroup as QueueGroupId } from '../../types'
 import { QUEUE_GROUP_LABELS } from '../../lib/queueStatus'
+import SectionBand, { type BandTone } from '../shared/SectionBand'
+import { COLUMN_HEADER_H } from './columns'
 
 /**
- * One worklist group: sticky band header (6px status dot + uppercase label +
- * tabular count + one-line explainer) over its referral rows. Header controls
- * (select-all, bulk bar) slot in for the ready group. Dots read as a quiet
- * severity gradient top→bottom.
+ * One worklist tier as its OWN card: a tinted band header (dot · label ·
+ * count · explainer · controls) over its rows, separated from the next tier
+ * by page background. Previously every tier lived in one long card and the
+ * boundaries blurred — the card edge is now the boundary.
+ *
+ * The band pins directly beneath the sticky column header, so scrolling deep
+ * into a 13-row tier never loses which tier you are in.
  */
 
 const EXPLAINERS: Record<QueueGroupId, string> = {
@@ -17,38 +22,49 @@ const EXPLAINERS: Record<QueueGroupId, string> = {
   escalated: 'Safety or complexity flag — surgeon review required.',
 }
 
-/** 6px severity dot per tier — status tokens, kept quiet. */
-const DOTS: Record<QueueGroupId, string> = {
-  ready: 'bg-dash-green',
-  needs_info: 'bg-dash-amber',
-  needs_judgment: 'bg-dash-slate',
-  out_of_scope: 'bg-dash-faint',
-  escalated: 'bg-dash-red',
+/** Severity dot per tier — quiet status tokens, gradient top→bottom. */
+const TONES: Record<QueueGroupId, BandTone> = {
+  ready: 'green',
+  needs_info: 'amber',
+  needs_judgment: 'slate',
+  out_of_scope: 'neutral',
+  escalated: 'red',
 }
+
+/** Stable anchor id so the summary strip can jump straight to a tier. */
+export const groupAnchor = (group: QueueGroupId) => `queue-group-${group}`
 
 export default function QueueGroup({
   group,
   count,
+  open,
+  onToggle,
   headerControls,
   children,
 }: {
   group: QueueGroupId
   count: number
+  open: boolean
+  onToggle: () => void
   headerControls?: ReactNode
   children: ReactNode
 }) {
   return (
-    <section>
-      <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-dash-line bg-dash-surface px-4 py-2">
-        <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOTS[group]}`} />
-        <h3 className="text-dash-band uppercase text-dash-strong">{QUEUE_GROUP_LABELS[group]}</h3>
-        <span className="text-dash-band tabular-nums text-dash-faint">{count}</span>
-        <p className="hidden min-w-0 truncate text-dash-micro text-dash-faint md:block">
-          {EXPLAINERS[group]}
-        </p>
-        {headerControls && <div className="ml-auto flex shrink-0 items-center gap-2">{headerControls}</div>}
-      </header>
-      {children}
+    <section
+      id={groupAnchor(group)}
+      className="scroll-mt-9 rounded-dash-card border border-dash-line-strong bg-dash-surface shadow-dash-card [&>div:last-child]:border-b-0 [&>div:last-child]:rounded-b-dash-card"
+    >
+      <SectionBand
+        tone={TONES[group]}
+        label={QUEUE_GROUP_LABELS[group]}
+        count={count}
+        hint={EXPLAINERS[group]}
+        open={open}
+        onToggle={onToggle}
+        stickyTop={COLUMN_HEADER_H}
+        controls={open ? headerControls : undefined}
+      />
+      {open && children}
     </section>
   )
 }

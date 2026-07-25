@@ -88,7 +88,12 @@ const checks: Check[] = [
       if (emg.atRisk) return 'resulted item should not be at risk'
       const us = r.requiredWorkup.find((w) => w.name.startsWith('High-resolution nerve ultrasound'))
       if (!us || us.status !== 'needed' || us.responsible !== 'clinic') return 'default workup status/responsible wrong'
-      if (!us.atRisk) return 'needed item due 14d before an Aug 6 visit should be at risk (due within 7d of DEMO_NOW)'
+      // Due-date math: no workupState entry → the 14-day default, counted back
+      // from the visit. This referral's consultation is deliberately ~2 months
+      // out (it is the demo patient's, and the patient screens schedule tests
+      // into that wait), so a 14-day-before item is NOT yet at risk.
+      if (us.dueBy !== '2026-09-08') return `default due date wrong: ${us.dueBy}`
+      if (us.atRisk) return 'an item due 6 weeks out should not be at risk'
       return null
     },
   },

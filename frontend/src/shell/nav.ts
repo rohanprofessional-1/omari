@@ -20,13 +20,15 @@ export interface NavItem {
 
 export const SECTIONS: Record<Role, NavItem[]> = {
   // Everything the clinic has: the referral pipeline, the directory, and every
-  // tree-authoring tool.
+  // tree-authoring tool. There is no Trees section — which tree is in force is
+  // one fact, and it lives in a panel at the bottom of Clinic; the structure
+  // behind it belongs to the Builder.
   admin: [
     { to: '/admin/referrals', label: 'Referrals' },
     { to: '/admin/clinic', label: 'Clinic' },
-    { to: '/admin/trees', label: 'Trees' },
+    // Drafting a tree and setting it up are two steps of one job, so they are
+    // one section with its own step nav (see pages/GenerateLayout.tsx).
     { to: '/admin/generate', label: 'Generate' },
-    { to: '/admin/setup', label: 'Set up' },
     { to: '/admin/builder', label: 'Builder' },
     { to: '/admin/knowledge', label: 'Knowledge' },
     { to: '/admin/runner', label: 'Runner' },

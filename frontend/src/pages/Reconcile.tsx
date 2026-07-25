@@ -300,10 +300,15 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
 
   if (!loaded) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-10">
-        <h1 className="font-serif text-[22px] font-semibold text-ink">Set up your referrals</h1>
+      /* The step nav (GenerateLayout) already says which step this is, so the
+         picker opens with the choice rather than another title. */
+      <div className="h-full overflow-y-auto">
+        <div className="mx-auto max-w-2xl px-6 py-8">
+        <h2 className="font-display text-[14px] font-semibold text-ink">
+          Which guideline are you setting up?
+        </h2>
         <p className="mt-1 text-[13px] text-muted">
-          Pick a guideline we've drafted from, and tell us where your clinic differs from it.
+          Pick a draft, and tell us where your clinic differs from it.
         </p>
         {error && (
           <p className="mt-4 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-[13px] text-danger">
@@ -326,9 +331,12 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
             </li>
           ))}
           {pickerTrees?.length === 0 && (
-            <p className="text-[13px] text-muted">Nothing here yet — draft one from a guideline first.</p>
+            <p className="text-[13px] text-muted">
+              Nothing here yet — draft one from a guideline in step 1 first.
+            </p>
           )}
         </ul>
+        </div>
       </div>
     )
   }

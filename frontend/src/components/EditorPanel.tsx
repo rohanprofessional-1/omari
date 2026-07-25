@@ -378,7 +378,7 @@ function AnswerCard({
   const setCondition = (c: Condition) => onChange({ ...branch, condition: c })
 
   return (
-    <div className="rounded-[11px] border border-line bg-bg/60 p-3">
+    <div className="rounded-nested border border-line bg-bg/60 p-3">
       <div className="mb-2.5 flex items-center justify-between">
         <span className="font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
           Answer {index + 1}
@@ -553,7 +553,7 @@ function SpecialistEditor({
       <Section title="Recommended workup" count={node.workup.always.length}>
         <div className="space-y-3">
           {node.workup.always.map((item, i) => (
-            <div key={i} className="rounded-[11px] border border-line bg-bg/60 p-3">
+            <div key={i} className="rounded-nested border border-line bg-bg/60 p-3">
               <div className="mb-2.5 flex items-center justify-between">
                 <span className="font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-muted">
                   Test {i + 1}
@@ -594,7 +594,7 @@ function SpecialistEditor({
         <Section title="Ordered only when…" count={node.workup.conditional.length}>
           <div className="space-y-2">
             {node.workup.conditional.map((rule, i) => (
-              <div key={i} className="rounded-[11px] border border-line bg-bg/60 p-3">
+              <div key={i} className="rounded-nested border border-line bg-bg/60 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-[12px] font-medium text-ink">{rule.item.name}</p>
@@ -624,7 +624,7 @@ function SpecialistEditor({
         <Section title="Don't order unless…" count={node.workup.doNotOrderUnless.length}>
           <div className="space-y-2">
             {node.workup.doNotOrderUnless.map((guard, i) => (
-              <div key={i} className="rounded-[11px] border border-line bg-bg/60 p-3">
+              <div key={i} className="rounded-nested border border-line bg-bg/60 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-[11px] leading-snug text-muted">
                     <span className="font-medium text-ink">{guard.item}</span> is withheld

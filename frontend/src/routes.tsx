@@ -6,13 +6,13 @@ import AppShell from './shell/AppShell'
 import { homeFor } from './shell/nav'
 import ReferralsLayout from './dashboard/layouts/ReferralsLayout'
 import ClinicDirectoryScreen from './dashboard/components/clinic/ClinicDirectoryScreen'
-import TreesDeployedScreen from './dashboard/components/trees/TreesDeployedScreen'
 import DetailScreen from './dashboard/components/detail/DetailScreen'
 import QueueScreen from './dashboard/components/queue/QueueScreen'
 import SurgeonScreen from './dashboard/components/surgeon/SurgeonScreen'
 import WorkupScreen from './dashboard/components/workup/WorkupScreen'
 import Builder from './pages/Builder'
 import Generate from './pages/Generate'
+import GenerateLayout from './pages/GenerateLayout'
 import KnowledgeBase from './pages/KnowledgeBase'
 import Reconcile from './pages/Reconcile'
 import Runner from './pages/Runner'
@@ -60,9 +60,15 @@ export default function AppRoutes() {
             <Route path=":referralId" element={<DetailScreen />} />
           </Route>
           <Route path="/admin/clinic" element={<ClinicDirectoryScreen />} />
-          <Route path="/admin/trees" element={<TreesDeployedScreen />} />
-          <Route path="/admin/generate" element={<GenerateRoute />} />
-          <Route path="/admin/setup" element={<ReconcileRoute />} />
+          {/* Trees was folded into the Clinic directory's tree panel. */}
+          <Route path="/admin/trees" element={<Navigate to="/admin/clinic" replace />} />
+          {/* Draft a tree from guidelines, then set it up — one section, two
+              steps. `/admin/setup` was the old second tab; it still resolves. */}
+          <Route path="/admin/generate" element={<GenerateLayout />}>
+            <Route index element={<GenerateRoute />} />
+            <Route path="setup" element={<ReconcileRoute />} />
+          </Route>
+          <Route path="/admin/setup" element={<Navigate to="/admin/generate/setup" replace />} />
           <Route path="/admin/builder" element={<Builder />} />
           <Route path="/admin/knowledge" element={<KnowledgeBase />} />
           <Route
@@ -92,14 +98,10 @@ export default function AppRoutes() {
         {/* ── Patient — intake and their own referral. Nothing clinical. ──── */}
         <Route element={<RequireRole role="patient" />}>
           <Route path="/patient" element={<Navigate to="/patient/intake" replace />} />
-          <Route
-            path="/patient/intake"
-            element={
-              <div className="h-full overflow-y-auto">
-                <Runner audience="patient" />
-              </div>
-            }
-          />
+          {/* The orb owns this whole pane and its own scrolling — no wrapper
+              scroll, or the stage and the content would scroll against each
+              other. */}
+          <Route path="/patient/intake" element={<Runner audience="patient" />} />
           <Route path="/patient/status" element={<MyReferralScreen />} />
           <Route path="/patient/appointments" element={<AppointmentsScreen />} />
         </Route>
@@ -118,7 +120,7 @@ export default function AppRoutes() {
 
 function GenerateRoute() {
   const navigate = useNavigate()
-  return <Generate onOpenReconcile={() => navigate('/admin/setup')} />
+  return <Generate onOpenReconcile={() => navigate('/admin/generate/setup')} />
 }
 
 function ReconcileRoute() {

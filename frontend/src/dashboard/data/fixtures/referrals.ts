@@ -89,7 +89,11 @@ const SEED_FIXTURES: ReferralFixture[] = [
       },
     },
     annotations: {
-      visitDate: '2026-08-06',
+      // The demo patient's referral. A routine first consultation with a nerve
+      // surgeon is genuinely two months out, and that wait is the window the
+      // patient screens schedule tests into — so the fixture says two months
+      // rather than two weeks.
+      visitDate: '2026-09-22',
       workupState: {
         'Nerve conduction studies + needle EMG (upper limbs)': {
           status: 'resulted',

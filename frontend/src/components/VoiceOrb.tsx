@@ -18,9 +18,12 @@ import Iridescence from './Iridescence'
  *    whichever input is currently mounted (via `transcriptRef`), i.e. talk-to-text.
  */
 
+// The orb is one colour, always: the accent blue. The referral-sent beat used
+// to ease it to sage, which made the single most reassuring moment in the
+// product the only place Omari changed hue — read as a different app for a
+// second. The moment is now carried by what APPEARS (the glow, the timeline),
+// not by the presence itself becoming something else.
 export const ORB_BLUE: [number, number, number] = [0.3, 0.6, 1]
-// Muted sage for the referral-sent success beat (from --color-success family).
-export const ORB_GREEN: [number, number, number] = [0.42, 0.68, 0.5]
 
 /* -------------------------------------------------------------------------- */
 /* Voice capture — mic level (orb) + speech-to-text (inputs)                   */
@@ -238,7 +241,7 @@ export default function VoiceOrb({ color = ORB_BLUE, levelRef, calm = false }: V
         aria-hidden
       />
       <div
-        className="relative h-full w-full overflow-hidden rounded-full shadow-[0_0_90px_rgba(58,108,255,0.35)]"
+        className="relative h-full w-full overflow-hidden rounded-full shadow-subtle"
         style={{ transform: `scale(${scale})`, transition: 'transform 0.12s ease-out' }}
       >
         <Iridescence color={color} amplitude={amplitude} speed={speed} />

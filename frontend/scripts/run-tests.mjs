@@ -22,6 +22,7 @@ const TEST_FILES = [
   'src/lib/edgeRouting.test.ts',
   'src/dashboard/lib/deriveTreeResult.test.ts',
   'src/dashboard/lib/surgeonBrief.test.ts',
+  'src/dashboard/lib/escalationReason.test.ts',
   'src/dashboard/lib/workupMerge.test.ts',
   'src/dashboard/lib/scope.test.ts',
 ]

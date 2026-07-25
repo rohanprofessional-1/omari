@@ -1,28 +1,47 @@
 import { useSyncExternalStore } from 'react'
 import { localStorageWorks } from '../../lib/canStore'
+import { DEMO_NOW } from '../../dashboard/lib/demoClock'
 
 /**
- * Which slot the patient picked, per referral.
+ * What the patient has booked: the consultation, and each test before it.
  *
  * Same module-singleton + useSyncExternalStore idiom as the dashboard review
  * store, including the cached-snapshot rule (a fresh object per call loops React).
  *
- * TODO(epic): booking is an Epic appointment write, not a localStorage key.
- * Real availability comes from Epic Cadence via the backend. The SHAPE here —
- * a chosen slot per referral, gated on outstanding patient workup — is the part
- * that survives the swap.
+ * Two stores, because they are two different things. The CONSULTATION is one
+ * appointment per referral, set once the clinic approves. The TESTS are many
+ * appointments per referral, booked into the wait before it — that is the
+ * whole point of the product, so they get first-class state rather than being
+ * squeezed into the consultation's shape.
+ *
+ * TODO(epic): both are Epic appointment writes, not localStorage keys. Real
+ * availability comes from Epic Cadence per resource (clinic room, scanner, EMG
+ * lab). The SHAPE here — a chosen slot per referral, plus a chosen slot per
+ * test — is the part that survives the swap.
  */
 
+/** Stamped from the DEMO clock, not the wall clock — the patient's whole
+ *  timeline is told in demo time, and mixing the two reorders it. */
+function stampedNow(): string {
+  return DEMO_NOW.toISOString()
+}
+
 const KEY = 'omari:patient:appointment:v1'
+const TEST_KEY = 'omari:patient:testAppointments:v1'
 
 export interface Booking {
   /** ISO datetime of the chosen slot. */
   at: string
   /** What the visit is for, as shown to the patient. */
   label: string
+  /** When the patient picked it — the journey timeline dates the choice.
+   *  Optional: bookings made before this field existed simply have no date. */
+  bookedAt?: string
 }
 
 export type Bookings = Record<string, Booking>
+/** referralId → test name → the slot the patient picked. */
+export type TestBookings = Record<string, Record<string, Booking>>
 
 const canStore = localStorageWorks()
 
@@ -60,7 +79,7 @@ function getSnapshot(): Bookings {
 }
 
 export function book(referralId: string, booking: Booking): void {
-  snapshot = { ...snapshot, [referralId]: booking }
+  snapshot = { ...snapshot, [referralId]: { bookedAt: stampedNow(), ...booking } }
   notify()
 }
 
@@ -73,4 +92,61 @@ export function cancelBooking(referralId: string): void {
 
 export function useBookings(): Bookings {
   return useSyncExternalStore(subscribe, getSnapshot)
+}
+
+/* ── Test appointments — the ones booked into the wait ────────────────────── */
+
+function loadTests(): TestBookings {
+  if (!canStore) return {}
+  try {
+    const raw = localStorage.getItem(TEST_KEY)
+    return raw ? (JSON.parse(raw) as TestBookings) : {}
+  } catch {
+    return {}
+  }
+}
+
+let testSnapshot: TestBookings = loadTests()
+const testListeners = new Set<() => void>()
+
+function notifyTests(): void {
+  if (canStore) {
+    try {
+      localStorage.setItem(TEST_KEY, JSON.stringify(testSnapshot))
+    } catch {
+      /* storage full / unavailable — keep the bookings in memory */
+    }
+  }
+  for (const l of testListeners) l()
+}
+
+function subscribeTests(listener: () => void): () => void {
+  testListeners.add(listener)
+  return () => testListeners.delete(listener)
+}
+
+function getTestSnapshot(): TestBookings {
+  return testSnapshot
+}
+
+export function bookTest(referralId: string, testName: string, booking: Booking): void {
+  testSnapshot = {
+    ...testSnapshot,
+    [referralId]: {
+      ...(testSnapshot[referralId] ?? {}),
+      [testName]: { bookedAt: stampedNow(), ...booking },
+    },
+  }
+  notifyTests()
+}
+
+export function cancelTest(referralId: string, testName: string): void {
+  const forReferral = { ...(testSnapshot[referralId] ?? {}) }
+  delete forReferral[testName]
+  testSnapshot = { ...testSnapshot, [referralId]: forReferral }
+  notifyTests()
+}
+
+export function useTestBookings(): TestBookings {
+  return useSyncExternalStore(subscribeTests, getTestSnapshot)
 }

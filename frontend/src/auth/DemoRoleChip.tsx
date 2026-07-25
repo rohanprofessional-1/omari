@@ -45,9 +45,9 @@ export default function DemoRoleChip() {
               onClick={() => jump(role)}
               aria-pressed={active}
               className={
-                'rounded-[7px] px-2 py-1 text-[12px] font-medium transition-colors ' +
+                'rounded-md px-2 py-1 text-[12px] font-medium transition-colors ' +
                 (active
-                  ? 'bg-canvas text-ink shadow-[0_1px_2px_rgba(31,36,33,0.10)]'
+                  ? 'bg-canvas text-ink shadow-subtle'
                   : 'text-muted hover:text-ink')
               }
             >

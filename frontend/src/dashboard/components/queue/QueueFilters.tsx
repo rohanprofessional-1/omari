@@ -26,7 +26,7 @@ export const DEFAULT_FILTERS: QueueFilterState = {
 }
 
 const SELECT =
-  'rounded-dash-ctl border border-dash-line bg-dash-surface px-2 py-1 text-dash-micro text-dash-ink'
+  'rounded-dash-ctl border border-dash-line-strong bg-dash-surface px-2 py-1.5 text-dash-micro text-dash-strong transition-colors hover:border-dash-faint focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-dash-accent'
 
 export default function QueueFilters({
   referrals,
@@ -48,8 +48,15 @@ export default function QueueFilters({
   const set = <K extends keyof QueueFilterState>(key: K, value: QueueFilterState[K]) =>
     onChange({ ...filters, [key]: value })
 
+  const active =
+    filters.destination !== 'any' ||
+    filters.group !== 'any' ||
+    filters.channel !== 'any' ||
+    filters.age !== 'any' ||
+    filters.search.trim() !== ''
+
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2">
+    <div className="mb-3 flex flex-wrap items-center gap-2">
       <select
         value={filters.destination}
         onChange={(e) => set('destination', e.target.value)}
@@ -111,8 +118,18 @@ export default function QueueFilters({
         onChange={(e) => set('search', e.target.value)}
         placeholder="Search patient or provider…"
         aria-label="Search patient or provider name"
-        className="min-w-48 flex-1 rounded-dash-ctl border border-dash-line bg-dash-surface px-2 py-1 text-dash-micro text-dash-ink placeholder:text-dash-faint md:max-w-64"
+        className="min-w-48 flex-1 rounded-dash-ctl border border-dash-line-strong bg-dash-surface px-2 py-1.5 text-dash-micro text-dash-ink transition-colors placeholder:text-dash-faint hover:border-dash-faint focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-dash-accent md:max-w-64"
       />
+
+      {active && (
+        <button
+          type="button"
+          onClick={() => onChange(DEFAULT_FILTERS)}
+          className="rounded-dash-ctl px-2 py-1.5 text-dash-micro font-medium text-dash-accent transition-colors hover:text-dash-accent-strong"
+        >
+          Clear filters
+        </button>
+      )}
     </div>
   )
 }

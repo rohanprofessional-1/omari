@@ -3,6 +3,7 @@ import { ageFromDob, formatDate } from '../../lib/demoClock'
 import type { EpicReferralPayload } from '../../types'
 import Badge from '../shared/Badge'
 import ChannelBadge from '../shared/ChannelBadge'
+import SignalDot from '../shared/SignalDot'
 
 /**
  * Dashboard detail, left column — "what came in": the referral as a document
@@ -127,7 +128,14 @@ export default function IncomingPanel({ payload }: { payload: EpicReferralPayloa
             <span className="text-dash-muted"> via {CHANNEL_LABELS[payload.channel]}</span>
           </Field>
           <Field label="Priority">
-            <span className={payload.priority === 'urgent' ? 'font-medium text-dash-red' : ''}>
+            <span
+              className={
+                payload.priority === 'urgent'
+                  ? 'inline-flex items-center gap-1.5 font-semibold text-dash-ink'
+                  : ''
+              }
+            >
+              {payload.priority === 'urgent' && <SignalDot tone="red" />}
               {payload.priority}
             </span>
             <span className="text-dash-muted"> (referrer-stated)</span>

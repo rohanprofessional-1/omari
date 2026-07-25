@@ -3,11 +3,21 @@ import type { ReviewableReferral } from '../../types'
 import { ageFromDob } from '../../lib/demoClock'
 
 /**
- * Surgeon brief — one calm card. Deliberately NOT the queue row: wider, fewer
- * columns. The flag badge + patient line sit at the top, the section-specific
- * payload reads as body text at a comfortable measure, and a consistent
- * action row closes the card. Clicking the card body opens the full detail.
- * Status color lives ONLY in the 2px left rail and the badge.
+ * Surgeon brief — one calm row inside its section card, read in three fixed
+ * beats so every row answers the same questions in the same places:
+ *
+ *   1. WHO, WHAT KIND, WHERE TO — and the actions, all on ONE scan line.
+ *      Buttons sit at the right of that line rather than under the prose, so a
+ *      row is a row's worth of height whatever the tree wrote.
+ *   2. The referral in the referrer's words — one truncated line.
+ *   3. WHY it stopped — the section payload, in its own labelled block.
+ *
+ * Deliberately NOT the queue row: wider, fewer columns. Clicking the body
+ * opens the full detail. Status color lives ONLY in the 2px left rail, the
+ * badge, and the payload block's label.
+ *
+ * The row carries no border/shadow of its own — the section card owns the
+ * boundary, so where a group starts and ends is never ambiguous.
  */
 
 export const surgeonBtnPrimary =
@@ -29,57 +39,62 @@ export default function SurgeonRow({
   referral,
   badge,
   rail,
+  meta,
   payload,
   actions,
   onOpen,
 }: {
   referral: ReviewableReferral
-  /** Flag-type badge shown at the top of the card (presentation only). */
+  /** Flag-type badge that opens the scan line (presentation only). */
   badge?: ReactNode
   /** 2px left-rail tone matching the badge (presentation only). */
   rail?: CardRail
+  /** Where this referral is headed — trailing meta on the scan line. */
+  meta?: ReactNode
   /** Section-specific body (escalation reason / confidence / quote). */
   payload: ReactNode
   /** Inline quick-action buttons. */
   actions: ReactNode
   onOpen: (referralId: string) => void
 }) {
-  const { patient } = referral.payload
+  const { patient, reasonForReferral } = referral.payload
   return (
     <article
       onClick={() => onOpen(referral.payload.referralId)}
-      className={`cursor-pointer rounded-dash-card border border-l-2 border-dash-line bg-dash-surface p-4 shadow-dash-card transition-colors hover:bg-dash-bg ${
+      className={`group cursor-pointer border-b border-l-2 border-b-dash-line px-4 py-3 transition-colors hover:bg-dash-bg ${
         rail ? RAIL[rail] : 'border-l-transparent'
       }`}
     >
-      {/* Card top: flag badge + patient anchor + reason */}
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        {badge && <span className="shrink-0 self-center">{badge}</span>}
-        <span className="truncate text-dash-row text-dash-ink">{patient.name}</span>
-        <span className="shrink-0 text-dash-micro tabular-nums text-dash-faint">
-          {ageFromDob(patient.dob)}
-          {patient.sex}
-        </span>
-        <span
-          className="min-w-0 truncate text-dash-body text-dash-muted"
-          title={referral.payload.reasonForReferral}
+      {/* Beat 1 — the scan line. Badge · patient · destination | actions. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+          {badge && <span className="shrink-0">{badge}</span>}
+          <span className="truncate text-dash-row text-dash-ink transition-colors group-hover:text-dash-accent">
+            {patient.name}
+          </span>
+          <span className="shrink-0 text-dash-micro tabular-nums text-dash-faint">
+            {ageFromDob(patient.dob)}
+            {patient.sex}
+          </span>
+          {meta && <span className="min-w-0 truncate">{meta}</span>}
+        </div>
+
+        {/* Same two controls, same place, every row — clicks stay off the card */}
+        <div
+          className="flex shrink-0 items-center gap-2"
+          onClick={(e) => e.stopPropagation()}
         >
-          {referral.payload.reasonForReferral}
-        </span>
+          {actions}
+        </div>
       </div>
 
-      {/* Payload — readable ink body at a comfortable measure, never saturated */}
-      <div className="mt-2 max-w-prose text-dash-body leading-relaxed text-dash-strong">
-        {payload}
-      </div>
+      {/* Beat 2 — the referral in the referrer's own words, one line. */}
+      <p className="mt-1 truncate text-dash-body text-dash-muted" title={reasonForReferral}>
+        {reasonForReferral}
+      </p>
 
-      {/* Action row — consistent across every card */}
-      <div
-        className="mt-3 flex flex-wrap items-center gap-2"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {actions}
-      </div>
+      {/* Beat 3 — why it stopped. */}
+      <div className="mt-2">{payload}</div>
     </article>
   )
 }

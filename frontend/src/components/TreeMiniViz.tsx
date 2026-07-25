@@ -25,11 +25,11 @@ const COLOR = {
   variable: '#205EA6', // --color-nodevar
   specialist: '#4385BE', // --color-nodespec
   escalation: '#7FABCD', // --color-nodeesc
-  dimEdge: '#DAD9D3',
+  dimEdge: '#e5e5e5',
   takenEdge: '#205EA6',
-  line: '#E7E6E1',
-  muted: '#7B7974',
-  ink: '#121212',
+  line: '#e5e5e5',
+  muted: '#737373',
+  ink: '#0a0a0a',
 }
 
 /** Prettify a camelCase variable key into a short readable label. */

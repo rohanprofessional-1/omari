@@ -1,24 +1,23 @@
 import type { ReviewState, ReviewableReferral } from '../../types'
 import { DEMO_NOW, ageFromDob, waitingSince } from '../../lib/demoClock'
 import Badge from '../shared/Badge'
-import ChannelBadge from '../shared/ChannelBadge'
+import { ChannelMark } from '../shared/ChannelBadge'
 import ConfidencePill from '../shared/ConfidencePill'
 import UrgencyBadge from '../shared/UrgencyBadge'
+import { RAIL_NONE, ROW_EDGE, ROW_GRID } from './columns'
 
 /**
- * One scannable queue row. Fixed grid columns so 60 rows read as a table; no
- * wrapping — truncate with title attrs. Patient name and destination are the
- * two anchors; provider/practice/reason are support. Attention tiers get a
- * quiet 2px left rail (amber / red); ready rows get none.
+ * One scannable queue row, aligned to the shared column contract in
+ * ./columns. No wrapping — truncate with title attrs. Patient name and
+ * destination are the two anchors; provider/practice/reason are support.
+ * Attention tiers get a quiet 2px left rail (amber / red); ready rows none.
+ *
+ * Colour discipline: a cell only earns a tinted chip when it is an EXCEPTION.
+ * The common case (routine priority, high confidence, nothing missing) reads
+ * as plain quiet text, so the eye lands on the handful of rows that differ.
  */
 
-/** Shared column template — keeps every group's rows AND the completed strip
- *  aligned: checkbox · patient · channel · provider/practice · reason ·
- *  destination · priority+confidence · missing/meta · waiting. */
-export const ROW_GRID =
-  'grid grid-cols-[24px_184px_72px_190px_minmax(120px,1fr)_190px_124px_80px_52px] items-center gap-x-3'
-
-/** Quiet status rail on attention-tier rows (Phase 5) — presentation only. */
+/** Quiet status rail on attention-tier rows — presentation only. */
 export type RowRail = 'amber' | 'red'
 
 const RAIL: Record<RowRail, string> = {
@@ -52,12 +51,13 @@ export default function ReferralRow({
   const infoRequested = review?.status === 'info_requested'
   const waitedDays = (DEMO_NOW.getTime() - new Date(payload.receivedAt).getTime()) / MS_PER_DAY
   const stale = waitedDays > 3
+  const urgency = result.urgency && result.urgency !== 'routine' ? result.urgency : null
 
   return (
     <div
       onClick={() => onOpen(id)}
-      className={`${ROW_GRID} h-12 cursor-pointer border-b border-l-2 border-b-dash-line px-4 transition-colors ${
-        rail ? RAIL[rail] : 'border-l-transparent'
+      className={`${ROW_GRID} ${ROW_EDGE} h-12 cursor-pointer border-b border-b-dash-line transition-colors ${
+        rail ? RAIL[rail] : RAIL_NONE
       } ${selected ? 'bg-dash-accent-soft' : 'hover:bg-dash-bg'}`}
     >
       {/* Checkbox — ready group only; empty spacer elsewhere keeps alignment */}
@@ -76,19 +76,19 @@ export default function ReferralRow({
 
       {/* Patient — the anchor: name in row-primary ink, age/sex in micro meta */}
       <span
-        className="flex min-w-0 items-baseline gap-1"
+        className="flex min-w-0 items-baseline gap-1.5"
         title={`${payload.patient.name} · ${payload.patient.mrn}`}
       >
         <span className="truncate text-dash-row text-dash-ink">{payload.patient.name}</span>
-        <span className="shrink-0 text-dash-micro text-dash-faint tabular-nums">
+        <span className="shrink-0 text-dash-micro tabular-nums text-dash-faint">
           {age}
           {payload.patient.sex}
         </span>
       </span>
 
-      {/* Channel */}
-      <span>
-        <ChannelBadge channel={payload.channel} />
+      {/* Source */}
+      <span className="min-w-0">
+        <ChannelMark channel={payload.channel} />
       </span>
 
       {/* Referring provider — support; practice on its own micro line */}
@@ -114,14 +114,28 @@ export default function ReferralRow({
         <Destination referral={referral} />
       </span>
 
-      {/* Priority + confidence */}
-      <span className="flex items-center gap-1">
-        {result.urgency && result.urgency !== 'routine' && <UrgencyBadge urgency={result.urgency} />}
-        <ConfidencePill level={result.confidence} title={result.confidenceReason} />
+      {/* Priority — chip only when it is not routine */}
+      <span className="min-w-0">
+        {urgency ? (
+          <UrgencyBadge urgency={urgency} />
+        ) : (
+          <span className="text-dash-micro text-dash-faint">Routine</span>
+        )}
+      </span>
+
+      {/* Confidence — chip only when the tree is unsure */}
+      <span className="min-w-0">
+        {result.confidence === 'high' ? (
+          <span className="text-dash-micro text-dash-muted" title={result.confidenceReason}>
+            High
+          </span>
+        ) : (
+          <ConfidencePill level={result.confidence} title={result.confidenceReason} />
+        )}
       </span>
 
       {/* Missing info count — or the 'requested' badge once info was asked for */}
-      <span>
+      <span className="min-w-0">
         {infoRequested ? (
           <Badge
             tone="accent"
@@ -136,16 +150,16 @@ export default function ReferralRow({
             {missing} missing
           </Badge>
         ) : (
-          <span className="text-dash-micro text-dash-faint">—</span>
+          <span className="text-dash-micro text-dash-faint">None</span>
         )}
       </span>
 
-      {/* Waiting time */}
+      {/* Waiting — time since received */}
       <span
         className={`text-right text-dash-micro tabular-nums ${
-          stale ? 'font-medium text-dash-amber' : 'text-dash-muted'
+          stale ? 'font-semibold text-dash-ink' : 'text-dash-muted'
         }`}
-        title={`Received ${payload.receivedAt.replace('T', ' ')}`}
+        title={`Waiting ${waitingSince(payload.receivedAt)} — received ${payload.receivedAt.replace('T', ' ')}`}
       >
         {waitingSince(payload.receivedAt)}
       </span>

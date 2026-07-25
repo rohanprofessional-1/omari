@@ -5,7 +5,7 @@ import { formatDate } from '../../lib/demoClock'
 import { useDashboardStore } from '../../lib/reviewStore'
 import { mergeWorkupItems } from '../../lib/workupMerge'
 import Badge, { type BadgeTone } from '../shared/Badge'
-import WarningIcon from '../shared/WarningIcon'
+import SignalDot from '../shared/SignalDot'
 import type { DashboardWorkupItem, WorkupStatus } from '../../types'
 
 /**
@@ -51,12 +51,10 @@ function WorkupRow({ item }: { item: DashboardWorkupItem }) {
       <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-dash-micro text-dash-muted">
         <span>{item.responsible}</span>
         <span aria-hidden>·</span>
-        <span className={item.atRisk ? 'font-medium text-dash-amber' : ''}>
-          {item.atRisk && (
-            <>
-              <WarningIcon />{' '}
-            </>
-          )}
+        <span
+          className={item.atRisk ? 'inline-flex items-center gap-1.5 font-semibold text-dash-ink' : ''}
+        >
+          {item.atRisk && <SignalDot tone="amber" title="At risk — not back yet and due soon" />}
           due {formatDate(item.dueBy)}
         </span>
       </div>

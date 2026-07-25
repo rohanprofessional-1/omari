@@ -140,16 +140,8 @@ export default function Generate({
 
   return (
     <div className="h-full overflow-y-auto bg-bg">
-      <div className="mx-auto max-w-3xl px-6 py-8">
-        <header className="mb-6">
-          <p className="font-display text-[11px] font-semibold uppercase tracking-[0.14em] text-accent-strong">
-            Tree generator
-          </p>
-          <h1 className="font-serif text-[22px] font-semibold text-ink">
-            Generate from Guidelines
-          </h1>
-        </header>
-
+      {/* No page title here — the section header (GenerateLayout) owns it. */}
+      <div className="mx-auto max-w-3xl px-6 py-6">
         {error && (
           <div className="mb-4 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2 text-[13px] text-danger">
             {error}
@@ -288,15 +280,15 @@ export default function Generate({
           </SetupSection>
 
           {/* Expectations + the gated CTA */}
-          <div className="rounded-xl border border-line bg-canvas p-4 shadow-[0_1px_2px_rgba(24,20,16,0.05)]">
+          <div className="rounded-xl border border-line bg-canvas p-4 shadow-subtle">
             <p className="mb-3 text-[12.5px] leading-relaxed text-muted">
-              We will extract exactly what the guidelines say—no invented thresholds or unauthorized routing.
-              You will map the resulting tree onto your clinic in the Reconcile session.
+              We will extract exactly what the guidelines say — no invented thresholds or
+              unauthorized routing. Step 2 is where you map the resulting tree onto your clinic.
             </p>
             <button
               onClick={start}
               disabled={!canStart || busy !== null}
-              className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#373734] disabled:cursor-not-allowed disabled:opacity-40"
+              className="w-full rounded-md bg-accent-strong px-3 py-2 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#27508f] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Generate Scaffold →
             </button>
@@ -322,7 +314,7 @@ function SetupSection({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-line bg-canvas p-5 shadow-[0_1px_2px_rgba(24,20,16,0.05)]">
+    <section className="rounded-xl border border-line bg-canvas p-5 shadow-subtle">
       <div className="mb-1 flex items-center gap-2">
         <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent-strong/10 font-display text-[11px] font-semibold text-accent-strong">
           {step}

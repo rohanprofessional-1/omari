@@ -5,9 +5,11 @@ import { QUEUE_GROUP_ORDER, queueGroupFor } from '../../lib/queueStatus'
 import { reviewerNameFor, useDashboardStore } from '../../lib/reviewStore'
 import Badge, { type BadgeTone } from '../shared/Badge'
 import BulkApproveBar from './BulkApproveBar'
+import QueueColumnHeader, { RAIL_NONE, ROW_EDGE, ROW_GRID } from './columns'
 import QueueFilters, { DEFAULT_FILTERS, type QueueFilterState } from './QueueFilters'
 import QueueGroup from './QueueGroup'
-import ReferralRow, { ROW_GRID, type RowRail } from './ReferralRow'
+import QueueSummary from './QueueSummary'
+import ReferralRow, { type RowRail } from './ReferralRow'
 import { useOpenReferral } from '../../lib/useOpenReferral'
 import { useAuth } from '../../../auth/authStore'
 import { filterForUser, listForUser } from '../../lib/scope'
@@ -70,6 +72,8 @@ export default function QueueScreen() {
   const [filters, setFilters] = useState<QueueFilterState>(DEFAULT_FILTERS)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [doneOpen, setDoneOpen] = useState(false)
+  /** Tiers the user has folded away — everything starts open. */
+  const [collapsed, setCollapsed] = useState<Set<QueueGroupId>>(new Set())
 
   useEffect(() => {
     let cancelled = false
@@ -124,6 +128,14 @@ export default function QueueScreen() {
   const toggleAll = () =>
     setSelected(liveSelected.size === readyIds.length ? new Set() : new Set(readyIds))
 
+  const toggleGroup = (group: QueueGroupId) =>
+    setCollapsed((s) => {
+      const next = new Set(s)
+      if (next.has(group)) next.delete(group)
+      else next.add(group)
+      return next
+    })
+
   const approveSelected = () => {
     const actor = reviewerNameFor(role)
     for (const id of liveSelected) applyAction(id, 'approved', { actor, role })
@@ -144,10 +156,14 @@ export default function QueueScreen() {
 
   const visibleGroups = QUEUE_GROUP_ORDER.filter((g) => (groups.get(g) ?? []).length > 0)
   const nothingPending = visibleGroups.length === 0
+  const counts = new Map(QUEUE_GROUP_ORDER.map((g) => [g, (groups.get(g) ?? []).length]))
 
   return (
     <div className="min-h-full bg-dash-bg">
-      <div className="mx-auto w-full max-w-dash-page p-6">
+      <div className="mx-auto w-full max-w-dash-page px-6 pb-12 pt-4">
+        {/* Whole queue in one line — counts stay above the fold and jump to a tier */}
+        <QueueSummary counts={counts} doneCount={done.length} />
+
         <QueueFilters referrals={referrals} filters={filters} onChange={setFilters} />
 
         {nothingPending && (
@@ -159,7 +175,10 @@ export default function QueueScreen() {
         )}
 
         {(visibleGroups.length > 0 || done.length > 0) && (
-          <div className="rounded-dash-card border border-dash-line bg-dash-surface shadow-dash-card">
+          <div className="space-y-3">
+            {/* Named columns, pinned — "expedited", "High" and "17h" all say what they are */}
+            <QueueColumnHeader />
+
             {visibleGroups.map((groupId) => {
               const rows = groups.get(groupId) ?? []
               const isReady = groupId === 'ready'
@@ -168,6 +187,8 @@ export default function QueueScreen() {
                   key={groupId}
                   group={groupId}
                   count={rows.length}
+                  open={!collapsed.has(groupId)}
+                  onToggle={() => toggleGroup(groupId)}
                   headerControls={
                     isReady ? (
                       <BulkApproveBar
@@ -195,13 +216,13 @@ export default function QueueScreen() {
               )
             })}
 
-            {/* Completed strip — collapsed by default */}
+            {/* Completed strip — its own card, collapsed by default */}
             {done.length > 0 && (
-              <section>
+              <section className="rounded-dash-card border border-dash-line-strong bg-dash-surface shadow-dash-card [&>div:last-child]:border-b-0">
                 <button
                   onClick={() => setDoneOpen((v) => !v)}
                   aria-expanded={doneOpen}
-                  className="flex w-full items-center gap-2 px-4 py-2 text-left text-dash-band uppercase text-dash-muted transition-colors hover:text-dash-ink"
+                  className="flex h-9 w-full items-center gap-2 rounded-t-dash-card border-b border-dash-line-strong bg-dash-header px-4 text-left text-dash-col uppercase text-dash-muted transition-colors hover:text-dash-ink"
                 >
                   <svg
                     width="12"
@@ -209,15 +230,18 @@ export default function QueueScreen() {
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth="1.8"
+                    strokeWidth="2"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     aria-hidden
-                    className={`transition-transform ${doneOpen ? 'rotate-90' : ''}`}
+                    className={`shrink-0 text-dash-faint transition-transform motion-reduce:transition-none ${doneOpen ? 'rotate-90' : ''}`}
                   >
                     <path d="M9 18l6-6-6-6" />
                   </svg>
-                  Completed today ({done.length})
+                  Completed today
+                  <span className="rounded-full border border-dash-line-strong bg-dash-surface px-1.5 py-px text-dash-micro font-semibold leading-tight tabular-nums text-dash-strong">
+                    {done.length}
+                  </span>
                 </button>
                 {doneOpen &&
                   done.map((r) => {
@@ -226,7 +250,7 @@ export default function QueueScreen() {
                       <div
                         key={r.payload.referralId}
                         onClick={() => onOpen(r.payload.referralId)}
-                        className={`${ROW_GRID} h-10 cursor-pointer border-t border-l-2 border-t-dash-line border-l-transparent px-4 text-dash-micro text-dash-muted transition-colors hover:bg-dash-bg`}
+                        className={`${ROW_GRID} ${ROW_EDGE} ${RAIL_NONE} h-10 cursor-pointer border-b border-b-dash-line text-dash-micro text-dash-muted transition-colors hover:bg-dash-bg`}
                       >
                         <span />
                         <span className="truncate font-medium text-dash-strong">
@@ -245,7 +269,7 @@ export default function QueueScreen() {
                               ? `→ ${r.result.routedTo.specialistName}`
                               : ''}
                         </span>
-                        <span className="col-span-3" />
+                        <span className="col-span-4" />
                         <span className="text-right tabular-nums">
                           {review?.reviewedAt
                             ? new Date(review.reviewedAt).toLocaleTimeString([], {

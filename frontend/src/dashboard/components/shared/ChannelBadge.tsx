@@ -66,3 +66,20 @@ export default function ChannelBadge({ channel }: { channel: SourceChannel }) {
     </Badge>
   )
 }
+
+/**
+ * Chip-less variant for dense table rows. Channel is context, not status —
+ * in a 60-row list a tinted chip on every row reads as decoration, so the
+ * icon + label carry it in plain meta text instead.
+ */
+export function ChannelMark({ channel }: { channel: SourceChannel }) {
+  return (
+    <span
+      className="flex items-center gap-1 text-dash-micro text-dash-muted"
+      title={`Received via ${LABELS[channel]}`}
+    >
+      {ICONS[channel]}
+      {LABELS[channel]}
+    </span>
+  )
+}

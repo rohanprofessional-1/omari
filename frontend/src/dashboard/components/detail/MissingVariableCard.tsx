@@ -1,10 +1,11 @@
 import type { MissingVariableInfo } from '../../types'
+import SignalDot from '../shared/SignalDot'
 
 /**
  * Dashboard detail — the ONE variable blocking this referral's route: what is
  * missing, what hangs on each possible answer, and who can supply it. Amber
- * (needs attention) — the color lives in the 2px rail + kicker only. The
- * request button opens the request-info modal (via `onRequest`).
+ * (needs attention) — the colour lives in the 2px rail and the kicker's dot,
+ * never in the words. The request button opens the request-info modal.
  */
 
 export default function MissingVariableCard({
@@ -16,7 +17,8 @@ export default function MissingVariableCard({
 }) {
   return (
     <section className="rounded-dash-card border border-l-2 border-dash-line border-l-dash-amber bg-dash-surface p-4 shadow-dash-card">
-      <p className="text-dash-micro font-semibold uppercase tracking-wide text-dash-amber">
+      <p className="flex items-center gap-2 text-dash-micro font-semibold uppercase tracking-wide text-dash-ink">
+        <SignalDot tone="amber" />
         Missing information
       </p>
       <p className="mt-2 text-dash-body font-medium leading-snug text-dash-ink">

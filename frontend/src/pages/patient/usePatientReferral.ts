@@ -5,7 +5,9 @@ import { listForUser } from '../../dashboard/lib/scope'
 import { buildWorkupEntries, type WorkupEntry } from '../../dashboard/lib/workupMerge'
 import type { ReviewStatus, ReviewableReferral } from '../../dashboard/types'
 import type { StatusStage } from '../../components/StatusStepper'
-import { useBookings, type Booking } from './appointmentStore'
+import { useBookings, useTestBookings, type Booking } from './appointmentStore'
+import { buildCarePlan, type CarePlan } from './carePlan'
+import { buildJourney, type JourneyEvent } from './journey'
 
 /**
  * The signed-in patient's own referral, and where it has got to.
@@ -31,22 +33,24 @@ export interface PatientReferral {
   /** Workup this patient is personally responsible for. */
   workup: WorkupEntry | null
   booking: Booking | null
+  /** The whole shape of the wait: consultation, tests, and progress. */
+  plan: CarePlan
+  /** Everything that has happened and is still to come, in order. */
+  journey: JourneyEvent[]
 }
 
-/** Only tasks the PATIENT owns; clinic and referring-office items aren't theirs. */
-export function patientItems(entry: WorkupEntry | null) {
-  return entry ? entry.items.filter((i) => i.responsible === 'patient') : []
-}
-
-/** Patient-owned items still outstanding — the gate on booking a visit. */
-export function outstandingPatientItems(entry: WorkupEntry | null) {
-  return patientItems(entry).filter((i) => i.status !== 'resulted' && i.status !== 'reviewed')
-}
+/* `patientItems` / `outstandingPatientItems` used to live here, filtering the
+   workup down to items whose `responsible` was 'patient'. They are gone: who
+   the CLINIC books a test through says nothing about whether the patient has
+   to attend it, and filtering on it hid the scans that are the whole reason
+   the wait is useful. carePlan.ts decides schedulability from the kind of test
+   instead. */
 
 export function usePatientReferral(): PatientReferral {
   const { user } = useAuth()
-  const { reviews, workupOverrides } = useDashboardStore()
+  const { reviews, workupOverrides, audit } = useDashboardStore()
   const bookings = useBookings()
+  const testBookings = useTestBookings()
   const [fetched, setFetched] = useState<ReviewableReferral[] | null>(null)
 
   useEffect(() => {
@@ -83,6 +87,19 @@ export function usePatientReferral(): PatientReferral {
     const destination = workup?.destination ?? referral?.result.routedTo?.specialistName
     const careTeam = destination ? `${destination}’s team` : 'our clinical team'
 
+    // Approval is the gate: it is what releases BOTH the consultation date and
+    // the test list. Before it, there is nothing for the patient to schedule.
+    const approved = status === 'approved' || status === 'corrected'
+    const plan = buildCarePlan({
+      referralId: id ?? '',
+      approved,
+      entry: workup,
+      consultation: booking,
+      testBookings: (id && testBookings[id]) || {},
+    })
+
+    const journey = referral ? buildJourney({ referral, audit, plan, careTeam }) : []
+
     return {
       loading: fetched === null,
       referral,
@@ -92,6 +109,8 @@ export function usePatientReferral(): PatientReferral {
       careTeam,
       workup,
       booking,
+      plan,
+      journey,
     }
-  }, [fetched, reviews, workupOverrides, bookings])
+  }, [fetched, reviews, workupOverrides, bookings, testBookings, audit])
 }

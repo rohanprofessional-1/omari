@@ -18,6 +18,8 @@ import type { ReviewableReferral } from '../../types'
 import ActionModal from '../detail/ActionModal'
 import Badge from '../shared/Badge'
 import ConfidencePill from '../shared/ConfidencePill'
+import SectionBand from '../shared/SectionBand'
+import ReasonBlock, { type ReasonTone } from './ReasonBlock'
 import SurgeonRow, {
   CommentButton,
   surgeonBtnOutline,
@@ -28,6 +30,7 @@ import { useOpenReferral } from '../../lib/useOpenReferral'
 import { useAuth } from '../../../auth/authStore'
 import { filterForUser, listForUser } from '../../lib/scope'
 import { escalationLabel, escalationTone } from '../shared/escalationPalette'
+import { splitEscalationReason } from '../../lib/escalationReason'
 
 /**
  * The surgeon's brief — NOT a filtered queue. Three short exception sections
@@ -37,33 +40,9 @@ import { escalationLabel, escalationTone } from '../shared/escalationPalette'
  * If this list is ever long, the design has failed.
  */
 
-/** Band-header idiom shared with the queue: dot · label · count · explainer. */
-const SECTION_DOTS = {
-  red: 'bg-dash-red',
-  slate: 'bg-dash-slate',
-  accent: 'bg-dash-accent',
-} as const
-
-function SectionHeader({
-  dot,
-  label,
-  count,
-  hint,
-}: {
-  dot: keyof typeof SECTION_DOTS
-  label: string
-  count: number
-  hint: string
-}) {
-  return (
-    <header className="mb-2 flex items-center gap-2">
-      <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${SECTION_DOTS[dot]}`} />
-      <h2 className="text-dash-band uppercase text-dash-strong">{label}</h2>
-      <span className="text-dash-band tabular-nums text-dash-faint">{count}</span>
-      <p className="hidden min-w-0 truncate text-dash-micro text-dash-faint md:block">{hint}</p>
-    </header>
-  )
-}
+/** Each section is its own card, banded like the queue's tiers. */
+const SECTION_CARD =
+  'rounded-dash-card border border-dash-line-strong bg-dash-surface shadow-dash-card [&>article:last-child]:border-b-0 [&>article:last-child]:rounded-b-dash-card'
 
 /** The "system works" proof — counts of what was handled without the surgeon. */
 function HandledStrip({
@@ -86,7 +65,7 @@ function HandledStrip({
           <>Nothing handled {sinceLabel} yet.</>
         ) : (
           <>
-            <span className="font-semibold tabular-nums text-dash-green">
+            <span className="font-semibold tabular-nums text-dash-ink">
               {total} referral{total === 1 ? '' : 's'}
             </span>{' '}
             handled without you {sinceLabel} ·{' '}
@@ -195,35 +174,60 @@ export default function SurgeonScreen() {
       </button>
     )
 
-  /* Flag-type badge at the card top — colored per the calm status palette. */
-  const escalatedBadge = ({ referral }: EscalatedEntry) => {
-    const { result } = referral
-    if (!result.escalationCategory) return undefined
-    const category = escalationLabel(result.escalationCategory)
-    return (
-      <Badge
-        tone={escalationTone(result.escalationCategory)}
-        className="font-semibold uppercase tracking-wide"
-      >
-        {category}
-      </Badge>
-    )
-  }
+  /* Flag-type badge opening the scan line — the calm status palette. Always
+   * present on an escalation, so rows start with the same shape even when the
+   * engine gave no category. */
+  const escalatedBadge = ({ referral }: EscalatedEntry) => (
+    <Badge
+      tone={escalationTone(referral.result.escalationCategory)}
+      className="font-semibold uppercase tracking-wide"
+    >
+      {escalationLabel(referral.result.escalationCategory) ?? 'Escalated'}
+    </Badge>
+  )
 
   const escalatedRail = ({ referral }: EscalatedEntry): CardRail =>
     escalationTone(referral.result.escalationCategory) as CardRail
 
+  /* Where the referral is headed, on the scan line. Confirm means "approve
+   * routing to X" — X has to be visible for the button to mean anything. */
+  const destination = ({ result }: { result: ReviewableReferral['result'] }) =>
+    result.routedTo ? (
+      <span
+        className="text-dash-micro text-dash-muted"
+        title={`${result.routedTo.specialistName} — ${result.routedTo.specialty}`}
+      >
+        <span aria-hidden className="text-dash-faint">
+          →{' '}
+        </span>
+        <span className="font-medium text-dash-ink">{result.routedTo.specialistName}</span>
+      </span>
+    ) : (
+      <span
+        className="text-dash-micro italic text-dash-faint"
+        title="The tree stopped before it reached a destination — Route… picks one"
+      >
+        → no destination yet
+      </span>
+    )
+
+  /* The tree's own words. Its directive ("URGENT FAST-TRACK (<72h)") becomes
+   * the block's heading; the criteria clamp underneath, expandable in place. */
   const escalatedPayload = ({ referral, coordinatorNote }: EscalatedEntry) => {
-    const { result } = referral
+    const { directive, detail } = splitEscalationReason(referral.result.escalationReason)
     return (
-      <>
-        {result.escalationReason && <span className="block">{result.escalationReason}</span>}
-        {coordinatorNote && (
-          <span className="mt-2 block border-l-2 border-dash-line pl-3 text-dash-ink">
-            <span className="text-dash-muted">Coordinator:</span> “{coordinatorNote}”
-          </span>
-        )}
-      </>
+      <ReasonBlock
+        label={directive ?? 'Why the tree escalated'}
+        tone={escalationTone(referral.result.escalationCategory) as ReasonTone}
+        text={detail || undefined}
+        extra={
+          coordinatorNote ? (
+            <span className="block border-l-2 border-dash-line pl-3 text-dash-body text-dash-ink">
+              <span className="text-dash-muted">Coordinator:</span> “{coordinatorNote}”
+            </span>
+          ) : undefined
+        }
+      />
     )
   }
 
@@ -231,35 +235,44 @@ export default function SurgeonScreen() {
     const { result } = referral
     const ambiguous = result.flags.ambiguousBetween
     return (
-      <>
-        <span className="block">{result.confidenceReason}</span>
-        {/* Suggested destination — distinct placement + weight, not new words */}
-        {ambiguous && (
-          <span className="mt-1 block font-medium text-dash-ink">
-            Could be {ambiguous[0]} or {ambiguous[1]}.
-          </span>
-        )}
-      </>
+      <ReasonBlock
+        label="Why the tree isn’t sure"
+        tone="slate"
+        /* The candidates ARE the punchline — above the prose, never clamped */
+        head={
+          ambiguous ? (
+            <span className="font-medium">
+              Could be {ambiguous[0]} or {ambiguous[1]}.
+            </span>
+          ) : undefined
+        }
+        text={result.confidenceReason}
+      />
     )
   }
 
   /* The tree-improvement feed — the coordinator's reason quote is the point. */
   const correctedPayload = ({ correction, reviewer }: CorrectedEntry) => (
-    <>
-      <span className="block">
-        Tree said <span className="font-medium text-dash-ink">{correction.from}</span> →{' '}
-        <span className="text-dash-muted">{reviewer}</span> sent to{' '}
-        <span className="font-medium text-dash-ink">{correction.to}</span>:
-      </span>
-      <span className="mt-2 block border-l-2 border-dash-accent pl-3 font-medium text-dash-ink">
-        “{correction.reason}”
-      </span>
-    </>
+    <ReasonBlock
+      label="The correction"
+      tone="accent"
+      head={
+        <span className="flex flex-wrap items-baseline gap-x-2">
+          <span className="text-dash-muted line-through">{correction.from}</span>
+          <span aria-hidden className="text-dash-faint">
+            →
+          </span>
+          <span className="font-semibold">{correction.to}</span>
+          <span className="text-dash-micro text-dash-faint">by {reviewer}</span>
+        </span>
+      }
+      text={`“${correction.reason}”`}
+    />
   )
 
   return (
     <div className="min-h-full bg-dash-bg">
-      <div className="mx-auto w-full max-w-dash-page p-6">
+      <div className="mx-auto w-full max-w-dash-page px-6 pb-12 pt-4">
         <HandledStrip
           total={summary.total}
           approved={summary.approved}
@@ -276,102 +289,101 @@ export default function SurgeonScreen() {
             </p>
           </div>
         ) : (
-          <div className="mt-6 space-y-6">
+          <div className="mt-4 space-y-3">
             {sections.escalated.length > 0 && (
-              <section>
-                <SectionHeader
-                  dot="red"
+              <section className={SECTION_CARD}>
+                <SectionBand
+                  tone="red"
                   label="Escalated to you"
                   count={sections.escalated.length}
                   hint="The tree or a coordinator wants your call"
+                  stickyTop={0}
                 />
-                <div className="space-y-3">
-                  {sections.escalated.map((entry) => (
-                    <SurgeonRow
-                      key={entry.referral.payload.referralId}
-                      referral={entry.referral}
-                      badge={escalatedBadge(entry)}
-                      rail={escalatedRail(entry)}
-                      payload={escalatedPayload(entry)}
-                      onOpen={onOpen}
-                      actions={
-                        <>
-                          {confirmOrRoute(entry.referral)}
-                          <CommentButton onSubmit={comment(entry.referral.payload.referralId)} />
-                        </>
-                      }
-                    />
-                  ))}
-                </div>
+                {sections.escalated.map((entry) => (
+                  <SurgeonRow
+                    key={entry.referral.payload.referralId}
+                    referral={entry.referral}
+                    badge={escalatedBadge(entry)}
+                    rail={escalatedRail(entry)}
+                    meta={destination(entry.referral)}
+                    payload={escalatedPayload(entry)}
+                    onOpen={onOpen}
+                    actions={
+                      <>
+                        {confirmOrRoute(entry.referral)}
+                        <CommentButton onSubmit={comment(entry.referral.payload.referralId)} />
+                      </>
+                    }
+                  />
+                ))}
               </section>
             )}
 
             {sections.lowConfidence.length > 0 && (
-              <section>
-                <SectionHeader
-                  dot="slate"
+              <section className={SECTION_CARD}>
+                <SectionBand
+                  tone="slate"
                   label="Low confidence"
                   count={sections.lowConfidence.length}
                   hint="Routed, but the tree isn't sure"
+                  stickyTop={0}
                 />
-                <div className="space-y-3">
-                  {sections.lowConfidence.map((entry) => (
-                    <SurgeonRow
-                      key={entry.referral.payload.referralId}
-                      referral={entry.referral}
-                      badge={<ConfidencePill level={entry.referral.result.confidence} />}
-                      rail="slate"
-                      payload={lowConfidencePayload(entry)}
-                      onOpen={onOpen}
-                      actions={
-                        <>
-                          {confirmOrRoute(entry.referral)}
-                          <CommentButton onSubmit={comment(entry.referral.payload.referralId)} />
-                        </>
-                      }
-                    />
-                  ))}
-                </div>
+                {sections.lowConfidence.map((entry) => (
+                  <SurgeonRow
+                    key={entry.referral.payload.referralId}
+                    referral={entry.referral}
+                    badge={<ConfidencePill level={entry.referral.result.confidence} />}
+                    rail="slate"
+                    meta={destination(entry.referral)}
+                    payload={lowConfidencePayload(entry)}
+                    onOpen={onOpen}
+                    actions={
+                      <>
+                        {confirmOrRoute(entry.referral)}
+                        <CommentButton onSubmit={comment(entry.referral.payload.referralId)} />
+                      </>
+                    }
+                  />
+                ))}
               </section>
             )}
 
             {sections.corrected.length > 0 && (
-              <section>
-                <SectionHeader
-                  dot="accent"
+              <section className={SECTION_CARD}>
+                <SectionBand
+                  tone="accent"
                   label="Coordinator disagreed with the tree"
                   count={sections.corrected.length}
                   hint="Their reasons feed tree improvement"
+                  stickyTop={0}
                 />
-                <div className="space-y-3">
-                  {sections.corrected.map((entry) => (
-                    <SurgeonRow
-                      key={entry.referral.payload.referralId}
-                      referral={entry.referral}
-                      rail="accent"
-                      payload={correctedPayload(entry)}
-                      onOpen={onOpen}
-                      actions={
-                        <>
-                          <button
-                            onClick={() => endorse(entry.referral.payload.referralId)}
-                            title="Agree with the coordinator — logs an endorsement note"
-                            className={surgeonBtnPrimary}
-                          >
-                            Endorse correction
-                          </button>
-                          <button
-                            onClick={() => revert(entry.referral.payload.referralId)}
-                            title="Disagree — approve the tree's original recommendation"
-                            className={surgeonBtnOutline}
-                          >
-                            Revert to tree
-                          </button>
-                        </>
-                      }
-                    />
-                  ))}
-                </div>
+                {sections.corrected.map((entry) => (
+                  <SurgeonRow
+                    key={entry.referral.payload.referralId}
+                    referral={entry.referral}
+                    rail="accent"
+                    payload={correctedPayload(entry)}
+                    onOpen={onOpen}
+                    actions={
+                      <>
+                        <button
+                          onClick={() => endorse(entry.referral.payload.referralId)}
+                          title="Agree with the coordinator — logs an endorsement note"
+                          className={surgeonBtnPrimary}
+                        >
+                          Endorse correction
+                        </button>
+                        <button
+                          onClick={() => revert(entry.referral.payload.referralId)}
+                          title="Disagree — approve the tree's original recommendation"
+                          className={surgeonBtnOutline}
+                        >
+                          Revert to tree
+                        </button>
+                      </>
+                    }
+                  />
+                ))}
               </section>
             )}
           </div>

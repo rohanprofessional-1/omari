@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import DemoRoleChip from '../auth/DemoRoleChip'
 import { useAuth } from '../auth/authStore'
+import { isEmbedded } from './embed'
 import { SECTIONS } from './nav'
 
 /**
@@ -11,20 +12,31 @@ import { SECTIONS } from './nav'
  * Which sections appear is a function of `user.role` alone (see ./nav.ts).
  * Hiding a section is a convenience, not a boundary — RequireRole guards the
  * routes themselves.
+ *
+ * EMBEDDED (see ./embed.ts), the identity furniture comes off: the host page
+ * already has a wordmark, an account and a patient banner, and repeating them
+ * makes Omari look pasted on rather than built in. The section nav stays —
+ * that is the app's own navigation, one level below the host's.
  */
 export default function TopBar() {
   const { user } = useAuth()
   const sections = user ? SECTIONS[user.role] : []
 
   return (
-    <header className="omari-enter-bar relative z-10 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-canvas pl-2 pr-4">
+    <header
+      className={`omari-enter-bar relative z-10 flex shrink-0 items-center gap-4 border-b border-line bg-canvas pr-4 ${
+        isEmbedded ? 'h-12 pl-4' : 'h-14 pl-2'
+      }`}
+    >
       {/* Wordmark — Omari logo mark + name (tight, single unit, logo navy) */}
-      <Link to="/" className="flex items-center" title="Omari">
-        <img src="/omari-logo.png" alt="" aria-hidden className="h-12 w-12 object-contain" />
-        <span className="-ml-0.5 font-serif text-[19px] font-semibold tracking-tight text-accent-strong">
-          Omari
-        </span>
-      </Link>
+      {!isEmbedded && (
+        <Link to="/" className="flex items-center" title="Omari">
+          <img src="/omari-logo.png" alt="" aria-hidden className="h-12 w-12 object-contain" />
+          <span className="-ml-0.5 font-serif text-[19px] font-semibold tracking-tight text-accent-strong">
+            Omari
+          </span>
+        </Link>
+      )}
 
       {/* Segmented section nav — driven entirely by role */}
       {sections.length > 0 && (
@@ -34,9 +46,9 @@ export default function TopBar() {
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                'rounded-[7px] px-3 py-1 text-sm font-medium transition-colors ' +
+                'rounded-md px-3 py-1 text-sm font-medium transition-colors ' +
                 (isActive
-                  ? 'bg-accent-strong text-white shadow-[0_1px_2px_rgba(31,36,33,0.10)]'
+                  ? 'bg-accent-strong text-white shadow-subtle'
                   : 'text-muted hover:text-ink')
               }
             >
@@ -46,10 +58,12 @@ export default function TopBar() {
         </nav>
       )}
 
-      <div className="ml-auto flex items-center gap-3">
-        <DemoRoleChip />
-        <AccountTools />
-      </div>
+      {!isEmbedded && (
+        <div className="ml-auto flex items-center gap-3">
+          <DemoRoleChip />
+          <AccountTools />
+        </div>
+      )}
     </header>
   )
 }
@@ -199,7 +213,7 @@ function Dropdown({ children, width = 'w-60' }: { children: ReactNode; width?: s
   return (
     <div
       role="menu"
-      className={`omari-msg absolute right-0 top-full z-50 mt-2 ${width} rounded-xl border border-line bg-canvas p-1.5 shadow-[0_10px_30px_rgba(24,20,16,0.14)]`}
+      className={`omari-msg absolute right-0 top-full z-50 mt-2 ${width} rounded-xl border border-line bg-canvas p-1.5 shadow-subtle`}
     >
       {children}
     </div>

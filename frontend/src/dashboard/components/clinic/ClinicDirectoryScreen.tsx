@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { getReferralSource } from '../../data/adapter'
 import { capacityFor } from '../../data/capacityMock'
 import { DEMO_NOW } from '../../lib/demoClock'
-import { DEPLOYED_TREE_LABEL, caseloadFor, loadRoster, type RosterEntry } from '../../lib/roster'
+import { caseloadFor, loadRoster, type RosterEntry } from '../../lib/roster'
 import { useDashboardStore } from '../../lib/reviewStore'
 import type { ReviewableReferral } from '../../types'
+import SignalDot from '../shared/SignalDot'
 import StatChip from '../shared/StatChip'
+import { TABLE_CARD, TABLE_HEAD, TABLE_ROW } from '../shared/tableChrome'
+import ClinicTreePanel from './ClinicTreePanel'
+
+/** One column template, shared by the header and every row so they can't drift. */
+const GRID =
+  'grid grid-cols-[minmax(0,2.4fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center gap-3'
 
 /**
  * Clinic directory — who is in the clinic and what each of them is carrying.
@@ -47,12 +53,14 @@ export default function ClinicDirectoryScreen() {
     let pending = 0
     let escalated = 0
     let decided = 0
+    let routed = 0
     let waitTotal = 0
     for (const r of referrals) {
       const status = reviews[r.payload.referralId]?.status ?? 'pending'
       if (status === 'pending') pending += 1
       else decided += 1
       if (status === 'escalated' || r.result.escalated) escalated += 1
+      if (r.result.routedTo) routed += 1
       waitTotal += hoursWaiting(r.payload.receivedAt)
     }
     return {
@@ -60,6 +68,7 @@ export default function ClinicDirectoryScreen() {
       pending,
       decided,
       escalated,
+      routed,
       avgWaitHours: referrals.length ? Math.round(waitTotal / referrals.length) : 0,
     }
   }, [referrals, reviews])
@@ -79,28 +88,27 @@ export default function ClinicDirectoryScreen() {
     )
   }
 
-  const treeName = DEPLOYED_TREE_LABEL
-
   return (
     <div className="min-h-full bg-dash-bg">
-      <div className="mx-auto w-full max-w-dash-page p-6">
+      <div className="mx-auto w-full max-w-dash-page px-6 pb-12 pt-4">
         {/* ── Block 1 · Clinic stats ─────────────────────────────────────── */}
-        <div className="mb-5 flex flex-wrap items-center gap-2">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <StatChip count={stats.total} label="referrals" />
           <StatChip count={stats.pending} label="awaiting review" tone="amber" />
           <StatChip count={stats.decided} label="decided" tone="green" />
           <StatChip count={stats.escalated} label="escalated" tone="red" />
           <StatChip count={stats.avgWaitHours} label="avg hours waiting" />
-          <p className="ml-auto text-dash-micro text-dash-faint">
-            {roster.length} routable destinations in {treeName}
+          {/* The tree is named once, in the panel at the bottom. */}
+          <p className="ml-auto text-dash-micro text-dash-muted">
+            {roster.length} routable destinations
           </p>
         </div>
 
         {/* ── Blocks 2–4 · Specialist, caseload, capacity, routed by ─────── */}
-        <div className="overflow-hidden rounded-dash-card border border-dash-line bg-dash-surface shadow-dash-card">
-          <div className="grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_minmax(0,1.2fr)] items-center gap-3 border-b border-dash-line px-4 py-2">
-            {['Specialist', 'Caseload', 'Capacity', 'Routed by'].map((h) => (
-              <span key={h} className="text-dash-band uppercase text-dash-strong">
+        <div className={TABLE_CARD}>
+          <div className={`${GRID} ${TABLE_HEAD}`}>
+            {['Specialist', 'Caseload', 'Capacity'].map((h) => (
+              <span key={h} className="truncate">
                 {h}
               </span>
             ))}
@@ -110,10 +118,7 @@ export default function ClinicDirectoryScreen() {
             const load = caseloadFor(entry.name, referrals, reviews)
             const cap = capacityFor(entry.name)
             return (
-              <div
-                key={entry.name}
-                className="grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.6fr)_minmax(0,1.6fr)_minmax(0,1.2fr)] items-center gap-3 border-b border-dash-line px-4 py-3 last:border-b-0"
-              >
+              <div key={entry.name} className={`${GRID} ${TABLE_ROW}`}>
                 {/* Specialist */}
                 <div className="min-w-0">
                   <p className="truncate text-dash-row text-dash-ink">{entry.name}</p>
@@ -136,12 +141,14 @@ export default function ClinicDirectoryScreen() {
                         </span>
                       </span>
                       {load.pending > 0 && (
-                        <span className="text-dash-micro tabular-nums text-dash-amber">
+                        <span className="flex items-center gap-1.5 text-dash-micro tabular-nums text-dash-ink">
+                          <SignalDot tone="amber" />
                           {load.pending} pending
                         </span>
                       )}
                       {load.escalated > 0 && (
-                        <span className="text-dash-micro tabular-nums text-dash-red">
+                        <span className="flex items-center gap-1.5 text-dash-micro tabular-nums text-dash-ink">
+                          <SignalDot tone="red" />
                           {load.escalated} escalated
                         </span>
                       )}
@@ -153,7 +160,7 @@ export default function ClinicDirectoryScreen() {
                 <div className="min-w-0">
                   <p className="truncate text-dash-micro text-dash-strong">
                     {cap.clinicDays.join(' · ')}
-                    <span className="text-dash-muted"> · {cap.slotsPerWeek}/wk</span>
+                    <span className="tabular-nums text-dash-muted"> · {cap.slotsPerWeek}/wk</span>
                   </p>
                   <p className="truncate text-dash-micro text-dash-muted">
                     {cap.acceptingNew ? 'Next open ' : 'Booked out to '}
@@ -161,24 +168,14 @@ export default function ClinicDirectoryScreen() {
                   </p>
                 </div>
 
-                {/* Routed by */}
-                <div className="min-w-0">
-                  <Link
-                    to="/admin/trees"
-                    className="truncate text-dash-micro text-dash-accent hover:underline"
-                  >
-                    {treeName}
-                  </Link>
-                </div>
               </div>
             )
           })}
         </div>
 
-        <p className="mt-3 text-dash-micro text-dash-faint">
-          Caseload counts follow corrected destinations. Capacity is placeholder data — real
-          availability comes from the scheduling system.
-        </p>
+        {/* Every row used to carry a "Routed by" column naming the same tree
+            nine times. It is named once, here, with the library behind it. */}
+        <ClinicTreePanel destinations={roster.length} routed={stats.routed} />
       </div>
     </div>
   )

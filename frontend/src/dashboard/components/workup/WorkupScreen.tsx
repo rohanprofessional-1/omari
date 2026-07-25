@@ -6,7 +6,7 @@ import type { ReviewableReferral } from '../../types'
 import { useOpenReferral } from '../../lib/useOpenReferral'
 import { useAuth } from '../../../auth/authStore'
 import { filterForUser, listForUser } from '../../lib/scope'
-import StatChip from '../shared/StatChip'
+import SectionBand, { type BandTone } from '../shared/SectionBand'
 
 /**
  * Workup tracking — the core value claim on one screen: approved referrals do
@@ -15,32 +15,72 @@ import StatChip from '../shared/StatChip'
  * calm below; fully-complete referrals collapse into a strip at the bottom.
  * Population + merge + stratification live in lib/workupMerge (shared with
  * the detail screen's WorkupList), so status changes restratify live.
+ *
+ * Each stratum is its OWN card under a pinned band — the same grouping idiom
+ * as the queue's tiers and the surgeon's sections, so all three tabs are read
+ * the same way. The band names the stratum once; the rows below it stop
+ * repeating that name at themselves.
  */
 
-/** Band-header idiom shared with the queue: dot · label · count · explainer. */
-function StratumHeader({
-  tone,
-  label,
-  count,
-  hint,
-}: {
-  tone: 'amber' | 'green'
-  label: string
-  count: number
-  hint: string
-}) {
+/** Each stratum is its own card, banded like the queue's tiers. */
+const STRATUM_CARD =
+  'rounded-dash-card border border-dash-line-strong bg-dash-surface shadow-dash-card [&>article:last-child]:border-b-0 [&>article:last-child]:rounded-b-dash-card'
+
+type Stratum = 'at-risk' | 'on-track' | 'complete'
+
+const STRATUM_TONES: Record<Stratum, BandTone> = {
+  'at-risk': 'amber',
+  'on-track': 'green',
+  complete: 'neutral',
+}
+
+const STRATUM_LABELS: Record<Stratum, string> = {
+  'at-risk': 'At risk',
+  'on-track': 'On track',
+  complete: 'Complete',
+}
+
+/** Stable anchor id so the summary strip can jump straight to a stratum. */
+const stratumAnchor = (stratum: Stratum) => `workup-${stratum}`
+
+/**
+ * The whole screen in one line, above the fold — and each count jumps to its
+ * stratum. These used to be inert chips saying the same numbers the bands
+ * already carry; now they are the navigation for a screen that is mostly
+ * below the fold.
+ */
+function StratumSummary({ counts }: { counts: Record<Stratum, number> }) {
+  const jump = (stratum: Stratum) =>
+    document.getElementById(stratumAnchor(stratum))?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+
+  const DOTS: Record<Stratum, string> = {
+    'at-risk': 'bg-dash-amber',
+    'on-track': 'bg-dash-green',
+    complete: 'bg-dash-faint',
+  }
+
   return (
-    <header className="mb-2 flex items-center gap-2">
-      <span
-        aria-hidden
-        className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-          tone === 'amber' ? 'bg-dash-amber' : 'bg-dash-green'
-        }`}
-      />
-      <h2 className="text-dash-band uppercase text-dash-strong">{label}</h2>
-      <span className="text-dash-band tabular-nums text-dash-faint">{count}</span>
-      <p className="hidden min-w-0 truncate text-dash-micro text-dash-faint md:block">{hint}</p>
-    </header>
+    <div className="flex flex-wrap items-center gap-2">
+      {(Object.keys(STRATUM_LABELS) as Stratum[]).map((stratum) => (
+        <button
+          key={stratum}
+          type="button"
+          disabled={counts[stratum] === 0}
+          onClick={() => jump(stratum)}
+          title={counts[stratum] === 0 ? undefined : `Jump to ${STRATUM_LABELS[stratum]}`}
+          className="inline-flex items-center gap-2 rounded-dash-ctl border border-dash-line-strong bg-dash-surface px-2 py-1 transition-colors enabled:hover:border-dash-faint disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-dash-accent"
+        >
+          <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOTS[stratum]}`} />
+          <span className="text-dash-micro text-dash-muted">{STRATUM_LABELS[stratum]}</span>
+          <span className="text-dash-micro font-semibold tabular-nums text-dash-ink">
+            {counts[stratum]}
+          </span>
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -110,15 +150,15 @@ export default function WorkupScreen() {
 
   return (
     <div className="min-h-full bg-dash-bg">
-      <div className="mx-auto w-full max-w-dash-page p-6">
-        {/* Filters + count summary */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="mx-auto w-full max-w-dash-page px-6 pb-12 pt-4">
+        {/* Toolbar — what you're filtering by, and where everything is */}
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
           <label className="flex items-center gap-2 text-dash-micro text-dash-muted">
             Destination
             <select
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
-              className="rounded-dash-ctl border border-dash-line bg-dash-surface px-2 py-1 text-dash-micro text-dash-ink"
+              className="rounded-dash-ctl border border-dash-line-strong bg-dash-surface px-2 py-1 text-dash-micro text-dash-ink"
             >
               <option value="any">Any specialist</option>
               {destinations.map((name) => (
@@ -137,14 +177,14 @@ export default function WorkupScreen() {
             />
             Show complete
           </label>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <StatChip
-              count={atRisk.length}
-              label="at risk"
-              tone={atRisk.length > 0 ? 'amber' : 'neutral'}
+          <div className="ml-auto">
+            <StratumSummary
+              counts={{
+                'at-risk': atRisk.length,
+                'on-track': onTrack.length,
+                complete: complete.length,
+              }}
             />
-            <StatChip count={onTrack.length} label="on track" tone="neutral" />
-            <StatChip count={complete.length} label="complete" tone="green" />
           </div>
         </div>
 
@@ -159,38 +199,36 @@ export default function WorkupScreen() {
             No referrals match the current filters.
           </p>
         ) : (
-          <div className="mt-6 space-y-6">
+          <div className="space-y-3">
             {/* AT RISK — calm but unmistakable */}
             {atRisk.length > 0 && (
-              <section>
-                <StratumHeader
-                  tone="amber"
-                  label="At risk"
+              <section id={stratumAnchor('at-risk')} className={STRATUM_CARD}>
+                <SectionBand
+                  tone={STRATUM_TONES['at-risk']}
+                  label={STRATUM_LABELS['at-risk']}
                   count={atRisk.length}
                   hint="Visit approaching with tests not yet back — chase these first"
+                  stickyTop={0}
                 />
-                <div className="space-y-3">
-                  {atRisk.map((entry) => (
-                    <WorkupRow key={entry.referral.payload.referralId} entry={entry} onOpen={onOpen} />
-                  ))}
-                </div>
+                {atRisk.map((entry) => (
+                  <WorkupRow key={entry.referral.payload.referralId} entry={entry} onOpen={onOpen} />
+                ))}
               </section>
             )}
 
             {/* ON TRACK — calm */}
             {onTrack.length > 0 && (
-              <section>
-                <StratumHeader
-                  tone="green"
-                  label="On track"
+              <section id={stratumAnchor('on-track')} className={STRATUM_CARD}>
+                <SectionBand
+                  tone={STRATUM_TONES['on-track']}
+                  label={STRATUM_LABELS['on-track']}
                   count={onTrack.length}
                   hint="Everything outstanding still has room before the visit"
+                  stickyTop={0}
                 />
-                <div className="space-y-3">
-                  {onTrack.map((entry) => (
-                    <WorkupRow key={entry.referral.payload.referralId} entry={entry} onOpen={onOpen} />
-                  ))}
-                </div>
+                {onTrack.map((entry) => (
+                  <WorkupRow key={entry.referral.payload.referralId} entry={entry} onOpen={onOpen} />
+                ))}
               </section>
             )}
 
@@ -200,41 +238,26 @@ export default function WorkupScreen() {
               </p>
             )}
 
-            {/* COMPLETE — collapsed strip */}
+            {/* COMPLETE — collapsed behind its own band */}
             {complete.length > 0 && (
-              <section className="border-t border-dash-line pt-2">
-                <button
-                  onClick={() => setShowComplete((v) => !v)}
-                  aria-expanded={showComplete}
-                  className="flex w-full items-center gap-2 py-1 text-left text-dash-band uppercase text-dash-muted transition-colors hover:text-dash-ink"
-                >
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden
-                    className={`transition-transform motion-reduce:transition-none ${showComplete ? 'rotate-90' : ''}`}
-                  >
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                  Complete ({complete.length})
-                </button>
-                {showComplete && (
-                  <div className="mt-2 space-y-3">
-                    {complete.map((entry) => (
-                      <WorkupRow
-                        key={entry.referral.payload.referralId}
-                        entry={entry}
-                        onOpen={onOpen}
-                      />
-                    ))}
-                  </div>
-                )}
+              <section id={stratumAnchor('complete')} className={STRATUM_CARD}>
+                <SectionBand
+                  tone={STRATUM_TONES.complete}
+                  label={STRATUM_LABELS.complete}
+                  count={complete.length}
+                  hint="Every test back — nothing left to chase before the visit"
+                  open={showComplete}
+                  onToggle={() => setShowComplete((v) => !v)}
+                  stickyTop={0}
+                />
+                {showComplete &&
+                  complete.map((entry) => (
+                    <WorkupRow
+                      key={entry.referral.payload.referralId}
+                      entry={entry}
+                      onOpen={onOpen}
+                    />
+                  ))}
               </section>
             )}
           </div>

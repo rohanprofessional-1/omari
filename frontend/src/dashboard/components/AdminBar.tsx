@@ -60,9 +60,6 @@ export default function AdminBar() {
           Seed a busy morning
         </button>
         {message && <span className="text-dash-micro text-dash-muted">{message}</span>}
-        <span className="ml-auto text-dash-micro text-dash-faint">
-          Fixtures: 32 referrals · engine: dukeNerveTree + 2 clinic deltas
-        </span>
       </div>
     </div>
   )

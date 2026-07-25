@@ -67,8 +67,8 @@ export default function SignInPage() {
           </span>
         </div>
 
-        <div className="rounded-2xl border border-line bg-canvas p-6 shadow-[0_1px_3px_rgba(24,20,16,0.07)]">
-          <h1 className="font-display text-lg font-semibold text-ink">Sign in</h1>
+        <div className="rounded-2xl border border-line bg-canvas p-6 shadow-subtle">
+          <h1 className="text-subheading font-semibold text-ink">Sign in</h1>
           <p className="mt-1 text-[13px] text-muted">
             Your view depends on who you are — clinic, specialist, or patient.
           </p>
@@ -107,7 +107,7 @@ export default function SignInPage() {
 
             <button
               type="submit"
-              className="w-full rounded-md bg-accent-strong px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#24489c]"
+              className="w-full rounded-md bg-accent-strong px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#27508f]"
             >
               Sign in
             </button>
