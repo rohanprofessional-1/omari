@@ -13,9 +13,11 @@ export default function SectionCard({
   className?: string
 }) {
   return (
-    <section className={`rounded-xl border border-line bg-canvas ${className}`}>
-      <header className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
-        <h2 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-muted">
+    <section
+      className={`rounded-dash-card border border-dash-line bg-dash-surface shadow-dash-card ${className}`}
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-dash-line px-4 py-2">
+        <h2 className="text-dash-micro font-semibold uppercase tracking-wide text-dash-muted">
           {title}
         </h2>
         {action}

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { ReviewableReferral, TreeResult } from '../../types'
 import type { ActionModalMode } from './ActionModal'
+import Badge, { type BadgeTone } from '../shared/Badge'
 import ConfidencePill from '../shared/ConfidencePill'
 import SectionCard from '../shared/SectionCard'
 import UrgencyBadge from '../shared/UrgencyBadge'
@@ -19,32 +20,34 @@ import WorkupList from './WorkupList'
 /* ── Conclusion header variants ───────────────────────────────────────────── */
 
 function HeaderCard({ className = '', children }: { className?: string; children: ReactNode }) {
-  return <section className={`rounded-xl border p-4 ${className}`}>{children}</section>
+  return (
+    <section
+      className={`rounded-dash-card border border-dash-line bg-dash-surface p-4 shadow-dash-card ${className}`}
+    >
+      {children}
+    </section>
+  )
 }
 
 function RoutedHeader({ result }: { result: TreeResult }) {
   const routed = result.routedTo!
   return (
-    <HeaderCard className="border-line bg-canvas">
+    <HeaderCard>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p className="font-serif text-[19px] font-semibold leading-tight text-ink">
-          → {routed.specialistName}
-        </p>
+        <p className="text-dash-title leading-tight text-dash-ink">→ {routed.specialistName}</p>
         {result.terminalOverridden && <OverrideBadge />}
       </div>
-      <p className="mt-0.5 text-[12.5px] text-muted">{routed.specialty}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <p className="mt-1 text-dash-body text-dash-muted">{routed.specialty}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         {result.urgency && <UrgencyBadge urgency={result.urgency} />}
         <ConfidencePill level={result.confidence} />
-        {result.confirmWithDrLi && (
-          <span className="inline-flex rounded bg-accent/10 px-1.5 py-0.5 text-[10.5px] font-medium text-accent-strong">
-            Confirm with Dr. Li
-          </span>
-        )}
+        {result.confirmWithDrLi && <Badge tone="accent">Confirm with Dr. Li</Badge>}
       </div>
-      <p className="mt-1.5 text-[11.5px] leading-snug text-muted">{result.confidenceReason}</p>
+      <p className="mt-2 max-w-prose text-dash-micro leading-snug text-dash-muted">
+        {result.confidenceReason}
+      </p>
       {result.terminalCitation && (
-        <div className="mt-1.5">
+        <div className="mt-2">
           <CitationToggle quote={result.terminalCitation} label="clinical basis" />
         </div>
       )}
@@ -55,48 +58,58 @@ function RoutedHeader({ result }: { result: TreeResult }) {
 
 function OutOfScopeHeader({ result }: { result: TreeResult }) {
   return (
-    <HeaderCard className="border-danger/40 bg-canvas">
-      <p className="font-serif text-[17px] font-semibold leading-tight text-ink">
+    <HeaderCard>
+      <p className="text-dash-title leading-tight text-dash-ink">
         Likely out of scope for this clinic
       </p>
       {result.scopeReason && (
-        <p className="mt-1 text-[12.5px] leading-snug text-muted">{result.scopeReason}</p>
+        <p className="mt-1 max-w-prose text-dash-body leading-relaxed text-dash-muted">
+          {result.scopeReason}
+        </p>
       )}
       {result.suggestedRedirect && (
-        <p className="mt-1.5 text-[13px] text-ink">
+        <p className="mt-2 text-dash-body text-dash-ink">
           Suggested: <span className="font-medium">{result.suggestedRedirect}</span>
         </p>
       )}
-      <p className="mt-2 border-t border-line pt-2 text-[11.5px] leading-snug text-muted">
+      <p className="mt-2 border-t border-dash-line pt-2 text-dash-micro leading-snug text-dash-muted">
         Requires human confirmation — never auto-rejected.
       </p>
     </HeaderCard>
   )
 }
 
-const ESCALATION_CHIP: Record<'emergency' | 'ambiguous' | 'complex', string> = {
-  emergency: 'bg-danger/10 font-semibold uppercase tracking-[0.05em] text-danger',
-  ambiguous: 'bg-accent/10 font-medium text-accent-strong',
-  complex: 'bg-accent/10 font-medium text-accent-strong',
+/** Same calm flag palette as the surgeon brief's escalation badges. */
+const ESCALATION_TONES: Record<'emergency' | 'ambiguous' | 'complex', BadgeTone> = {
+  emergency: 'red',
+  ambiguous: 'amber',
+  complex: 'slate',
 }
 
 function EscalatedHeader({ result }: { result: TreeResult }) {
   return (
-    <HeaderCard className="border-danger/40 bg-canvas">
+    <HeaderCard className="border-l-2 border-l-dash-red">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <p className="font-serif text-[17px] font-semibold leading-tight text-ink">
+        <p className="text-dash-title leading-tight text-dash-ink">
           No confident path — needs surgeon review
         </p>
         {result.escalationCategory && (
-          <span
-            className={`inline-flex shrink-0 rounded px-1.5 py-0.5 text-[10.5px] ${ESCALATION_CHIP[result.escalationCategory]}`}
+          <Badge
+            tone={ESCALATION_TONES[result.escalationCategory]}
+            className={
+              result.escalationCategory === 'emergency'
+                ? 'font-semibold uppercase tracking-wide'
+                : ''
+            }
           >
             {result.escalationCategory}
-          </span>
+          </Badge>
         )}
       </div>
       {result.escalationReason && (
-        <p className="mt-1.5 text-[12.5px] leading-snug text-ink">{result.escalationReason}</p>
+        <p className="mt-2 max-w-prose text-dash-body leading-relaxed text-dash-strong">
+          {result.escalationReason}
+        </p>
       )}
     </HeaderCard>
   )
@@ -105,14 +118,14 @@ function EscalatedHeader({ result }: { result: TreeResult }) {
 function NeedsInfoHeader({ result }: { result: TreeResult }) {
   const missing = result.missingVariables[0]
   return (
-    <HeaderCard className="border-line bg-canvas">
-      <p className="font-serif text-[17px] font-semibold leading-tight text-ink">
+    <HeaderCard>
+      <p className="text-dash-title leading-tight text-dash-ink">
         Analysis paused — missing information
       </p>
       {missing && (
-        <p className="mt-1.5 text-[12.5px] leading-snug text-muted">
+        <p className="mt-2 max-w-prose text-dash-body leading-relaxed text-dash-muted">
           Routing resumes automatically once{' '}
-          <span className="font-medium text-ink">{missing.question}</span> is answered.
+          <span className="font-medium text-dash-ink">{missing.question}</span> is answered.
         </p>
       )}
     </HeaderCard>
@@ -136,8 +149,8 @@ function MismatchStrip({
   onChangeDestination?: () => void
 }) {
   return (
-    <div className="rounded-lg bg-accent/10 px-3 py-2 text-[12px] leading-snug text-ink">
-      <span className="font-semibold text-accent-strong">Differs from referrer's ask:</span>{' '}
+    <div className="rounded-dash-ctl bg-dash-accent-soft px-3 py-2 text-dash-body leading-relaxed text-dash-ink">
+      <span className="font-semibold text-dash-accent-strong">Differs from referrer's ask:</span>{' '}
       referrer requested{' '}
       <span className="font-medium">“{referral.payload.reasonForReferral}”</span> — the tree
       concluded <span className="font-medium">{conclusionSummary(referral.result)}</span>.
@@ -146,7 +159,7 @@ function MismatchStrip({
           {' '}
           <button
             onClick={onChangeDestination}
-            className="font-medium text-accent-strong underline decoration-accent/40 underline-offset-2 hover:decoration-accent-strong"
+            className="font-medium text-dash-accent-strong underline decoration-dash-accent/40 underline-offset-2 hover:decoration-dash-accent-strong"
           >
             Change destination
           </button>

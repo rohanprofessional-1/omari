@@ -11,7 +11,7 @@ import { applyAction, getSnapshot, resetDemoData } from '../lib/reviewStore'
  */
 
 const btn =
-  'shrink-0 rounded-md border border-accent-strong/30 bg-canvas px-2.5 py-1 text-[11.5px] font-medium text-accent-strong transition-colors hover:bg-bg'
+  'shrink-0 rounded-dash-ctl border border-dash-line bg-dash-surface px-2 py-1 text-dash-micro font-medium text-dash-muted transition-colors hover:bg-dash-bg hover:text-dash-ink'
 
 export default function AdminBar() {
   const [message, setMessage] = useState<string | null>(null)
@@ -44,24 +44,26 @@ export default function AdminBar() {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-accent-strong/20 bg-sky px-4 py-2">
-      <span className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-accent-strong">
-        Demo administration
-      </span>
-      <button onClick={reset} title="Wipe reviews, audit trail, workup progress, and role" className={btn}>
-        Reset demo data
-      </button>
-      <button
-        onClick={seedBusyMorning}
-        title="Bulk-approve every ready-to-approve referral so Workup and Surgeon views populate"
-        className={btn}
-      >
-        Seed a busy morning
-      </button>
-      {message && <span className="text-[11.5px] text-accent-strong">{message}</span>}
-      <span className="ml-auto text-[11px] text-muted">
-        Fixtures: 32 referrals · engine: dukeNerveTree + 2 clinic deltas
-      </span>
+    <div className="border-b border-dash-line bg-dash-bg">
+      <div className="mx-auto flex w-full max-w-dash-page flex-wrap items-center gap-x-3 gap-y-1 px-6 py-2">
+        <span className="text-dash-micro font-semibold uppercase tracking-wide text-dash-muted">
+          Demo administration
+        </span>
+        <button onClick={reset} title="Wipe reviews, audit trail, workup progress, and role" className={btn}>
+          Reset demo data
+        </button>
+        <button
+          onClick={seedBusyMorning}
+          title="Bulk-approve every ready-to-approve referral so Workup and Surgeon views populate"
+          className={btn}
+        >
+          Seed a busy morning
+        </button>
+        {message && <span className="text-dash-micro text-dash-muted">{message}</span>}
+        <span className="ml-auto text-dash-micro text-dash-faint">
+          Fixtures: 32 referrals · engine: dukeNerveTree + 2 clinic deltas
+        </span>
+      </div>
     </div>
   )
 }

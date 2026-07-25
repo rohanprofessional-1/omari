@@ -2,7 +2,8 @@ import type { MissingVariableInfo } from '../../types'
 
 /**
  * Dashboard detail — the ONE variable blocking this referral's route: what is
- * missing, what hangs on each possible answer, and who can supply it. The
+ * missing, what hangs on each possible answer, and who can supply it. Amber
+ * (needs attention) — the color lives in the 2px rail + kicker only. The
  * request button opens the request-info modal (via `onRequest`).
  */
 
@@ -14,36 +15,38 @@ export default function MissingVariableCard({
   onRequest?: () => void
 }) {
   return (
-    <section className="rounded-xl border border-danger/40 bg-danger/[0.04] p-4">
-      <p className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-danger">
+    <section className="rounded-dash-card border border-l-2 border-dash-line border-l-dash-amber bg-dash-surface p-4 shadow-dash-card">
+      <p className="text-dash-micro font-semibold uppercase tracking-wide text-dash-amber">
         Missing information
       </p>
-      <p className="mt-1.5 text-[13px] font-medium leading-snug text-ink">{info.clinicalPrompt}</p>
+      <p className="mt-2 text-dash-body font-medium leading-snug text-dash-ink">
+        {info.clinicalPrompt}
+      </p>
 
-      <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+      <p className="mt-3 text-dash-micro font-semibold uppercase tracking-wide text-dash-muted">
         Why it matters
       </p>
       <ul className="mt-1 space-y-1">
         {info.gates.map((gate) => (
-          <li key={gate.answerLabel} className="flex items-baseline gap-1.5 text-[12.5px] leading-snug">
-            <span aria-hidden className="mt-[7px] h-1 w-1 shrink-0 self-start rounded-full bg-danger/60" />
+          <li key={gate.answerLabel} className="flex items-baseline gap-2 text-dash-body leading-snug">
+            <span aria-hidden className="mt-2 h-1 w-1 shrink-0 self-start rounded-full bg-dash-amber" />
             <span>
-              <span className="text-muted">If </span>
-              <span className="font-medium text-ink">{gate.answerLabel}</span>
-              <span className="text-muted"> → {gate.leadsTo}</span>
+              <span className="text-dash-muted">If </span>
+              <span className="font-medium text-dash-ink">{gate.answerLabel}</span>
+              <span className="text-dash-muted"> → {gate.leadsTo}</span>
             </span>
           </li>
         ))}
       </ul>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center rounded border border-line bg-canvas px-1.5 py-0.5 text-[11px] text-muted">
-          Who can supply: <span className="ml-1 font-medium text-ink">{info.whoCanSupply}</span>
+        <span className="inline-flex items-center rounded-dash-ctl bg-dash-neutral-soft px-2 py-1 text-dash-micro text-dash-muted">
+          Who can supply: <span className="ml-1 font-medium text-dash-ink">{info.whoCanSupply}</span>
         </span>
         <button
           onClick={onRequest}
           disabled={!onRequest}
-          className="ml-auto rounded-md border border-line bg-canvas px-2.5 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-bg disabled:cursor-not-allowed disabled:text-muted disabled:opacity-60"
+          className="ml-auto rounded-dash-ctl border border-dash-line bg-dash-surface px-3 py-1 text-dash-micro font-medium text-dash-ink transition-colors hover:bg-dash-bg disabled:cursor-not-allowed disabled:text-dash-muted disabled:opacity-60"
         >
           Request information
         </button>

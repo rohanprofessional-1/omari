@@ -3,6 +3,7 @@ import { getReferralSource } from '../../data/adapter'
 import { ageFromDob, waitingSince } from '../../lib/demoClock'
 import { useDashboardStore } from '../../lib/reviewStore'
 import type { ReviewStatus, ReviewableReferral } from '../../types'
+import Badge, { type BadgeTone } from '../shared/Badge'
 import ChannelBadge from '../shared/ChannelBadge'
 import ActionBar from './ActionBar'
 import ActionModal, { type ActionModalMode } from './ActionModal'
@@ -17,13 +18,13 @@ import IncomingPanel from './IncomingPanel'
  * action the screen stays open showing the new state.
  */
 
-const REVIEW_PILL: Record<ReviewStatus, { label: string; cls: string }> = {
-  pending: { label: 'Pending review', cls: 'border border-line bg-bg text-muted' },
-  approved: { label: 'Approved', cls: 'bg-success-soft text-success-deep' },
-  corrected: { label: 'Corrected', cls: 'bg-accent/10 text-accent-strong' },
-  rejected: { label: 'Rejected', cls: 'bg-danger/10 text-danger' },
-  escalated: { label: 'Escalated to surgeon', cls: 'bg-danger/10 text-danger' },
-  info_requested: { label: 'Info requested', cls: 'bg-sky text-accent-strong' },
+const REVIEW_PILL: Record<ReviewStatus, { label: string; tone: BadgeTone }> = {
+  pending: { label: 'Pending review', tone: 'neutral' },
+  approved: { label: 'Approved', tone: 'green' },
+  corrected: { label: 'Corrected', tone: 'accent' },
+  rejected: { label: 'Rejected', tone: 'red' },
+  escalated: { label: 'Escalated to surgeon', tone: 'red' },
+  info_requested: { label: 'Info requested', tone: 'accent' },
 }
 
 /**
@@ -40,10 +41,11 @@ function ReviewStepper({ decided }: { decided: boolean }) {
 
   const dotClass = (state: 'done' | 'current' | 'upcoming') => {
     const base =
-      'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[9px] font-semibold'
-    if (state === 'done') return `${base} border-accent bg-accent text-white`
-    if (state === 'current') return `${base} border-accent bg-canvas text-accent ring-4 ring-accent/15`
-    return `${base} border-line bg-canvas text-muted`
+      'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-dash-micro font-semibold leading-none'
+    if (state === 'done') return `${base} border-dash-accent bg-dash-accent text-white`
+    if (state === 'current')
+      return `${base} border-dash-accent bg-dash-surface text-dash-accent ring-4 ring-dash-accent-soft`
+    return `${base} border-dash-line bg-dash-surface text-dash-muted`
   }
 
   return (
@@ -54,7 +56,7 @@ function ReviewStepper({ decided }: { decided: boolean }) {
             {i > 0 && (
               <span
                 aria-hidden
-                className={`h-0.5 flex-1 ${stages[i - 1].state === 'done' ? 'bg-accent' : 'bg-line'}`}
+                className={`h-0.5 flex-1 ${stages[i - 1].state === 'done' ? 'bg-dash-accent' : 'bg-dash-line'}`}
               />
             )}
             <span className={dotClass(s.state)}>{s.state === 'done' ? '✓' : i + 1}</span>
@@ -65,8 +67,8 @@ function ReviewStepper({ decided }: { decided: boolean }) {
         {stages.map((s) => (
           <span
             key={s.label}
-            className={`flex-1 text-center text-[9.5px] leading-tight ${
-              s.state === 'upcoming' ? 'text-muted' : 'font-medium text-ink'
+            className={`flex-1 text-center text-dash-micro leading-tight ${
+              s.state === 'upcoming' ? 'text-dash-faint' : 'font-medium text-dash-ink'
             }`}
           >
             {s.label}
@@ -109,17 +111,17 @@ export default function DetailScreen({
   }, [referralId])
 
   if (loading) {
-    return <p className="px-4 py-8 text-center text-[13px] text-muted">Loading referral…</p>
+    return <p className="px-4 py-8 text-center text-dash-body text-dash-muted">Loading referral…</p>
   }
   if (!referral) {
     return (
       <div className="px-4 py-8 text-center">
-        <p className="text-[13px] text-muted">
-          Referral <span className="font-medium text-ink">{referralId}</span> was not found.
+        <p className="text-dash-body text-dash-muted">
+          Referral <span className="font-medium text-dash-ink">{referralId}</span> was not found.
         </p>
         <button
           onClick={onBack}
-          className="mt-3 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-muted hover:text-ink"
+          className="mt-3 rounded-dash-ctl border border-dash-line bg-dash-surface px-3 py-1 text-dash-micro font-medium text-dash-muted transition-colors hover:bg-dash-bg hover:text-dash-ink"
         >
           {backLabel}
         </button>
@@ -134,19 +136,19 @@ export default function DetailScreen({
   const pill = REVIEW_PILL[status]
 
   return (
-    <div className="mx-auto max-w-6xl px-4 pt-4">
+    <div className="mx-auto w-full max-w-dash-page px-6 pt-4">
       {/* Header row */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <button
           onClick={onBack}
-          className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-muted transition-colors hover:text-ink"
+          className="shrink-0 rounded-dash-ctl border border-dash-line bg-dash-surface px-3 py-1 text-dash-micro font-medium text-dash-muted transition-colors hover:bg-dash-bg hover:text-dash-ink"
         >
           {backLabel}
         </button>
         <div className="min-w-0">
-          <h2 className="truncate font-serif text-[16px] font-semibold leading-tight text-ink">
+          <h2 className="truncate text-dash-title leading-tight text-dash-ink">
             {patient.name}{' '}
-            <span className="font-sans text-[12.5px] font-normal text-muted">
+            <span className="text-dash-micro font-normal text-dash-muted">
               {ageFromDob(patient.dob)}
               {patient.sex} · {patient.mrn}
             </span>
@@ -155,14 +157,12 @@ export default function DetailScreen({
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <ChannelBadge channel={payload.channel} />
           <span
-            className="text-[11.5px] tabular-nums text-muted"
+            className="text-dash-micro tabular-nums text-dash-muted"
             title={`Received ${payload.receivedAt.replace('T', ' ')}`}
           >
             waiting {waitingSince(payload.receivedAt)}
           </span>
-          <span className={`inline-flex rounded px-1.5 py-0.5 text-[10.5px] font-medium ${pill.cls}`}>
-            {pill.label}
-          </span>
+          <Badge tone={pill.tone}>{pill.label}</Badge>
         </div>
       </div>
 

@@ -34,32 +34,37 @@ export default function AuditTrail({ referralId }: { referralId: string }) {
     .sort((a, b) => a.at.localeCompare(b.at))
 
   if (events.length === 0) {
-    return <p className="text-[12.5px] text-muted">No review activity yet.</p>
+    return <p className="text-dash-body text-dash-muted">No review activity yet.</p>
   }
 
   return (
     <ol className="list-none">
       {events.map((event, i) => (
-        <li key={event.id} className="relative flex gap-2.5 pb-2.5 last:pb-0">
+        <li key={event.id} className="relative flex gap-3 pb-3 last:pb-0">
           {i < events.length - 1 && (
-            <span aria-hidden className="absolute left-[3.5px] top-3 bottom-0 w-px bg-line" />
+            <span aria-hidden className="absolute left-1 top-3 bottom-0 w-px bg-dash-line" />
           )}
-          <span aria-hidden className="mt-[6px] h-2 w-2 shrink-0 rounded-full border border-line bg-bg" />
+          <span
+            aria-hidden
+            className="mt-1 h-2 w-2 shrink-0 rounded-full border border-dash-line bg-dash-bg"
+          />
           <div className="min-w-0 flex-1">
-            <p className="text-[12px] leading-snug text-ink">
+            <p className="text-dash-body leading-snug text-dash-ink">
               <span className="font-medium">{ACTION_LABELS[event.action]}</span>
-              <span className="text-muted"> — {event.actor}</span>
+              <span className="text-dash-muted"> — {event.actor}</span>
             </p>
             {event.correction && (
-              <p className="mt-0.5 text-[11px] leading-snug text-muted">
+              <p className="mt-1 text-dash-micro leading-snug text-dash-muted">
                 {event.correction.field}:{' '}
                 <span className="line-through">{event.correction.from}</span> →{' '}
-                <span className="font-medium text-ink">{event.correction.to}</span>
+                <span className="font-medium text-dash-ink">{event.correction.to}</span>
                 {event.correction.reason && <> — {event.correction.reason}</>}
               </p>
             )}
-            {event.note && <p className="mt-0.5 text-[11px] leading-snug text-muted">{event.note}</p>}
-            <p className="mt-0.5 text-[10.5px] tabular-nums text-muted">{timeOf(event.at)}</p>
+            {event.note && (
+              <p className="mt-1 text-dash-micro leading-snug text-dash-muted">{event.note}</p>
+            )}
+            <p className="mt-1 text-dash-micro tabular-nums text-dash-faint">{timeOf(event.at)}</p>
           </div>
         </li>
       ))}

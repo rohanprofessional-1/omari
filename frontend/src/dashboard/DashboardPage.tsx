@@ -67,14 +67,15 @@ export default function DashboardPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Page header */}
-      <div className="border-b border-line bg-canvas px-4 py-3">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="border-b border-dash-line bg-dash-surface">
+        <div className="mx-auto flex w-full max-w-dash-page flex-wrap items-center gap-3 px-6 py-3">
           <div className="min-w-0">
-            <h1 className="font-serif text-[17px] font-semibold text-ink">Referral Review</h1>
-            <p className="truncate text-[11.5px] text-muted">{SUBTITLES[navActive]}</p>
+            <h1 className="text-dash-title text-dash-ink">Referral Review</h1>
+            <p className="truncate text-dash-micro text-dash-muted">{SUBTITLES[navActive]}</p>
           </div>
           <div className="ml-auto flex flex-wrap items-center gap-3">
-            <nav className="inline-flex rounded-lg border border-line bg-bg p-0.5">
+            {/* Primary view tabs — the one accent family */}
+            <nav className="inline-flex rounded-dash-ctl border border-dash-line bg-dash-bg p-1">
               {NAV.map((item) => {
                 const active = navActive === item.id
                 return (
@@ -83,10 +84,10 @@ export default function DashboardPage() {
                     onClick={() => setView(item.id)}
                     aria-current={active ? 'page' : undefined}
                     className={
-                      'rounded-[7px] px-2.5 py-1 text-[12px] font-medium transition-colors ' +
+                      'rounded-dash-ctl px-3 py-1 text-dash-micro font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-dash-accent ' +
                       (active
-                        ? 'bg-accent-strong text-white shadow-[0_1px_2px_rgba(31,36,33,0.10)]'
-                        : 'text-muted hover:text-ink')
+                        ? 'bg-dash-accent-strong text-white'
+                        : 'text-dash-muted hover:text-dash-ink')
                     }
                   >
                     {item.label}

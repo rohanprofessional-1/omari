@@ -22,10 +22,10 @@ const URGENCIES: Urgency[] = ['routine', 'expedited', 'urgent']
 const MIN_REASON_CHARS = 10
 
 const inputCls =
-  'w-full rounded-md border border-line bg-bg px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted/60'
-const labelCls = 'block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted'
+  'w-full rounded-dash-ctl border border-dash-line bg-dash-bg px-3 py-2 text-dash-body text-dash-ink placeholder:text-dash-faint'
+const labelCls = 'block text-dash-micro font-semibold uppercase tracking-wide text-dash-muted'
 const primaryBtnCls =
-  'rounded-md bg-accent-strong px-4 py-1.5 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40'
+  'rounded-dash-ctl bg-dash-accent-strong px-4 py-1 text-dash-body font-semibold text-white transition-colors hover:bg-dash-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-dash-accent disabled:cursor-not-allowed disabled:opacity-40'
 
 /** Where the tree currently sends this referral, as correction `from` text. */
 function currentDestination(referral: ReviewableReferral): string {
@@ -59,17 +59,17 @@ function ModalShell({
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-ink/30 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-dash-ink/30 p-6" onClick={onClose}>
       <div
-        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-line bg-canvas shadow-2xl"
+        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-dash-card border border-dash-line bg-dash-surface shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-line px-5 py-3.5">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">{title}</h2>
-          {subtitle && <p className="mt-0.5 text-[12px] text-muted">{subtitle}</p>}
+        <div className="border-b border-dash-line px-6 py-3">
+          <h2 className="text-dash-title text-dash-ink">{title}</h2>
+          {subtitle && <p className="mt-1 text-dash-micro text-dash-muted">{subtitle}</p>}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">{children}</div>
-        <div className="border-t border-line px-5 py-3.5">{footer}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-3">{children}</div>
+        <div className="border-t border-dash-line px-6 py-3">{footer}</div>
       </div>
     </div>
   )
@@ -122,7 +122,7 @@ function ChangeDestinationModal({
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] text-muted">
+          <p className="text-dash-micro text-dash-muted">
             {reasonShort > 0
               ? `Reason needs ${reasonShort} more character${reasonShort === 1 ? '' : 's'}`
               : chosen
@@ -137,14 +137,14 @@ function ChangeDestinationModal({
     >
       <fieldset>
         <legend className={labelCls}>New destination</legend>
-        <div className="mt-1.5 space-y-1">
+        <div className="mt-2 space-y-1">
           {terminals.map((t, i) => {
             const checked = t.id === selectedId
             return (
               <label
                 key={t.id}
-                className={`flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2 ${
-                  checked ? 'border-accent bg-accent/5' : 'border-line hover:bg-bg'
+                className={`flex cursor-pointer items-center gap-3 rounded-dash-ctl border px-3 py-2 transition-colors ${
+                  checked ? 'border-dash-accent bg-dash-accent-soft' : 'border-dash-line hover:bg-dash-bg'
                 }`}
               >
                 <input
@@ -158,10 +158,10 @@ function ChangeDestinationModal({
                   }}
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-ink">
+                  <span className="block truncate text-dash-body font-medium text-dash-ink">
                     {t.specialistName}
                   </span>
-                  <span className="block truncate text-[11.5px] text-muted">{t.specialty}</span>
+                  <span className="block truncate text-dash-micro text-dash-muted">{t.specialty}</span>
                 </span>
                 <UrgencyBadge urgency={t.urgency} />
               </label>
@@ -176,7 +176,7 @@ function ChangeDestinationModal({
         </label>
         <select
           id="urgency-override"
-          className="mt-1 rounded-md border border-line bg-bg px-2 py-1.5 text-[13px] text-ink"
+          className="mt-1 rounded-dash-ctl border border-dash-line bg-dash-bg px-2 py-1 text-dash-body text-dash-ink"
           disabled={!chosen}
           value={effectiveUrgency ?? 'routine'}
           onChange={(e) => setUrgency(e.target.value as Urgency)}
@@ -247,7 +247,7 @@ function OutOfScopeModal({
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] text-muted">
+          <p className="text-dash-micro text-dash-muted">
             {valid ? 'The redirect is captured with the rejection.' : 'A redirect is required.'}
           </p>
           <button onClick={submit} disabled={!valid} className={primaryBtnCls}>
@@ -328,7 +328,7 @@ function RequestInfoModal({
       onClose={onClose}
       footer={
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] text-muted">
+          <p className="text-dash-micro text-dash-muted">
             {valid ? 'The referral stays in Needs information until it arrives.' : 'Pick an item or describe what you need.'}
           </p>
           <button
@@ -345,22 +345,22 @@ function RequestInfoModal({
       {missing.length > 0 && (
         <fieldset>
           <legend className={labelCls}>Missing items</legend>
-          <div className="mt-1.5 space-y-1">
+          <div className="mt-2 space-y-1">
             {missing.map((m, i) => (
               <label
                 key={m.variableKey}
-                className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-line px-3 py-2 hover:bg-bg"
+                className="flex cursor-pointer items-start gap-3 rounded-dash-ctl border border-dash-line px-3 py-2 transition-colors hover:bg-dash-bg"
               >
                 <input
                   type="checkbox"
                   autoFocus={i === 0}
-                  className="mt-0.5"
+                  className="mt-1"
                   checked={checked.has(m.variableKey)}
                   onChange={() => toggle(m.variableKey)}
                 />
                 <span className="min-w-0">
-                  <span className="block text-[13px] leading-snug text-ink">{m.clinicalPrompt}</span>
-                  <span className="block text-[11px] text-muted">supplied by {m.whoCanSupply}</span>
+                  <span className="block text-dash-body leading-snug text-dash-ink">{m.clinicalPrompt}</span>
+                  <span className="block text-dash-micro text-dash-muted">supplied by {m.whoCanSupply}</span>
                 </span>
               </label>
             ))}

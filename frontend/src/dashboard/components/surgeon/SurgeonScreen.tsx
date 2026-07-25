@@ -17,8 +17,14 @@ import {
 } from '../../lib/surgeonBrief'
 import type { ReviewableReferral } from '../../types'
 import ActionModal from '../detail/ActionModal'
+import Badge, { type BadgeTone } from '../shared/Badge'
 import ConfidencePill from '../shared/ConfidencePill'
-import SurgeonRow, { CommentButton, surgeonBtnOutline, surgeonBtnPrimary } from './SurgeonRow'
+import SurgeonRow, {
+  CommentButton,
+  surgeonBtnOutline,
+  surgeonBtnPrimary,
+  type CardRail,
+} from './SurgeonRow'
 
 /**
  * The surgeon's brief — NOT a filtered queue. Three short exception sections
@@ -34,14 +40,38 @@ const ESCALATION_CATEGORY_LABELS: Record<string, string> = {
   complex: 'Complex',
 }
 
-function SectionHeader({ label, count, hint }: { label: string; count: number; hint: string }) {
+/** Flag color per category — calm clinical palette, badge + rail only. */
+const ESCALATION_TONES: Record<string, BadgeTone & CardRail> = {
+  emergency: 'red',
+  ambiguous: 'amber',
+  complex: 'slate',
+}
+
+/** Band-header idiom shared with the queue: dot · label · count · explainer. */
+const SECTION_DOTS = {
+  red: 'bg-dash-red',
+  slate: 'bg-dash-slate',
+  accent: 'bg-dash-accent',
+} as const
+
+function SectionHeader({
+  dot,
+  label,
+  count,
+  hint,
+}: {
+  dot: keyof typeof SECTION_DOTS
+  label: string
+  count: number
+  hint: string
+}) {
   return (
-    <div className="flex items-baseline gap-2 border-b border-line bg-bg/60 px-4 py-2">
-      <h2 className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-ink">
-        {label} <span className="font-normal text-muted">({count})</span>
-      </h2>
-      <p className="truncate text-[11px] text-muted">{hint}</p>
-    </div>
+    <header className="mb-2 flex items-center gap-2">
+      <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${SECTION_DOTS[dot]}`} />
+      <h2 className="text-dash-band uppercase text-dash-strong">{label}</h2>
+      <span className="text-dash-band tabular-nums text-dash-faint">{count}</span>
+      <p className="hidden min-w-0 truncate text-dash-micro text-dash-faint md:block">{hint}</p>
+    </header>
   )
 }
 
@@ -60,17 +90,18 @@ function HandledStrip({
   onCaughtUp: () => void
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-success-deep/20 bg-success-soft/50 px-4 py-3">
-      <p className="text-[13px] text-success-deep">
+    <div className="flex flex-wrap items-center gap-3 rounded-dash-card border border-dash-line bg-dash-surface px-4 py-3 shadow-dash-card">
+      <p className="text-dash-body text-dash-strong">
         {total === 0 ? (
           <>Nothing handled {sinceLabel} yet.</>
         ) : (
           <>
-            <span className="font-semibold">
+            <span className="font-semibold tabular-nums text-dash-green">
               {total} referral{total === 1 ? '' : 's'}
             </span>{' '}
-            handled without you {sinceLabel} · <span className="font-semibold">{approved}</span>{' '}
-            approved as proposed · <span className="font-semibold">{corrected}</span> corrected by
+            handled without you {sinceLabel} ·{' '}
+            <span className="font-semibold tabular-nums">{approved}</span> approved as proposed ·{' '}
+            <span className="font-semibold tabular-nums">{corrected}</span> corrected by
             coordinators
           </>
         )}
@@ -78,7 +109,7 @@ function HandledStrip({
       <button
         onClick={onCaughtUp}
         title="Zeroes these counters — the next visit counts from now"
-        className="ml-auto shrink-0 rounded-md border border-success-deep/30 px-2.5 py-1 text-[11.5px] font-medium text-success-deep transition-colors hover:bg-success-soft"
+        className={`ml-auto ${surgeonBtnOutline}`}
       >
         Mark caught up
       </button>
@@ -112,10 +143,15 @@ export default function SurgeonScreen({ onOpen }: { onOpen: (referralId: string)
 
   if (!referrals) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-4">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="mb-2 h-14 animate-pulse rounded-lg bg-line/50" />
-        ))}
+      <div className="min-h-full bg-dash-bg">
+        <div className="mx-auto w-full max-w-dash-page p-6">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="mb-3 h-24 animate-pulse rounded-dash-card bg-dash-line/60 motion-reduce:animate-none"
+            />
+          ))}
+        </div>
       </div>
     )
   }
@@ -161,21 +197,35 @@ export default function SurgeonScreen({ onOpen }: { onOpen: (referralId: string)
       </button>
     )
 
+  /* Flag-type badge at the card top — colored per the calm status palette. */
+  const escalatedBadge = ({ referral }: EscalatedEntry) => {
+    const { result } = referral
+    if (!result.escalationCategory) return undefined
+    const category =
+      ESCALATION_CATEGORY_LABELS[result.escalationCategory] ?? result.escalationCategory
+    return (
+      <Badge
+        tone={ESCALATION_TONES[result.escalationCategory] ?? 'red'}
+        className="font-semibold uppercase tracking-wide"
+      >
+        {category}
+      </Badge>
+    )
+  }
+
+  const escalatedRail = ({ referral }: EscalatedEntry): CardRail =>
+    (referral.result.escalationCategory &&
+      ESCALATION_TONES[referral.result.escalationCategory]) ||
+    'red'
+
   const escalatedPayload = ({ referral, coordinatorNote }: EscalatedEntry) => {
     const { result } = referral
-    const category = result.escalationCategory
-      ? ESCALATION_CATEGORY_LABELS[result.escalationCategory] ?? result.escalationCategory
-      : null
     return (
       <>
-        <span className="text-danger">
-          {category && <span className="font-semibold uppercase tracking-[0.05em]">{category}</span>}
-          {category && result.escalationReason && ' — '}
-          {result.escalationReason}
-        </span>
+        {result.escalationReason && <span className="block">{result.escalationReason}</span>}
         {coordinatorNote && (
-          <span className="mt-0.5 block text-ink">
-            <span className="text-muted">Coordinator:</span> “{coordinatorNote}”
+          <span className="mt-2 block border-l-2 border-dash-line pl-3 text-dash-ink">
+            <span className="text-dash-muted">Coordinator:</span> “{coordinatorNote}”
           </span>
         )}
       </>
@@ -186,142 +236,160 @@ export default function SurgeonScreen({ onOpen }: { onOpen: (referralId: string)
     const { result } = referral
     const ambiguous = result.flags.ambiguousBetween
     return (
-      <span className="flex flex-wrap items-center gap-1.5">
-        <ConfidencePill level={result.confidence} />
-        <span>{result.confidenceReason}</span>
+      <>
+        <span className="block">{result.confidenceReason}</span>
+        {/* Suggested destination — distinct placement + weight, not new words */}
         {ambiguous && (
-          <span className="text-ink">
+          <span className="mt-1 block font-medium text-dash-ink">
             Could be {ambiguous[0]} or {ambiguous[1]}.
           </span>
         )}
-      </span>
+      </>
     )
   }
 
   /* The tree-improvement feed — the coordinator's reason quote is the point. */
   const correctedPayload = ({ correction, reviewer }: CorrectedEntry) => (
     <>
-      <span>
-        Tree said <span className="text-ink">{correction.from}</span> →{' '}
-        <span className="text-muted">{reviewer}</span> sent to{' '}
-        <span className="font-medium text-ink">{correction.to}</span>:
-      </span>{' '}
-      <span className="font-medium text-accent-strong">“{correction.reason}”</span>
+      <span className="block">
+        Tree said <span className="font-medium text-dash-ink">{correction.from}</span> →{' '}
+        <span className="text-dash-muted">{reviewer}</span> sent to{' '}
+        <span className="font-medium text-dash-ink">{correction.to}</span>:
+      </span>
+      <span className="mt-2 block border-l-2 border-dash-accent pl-3 font-medium text-dash-ink">
+        “{correction.reason}”
+      </span>
     </>
   )
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-4">
-      <HandledStrip
-        total={summary.total}
-        approved={summary.approved}
-        corrected={summary.corrected}
-        sinceLabel={sinceLabel}
-        onCaughtUp={markSurgeonVisit}
-      />
-
-      {allClear ? (
-        <div className="mt-8 text-center">
-          <p className="font-serif text-[16px] font-semibold text-ink">Nothing needs you.</p>
-          <p className="mt-1 text-[13px] text-muted">
-            {summary.total} referral{summary.total === 1 ? '' : 's'} handled {sinceLabel}.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-4 space-y-4">
-          {sections.escalated.length > 0 && (
-            <section className="overflow-hidden rounded-xl border border-line bg-canvas">
-              <SectionHeader
-                label="Escalated to you"
-                count={sections.escalated.length}
-                hint="The tree or a coordinator wants your call"
-              />
-              {sections.escalated.map((entry) => (
-                <SurgeonRow
-                  key={entry.referral.payload.referralId}
-                  referral={entry.referral}
-                  payload={escalatedPayload(entry)}
-                  onOpen={onOpen}
-                  actions={
-                    <>
-                      {confirmOrRoute(entry.referral)}
-                      <CommentButton onSubmit={comment(entry.referral.payload.referralId)} />
-                    </>
-                  }
-                />
-              ))}
-            </section>
-          )}
-
-          {sections.lowConfidence.length > 0 && (
-            <section className="overflow-hidden rounded-xl border border-line bg-canvas">
-              <SectionHeader
-                label="Low confidence"
-                count={sections.lowConfidence.length}
-                hint="Routed, but the tree isn't sure"
-              />
-              {sections.lowConfidence.map((entry) => (
-                <SurgeonRow
-                  key={entry.referral.payload.referralId}
-                  referral={entry.referral}
-                  payload={lowConfidencePayload(entry)}
-                  onOpen={onOpen}
-                  actions={
-                    <>
-                      {confirmOrRoute(entry.referral)}
-                      <CommentButton onSubmit={comment(entry.referral.payload.referralId)} />
-                    </>
-                  }
-                />
-              ))}
-            </section>
-          )}
-
-          {sections.corrected.length > 0 && (
-            <section className="overflow-hidden rounded-xl border border-line bg-canvas">
-              <SectionHeader
-                label="Coordinator disagreed with the tree"
-                count={sections.corrected.length}
-                hint="Their reasons feed tree improvement"
-              />
-              {sections.corrected.map((entry) => (
-                <SurgeonRow
-                  key={entry.referral.payload.referralId}
-                  referral={entry.referral}
-                  payload={correctedPayload(entry)}
-                  onOpen={onOpen}
-                  actions={
-                    <>
-                      <button
-                        onClick={() => endorse(entry.referral.payload.referralId)}
-                        title="Agree with the coordinator — logs an endorsement note"
-                        className={surgeonBtnPrimary}
-                      >
-                        Endorse correction
-                      </button>
-                      <button
-                        onClick={() => revert(entry.referral.payload.referralId)}
-                        title="Disagree — approve the tree's original recommendation"
-                        className={surgeonBtnOutline}
-                      >
-                        Revert to tree
-                      </button>
-                    </>
-                  }
-                />
-              ))}
-            </section>
-          )}
-        </div>
-      )}
-
-      {routingFor && (
-        <ActionModal
-          mode="change_destination"
-          referral={routingFor}
-          onClose={() => setRoutingFor(null)}
+    <div className="min-h-full bg-dash-bg">
+      <div className="mx-auto w-full max-w-dash-page p-6">
+        <HandledStrip
+          total={summary.total}
+          approved={summary.approved}
+          corrected={summary.corrected}
+          sinceLabel={sinceLabel}
+          onCaughtUp={markSurgeonVisit}
         />
-      )}
+
+        {allClear ? (
+          <div className="mt-8 text-center">
+            <p className="text-dash-row text-dash-ink">Nothing needs you.</p>
+            <p className="mt-1 text-dash-body text-dash-muted">
+              {summary.total} referral{summary.total === 1 ? '' : 's'} handled {sinceLabel}.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-6 space-y-6">
+            {sections.escalated.length > 0 && (
+              <section>
+                <SectionHeader
+                  dot="red"
+                  label="Escalated to you"
+                  count={sections.escalated.length}
+                  hint="The tree or a coordinator wants your call"
+                />
+                <div className="space-y-3">
+                  {sections.escalated.map((entry) => (
+                    <SurgeonRow
+                      key={entry.referral.payload.referralId}
+                      referral={entry.referral}
+                      badge={escalatedBadge(entry)}
+                      rail={escalatedRail(entry)}
+                      payload={escalatedPayload(entry)}
+                      onOpen={onOpen}
+                      actions={
+                        <>
+                          {confirmOrRoute(entry.referral)}
+                          <CommentButton onSubmit={comment(entry.referral.payload.referralId)} />
+                        </>
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {sections.lowConfidence.length > 0 && (
+              <section>
+                <SectionHeader
+                  dot="slate"
+                  label="Low confidence"
+                  count={sections.lowConfidence.length}
+                  hint="Routed, but the tree isn't sure"
+                />
+                <div className="space-y-3">
+                  {sections.lowConfidence.map((entry) => (
+                    <SurgeonRow
+                      key={entry.referral.payload.referralId}
+                      referral={entry.referral}
+                      badge={<ConfidencePill level={entry.referral.result.confidence} />}
+                      rail="slate"
+                      payload={lowConfidencePayload(entry)}
+                      onOpen={onOpen}
+                      actions={
+                        <>
+                          {confirmOrRoute(entry.referral)}
+                          <CommentButton onSubmit={comment(entry.referral.payload.referralId)} />
+                        </>
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {sections.corrected.length > 0 && (
+              <section>
+                <SectionHeader
+                  dot="accent"
+                  label="Coordinator disagreed with the tree"
+                  count={sections.corrected.length}
+                  hint="Their reasons feed tree improvement"
+                />
+                <div className="space-y-3">
+                  {sections.corrected.map((entry) => (
+                    <SurgeonRow
+                      key={entry.referral.payload.referralId}
+                      referral={entry.referral}
+                      rail="accent"
+                      payload={correctedPayload(entry)}
+                      onOpen={onOpen}
+                      actions={
+                        <>
+                          <button
+                            onClick={() => endorse(entry.referral.payload.referralId)}
+                            title="Agree with the coordinator — logs an endorsement note"
+                            className={surgeonBtnPrimary}
+                          >
+                            Endorse correction
+                          </button>
+                          <button
+                            onClick={() => revert(entry.referral.payload.referralId)}
+                            title="Disagree — approve the tree's original recommendation"
+                            className={surgeonBtnOutline}
+                          >
+                            Revert to tree
+                          </button>
+                        </>
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+
+        {routingFor && (
+          <ActionModal
+            mode="change_destination"
+            referral={routingFor}
+            onClose={() => setRoutingFor(null)}
+          />
+        )}
+      </div>
     </div>
   )
 }

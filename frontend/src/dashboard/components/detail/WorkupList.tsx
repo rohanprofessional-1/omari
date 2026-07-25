@@ -4,6 +4,7 @@ import type { WithheldWorkupItem } from '../../../lib/engine'
 import { formatDate } from '../../lib/demoClock'
 import { useDashboardStore } from '../../lib/reviewStore'
 import { mergeWorkupItems } from '../../lib/workupMerge'
+import Badge, { type BadgeTone } from '../shared/Badge'
 import WarningIcon from '../shared/WarningIcon'
 import type { DashboardWorkupItem, WorkupStatus } from '../../types'
 
@@ -14,51 +15,43 @@ import type { DashboardWorkupItem, WorkupStatus } from '../../types'
  * Read-only here; status changes arrive in the next build step.
  */
 
-const STATUS_STYLES: Record<WorkupStatus, string> = {
-  needed: 'border border-line bg-bg text-muted',
-  ordered: 'bg-accent/10 text-accent-strong',
-  scheduled: 'bg-sky text-accent-strong',
-  resulted: 'bg-success-soft text-success-deep',
-  reviewed: 'bg-success-soft text-success-deep',
+/** Status pills from the shared Badge family — one idiom everywhere. */
+const STATUS_TONES: Record<WorkupStatus, BadgeTone> = {
+  needed: 'amber',
+  ordered: 'neutral',
+  scheduled: 'slate',
+  resulted: 'green',
+  reviewed: 'green',
 }
 
 function WorkupRow({ item }: { item: DashboardWorkupItem }) {
   const [open, setOpen] = useState(false)
   const hasDetail = Boolean(item.protocol || item.rationale)
   return (
-    <li className="rounded-lg border border-line px-2.5 py-2">
+    <li className="rounded-dash-ctl border border-dash-line px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <button
           onClick={() => hasDetail && setOpen((v) => !v)}
-          className={`min-w-0 flex-1 text-left text-[12.5px] font-medium text-ink ${
-            hasDetail ? 'hover:text-accent-strong' : 'cursor-default'
+          className={`min-w-0 flex-1 text-left text-dash-body font-medium text-dash-ink ${
+            hasDetail ? 'transition-colors hover:text-dash-accent' : 'cursor-default'
           }`}
           title={hasDetail ? (open ? 'Hide protocol' : 'Show protocol') : undefined}
         >
           {item.name}
         </button>
         {item.source === 'conditional' ? (
-          <span
-            title={item.conditionalReason}
-            className="inline-flex shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.05em] text-accent-strong"
-          >
+          <Badge tone="accent" title={item.conditionalReason}>
             path-specific
-          </span>
+          </Badge>
         ) : (
-          <span className="inline-flex shrink-0 rounded border border-line bg-bg px-1.5 py-0.5 text-[9.5px] font-medium uppercase tracking-[0.05em] text-muted">
-            standard
-          </span>
+          <Badge tone="neutral">standard</Badge>
         )}
-        <span
-          className={`inline-flex shrink-0 rounded px-1.5 py-0.5 text-[10.5px] font-medium ${STATUS_STYLES[item.status]}`}
-        >
-          {item.status}
-        </span>
+        <Badge tone={STATUS_TONES[item.status]}>{item.status}</Badge>
       </div>
-      <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5 text-[11px] text-muted">
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-dash-micro text-dash-muted">
         <span>{item.responsible}</span>
         <span aria-hidden>·</span>
-        <span className={item.atRisk ? 'font-medium text-danger' : ''}>
+        <span className={item.atRisk ? 'font-medium text-dash-amber' : ''}>
           {item.atRisk && (
             <>
               <WarningIcon />{' '}
@@ -68,15 +61,15 @@ function WorkupRow({ item }: { item: DashboardWorkupItem }) {
         </span>
       </div>
       {open && hasDetail && (
-        <div className="mt-1.5 space-y-0.5 border-l-2 border-line pl-2 text-[12px] leading-snug text-muted">
+        <div className="mt-2 space-y-1 border-l-2 border-dash-line pl-2 text-dash-micro leading-snug text-dash-muted">
           {item.protocol && (
             <p>
-              <span className="font-medium text-ink">Protocol:</span> {item.protocol}
+              <span className="font-medium text-dash-ink">Protocol:</span> {item.protocol}
             </p>
           )}
           {item.rationale && (
             <p>
-              <span className="font-medium text-ink">Why:</span> {item.rationale}
+              <span className="font-medium text-dash-ink">Why:</span> {item.rationale}
             </p>
           )}
         </div>
@@ -102,18 +95,18 @@ export default function WorkupList({
   const merged = mergeWorkupItems(items, workupOverrides[referralId] ?? {}, visitDate)
 
   if (merged.length === 0 && withheld.length === 0) {
-    return <p className="text-[12.5px] text-muted">No pre-visit workup required.</p>
+    return <p className="text-dash-body text-dash-muted">No pre-visit workup required.</p>
   }
 
   return (
-    <ul className="space-y-1.5">
+    <ul className="space-y-2">
       {merged.map((item) => (
         <WorkupRow key={item.name} item={item} />
       ))}
       {withheld.map((w) => (
-        <li key={w.item} className="rounded-lg border border-dashed border-line px-2.5 py-2">
-          <p className="text-[12.5px] font-medium text-muted line-through">{w.item}</p>
-          <p className="mt-0.5 text-[11px] leading-snug text-muted">
+        <li key={w.item} className="rounded-dash-ctl border border-dashed border-dash-line px-3 py-2">
+          <p className="text-dash-body font-medium text-dash-muted line-through">{w.item}</p>
+          <p className="mt-1 text-dash-micro leading-snug text-dash-muted">
             withheld: requires {describeKeyedCondition(w.requiredCondition)}
           </p>
         </li>

@@ -32,7 +32,7 @@ function Chevron({ open }: { open: boolean }) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
-      className={`transition-transform ${open ? 'rotate-90' : ''}`}
+      className={`transition-transform motion-reduce:transition-none ${open ? 'rotate-90' : ''}`}
     >
       <path d="M9 6l6 6-6 6" />
     </svg>
@@ -46,13 +46,13 @@ export function CitationToggle({ quote, label = 'guideline' }: { quote: string; 
     <>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted transition-colors hover:bg-bg hover:text-ink"
+        className="inline-flex items-center gap-1 rounded-dash-ctl px-1 text-dash-micro text-dash-muted transition-colors hover:bg-dash-bg hover:text-dash-ink"
       >
         <Chevron open={open} />
         {label}
       </button>
       {open && (
-        <blockquote className="mt-1 border-l-2 border-line pl-2 text-[12px] italic leading-snug text-muted">
+        <blockquote className="mt-1 border-l-2 border-dash-line pl-2 text-dash-micro italic leading-snug text-dash-muted">
           {quote}
         </blockquote>
       )}
@@ -63,7 +63,7 @@ export function CitationToggle({ quote, label = 'guideline' }: { quote: string; 
 /** Tiny 'Clinic override' pill — solid so a deviation from the CPG pops. */
 export function OverrideBadge() {
   return (
-    <span className="inline-flex shrink-0 items-center rounded bg-accent-strong px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.05em] text-white">
+    <span className="inline-flex shrink-0 items-center rounded-dash-ctl bg-dash-accent-strong px-2 py-1 text-dash-micro font-semibold uppercase leading-none tracking-wide text-white">
       Clinic override
     </span>
   )
@@ -81,22 +81,22 @@ export function OverrideDetails({ nodeId }: { nodeId: string }) {
     <div className="mt-1">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] font-medium text-accent-strong transition-colors hover:bg-sky"
+        className="inline-flex items-center gap-1 rounded-dash-ctl px-1 text-dash-micro font-medium text-dash-accent-strong transition-colors hover:bg-dash-accent-soft"
       >
         <Chevron open={open} />
         why the clinic overrode this
       </button>
       {open && (
-        <div className="mt-1 space-y-1.5 rounded-lg border border-line bg-bg px-2.5 py-2">
-          <p className="text-[12px] leading-snug text-ink">
+        <div className="mt-1 space-y-2 rounded-dash-ctl border border-dash-line bg-dash-bg px-3 py-2">
+          <p className="text-dash-micro leading-snug text-dash-ink">
             <span className="font-medium">{info.author}:</span> {info.rationale}
           </p>
           {info.cpgBasis && (
-            <p className="text-[11px] leading-snug text-muted line-through decoration-muted/60">
+            <p className="text-dash-micro leading-snug text-dash-muted line-through decoration-dash-muted/60">
               CPG: {info.cpgBasis}
             </p>
           )}
-          <p className="text-[11px] font-medium leading-snug text-accent-strong">
+          <p className="text-dash-micro font-medium leading-snug text-dash-accent-strong">
             Clinic rule: {info.opSummary}
           </p>
         </div>
@@ -117,12 +117,10 @@ function ChainRow({
   children: ReactNode
 }) {
   return (
-    <li className="relative flex gap-2.5 pb-3 last:pb-0">
+    <li className="relative flex gap-3 pb-3 last:pb-0">
       {/* hairline connector down to the next node dot */}
-      {!last && <span aria-hidden className="absolute left-[4.5px] top-3 bottom-0 w-px bg-line" />}
-      <span className="relative mt-[5px] flex h-2.5 w-2.5 shrink-0 items-center justify-center">
-        {dot}
-      </span>
+      {!last && <span aria-hidden className="absolute left-1 top-3 bottom-0 w-px bg-dash-line" />}
+      <span className="relative mt-1 flex h-2 w-2 shrink-0 items-center justify-center">{dot}</span>
       <div className="min-w-0 flex-1">{children}</div>
     </li>
   )
@@ -133,7 +131,7 @@ function StepDot({ overridden }: { overridden: boolean }) {
     <span
       aria-hidden
       className={`h-2 w-2 rounded-full border ${
-        overridden ? 'border-accent-strong bg-accent-strong' : 'border-accent bg-canvas'
+        overridden ? 'border-dash-accent-strong bg-dash-accent-strong' : 'border-dash-accent bg-dash-surface'
       }`}
     />
   )
@@ -144,15 +142,15 @@ function StepDot({ overridden }: { overridden: boolean }) {
 function StepRow({ step, last }: { step: DecisionStep; last: boolean }) {
   return (
     <ChainRow last={last} dot={<StepDot overridden={step.overridden} />}>
-      <p className="text-[13px] leading-snug text-ink">
+      <p className="text-dash-body leading-snug text-dash-ink">
         {step.label} — <span className="font-semibold">{step.answer}</span>
         {step.overridden && (
-          <span className="ml-1.5 align-[1px]">
+          <span className="ml-2 align-[1px]">
             <OverrideBadge />
           </span>
         )}
       </p>
-      <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[11px] text-muted">
+      <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-dash-micro text-dash-muted">
         <span>{SOURCE_LABELS[step.source]}</span>
         {typeof step.confidence === 'number' && (
           <>
@@ -233,7 +231,7 @@ export default function DecisionChain({ result }: { result: TreeResult }) {
   const terminalNodeId = result.terminalOverridden ? result.routedTo?.nodeId : undefined
 
   if (steps.length === 0 && !result.escalated) {
-    return <p className="text-[12.5px] text-muted">No decision steps recorded.</p>
+    return <p className="text-dash-body text-dash-muted">No decision steps recorded.</p>
   }
 
   return (
@@ -246,22 +244,22 @@ export default function DecisionChain({ result }: { result: TreeResult }) {
         dot={
           <span
             aria-hidden
-            className={`h-2.5 w-2.5 rounded-full ${
-              conclusion.tone === 'danger' ? 'bg-danger' : 'bg-accent-strong'
+            className={`h-2 w-2 rounded-full ${
+              conclusion.tone === 'danger' ? 'bg-dash-red' : 'bg-dash-accent-strong'
             }`}
           />
         }
       >
-        <p className="text-[13px] leading-snug text-ink">
+        <p className="text-dash-body leading-snug text-dash-ink">
           {conclusion.primary}
           {terminalNodeId && (
-            <span className="ml-1.5 align-[1px]">
+            <span className="ml-2 align-[1px]">
               <OverrideBadge />
             </span>
           )}
         </p>
         {conclusion.secondary && (
-          <p className="mt-0.5 text-[11px] leading-snug text-muted">{conclusion.secondary}</p>
+          <p className="mt-1 text-dash-micro leading-snug text-dash-muted">{conclusion.secondary}</p>
         )}
         {terminalNodeId && <OverrideDetails nodeId={terminalNodeId} />}
       </ChainRow>

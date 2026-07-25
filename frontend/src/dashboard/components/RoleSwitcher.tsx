@@ -1,9 +1,12 @@
 import type { Role } from '../types'
 import { useDashboardStore } from '../lib/reviewStore'
+import Badge from './shared/Badge'
 
 /**
  * Demo affordance — switches the reviewing role (coordinator / surgeon /
- * admin). Clones the TopNav segmented-pill idiom at dashboard scale.
+ * admin). Deliberately muted next to the accent view tabs: neutral DEMO tag,
+ * hairline segmented control, white (not accent) active state — clearly not
+ * product chrome.
  */
 
 const ROLES: { id: Role; label: string }[] = [
@@ -16,13 +19,13 @@ export default function RoleSwitcher() {
   const { role, setRole } = useDashboardStore()
   return (
     <div
-      className="flex items-center gap-1.5"
+      className="flex items-center gap-2"
       title="Demo affordance — switches the reviewing role"
     >
-      <span className="rounded bg-sky px-1.5 py-0.5 text-[10.5px] font-semibold text-accent-strong">
+      <Badge tone="neutral" className="font-semibold">
         DEMO
-      </span>
-      <div className="inline-flex rounded-lg border border-line bg-bg p-0.5">
+      </Badge>
+      <div className="inline-flex rounded-dash-ctl border border-dash-line bg-dash-bg p-1">
         {ROLES.map((r) => {
           const active = role === r.id
           return (
@@ -31,10 +34,10 @@ export default function RoleSwitcher() {
               onClick={() => setRole(r.id)}
               aria-pressed={active}
               className={
-                'rounded-[7px] px-2.5 py-1 text-[12px] font-medium transition-colors ' +
+                'rounded-dash-ctl px-2 py-1 text-dash-micro font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-dash-accent ' +
                 (active
-                  ? 'bg-accent-strong text-white shadow-[0_1px_2px_rgba(31,36,33,0.10)]'
-                  : 'text-muted hover:text-ink')
+                  ? 'bg-dash-surface text-dash-ink shadow-dash-card'
+                  : 'text-dash-faint hover:text-dash-ink')
               }
             >
               {r.label}

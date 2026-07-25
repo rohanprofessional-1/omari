@@ -1,18 +1,25 @@
 import { daysUntil, formatDate } from '../../lib/demoClock'
 import { reviewerNameFor, useDashboardStore } from '../../lib/reviewStore'
 import { isWorkupDone, type WorkupEntry } from '../../lib/workupMerge'
+import Badge from '../shared/Badge'
 import UrgencyBadge from '../shared/UrgencyBadge'
 import WarningIcon from '../shared/WarningIcon'
 import type { DashboardWorkupItem, WorkupStatus } from '../../types'
 
 /**
- * Workup tracking — one referral card. An at-risk card is unmistakable: red
- * left border, red-tinted fill, and a danger banner counting down to the
- * visit. Every item line carries an inline status select — advancing a status
- * writes to the store (audited) and the whole screen restratifies live.
+ * Workup tracking — one referral card. An at-risk card is calm but
+ * unmistakable: amber 2px left rail plus an amber-soft banner strip inside
+ * the card header (never a whole-card tint). Every item line carries an
+ * inline status select — advancing a status writes to the store (audited)
+ * and the whole screen restratifies live.
  */
 
 const STATUS_OPTIONS: WorkupStatus[] = ['needed', 'ordered', 'scheduled', 'resulted', 'reviewed']
+
+/** Shared item-line grid so controls align across every card:
+ *  at-risk dot · test name · source chip · responsible · due date · status. */
+export const ITEM_GRID =
+  'grid grid-cols-[16px_minmax(0,1fr)_112px_136px_120px_116px] items-center gap-x-3'
 
 /** 'in 9d' / 'today' / '3d overdue' from a day delta. */
 function relativeDays(days: number): string {
@@ -33,35 +40,38 @@ function ItemLine({
   const overdue = daysUntil(item.dueBy) < 0 && !done
 
   return (
-    <li className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
+    <li className={`${ITEM_GRID} py-2`}>
       {/* Item-level at-risk dot (spacer keeps names aligned when calm) */}
       <span
         aria-hidden
         title={item.atRisk ? 'At risk — not back yet and due soon' : undefined}
-        className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.atRisk ? 'bg-danger' : 'bg-line'}`}
+        className={`h-1.5 w-1.5 justify-self-center rounded-full ${
+          item.atRisk ? 'bg-dash-amber' : 'bg-dash-line'
+        }`}
       />
       <span
-        className={`min-w-0 flex-1 truncate text-[12.5px] font-medium ${done ? 'text-muted' : 'text-ink'}`}
+        className={`min-w-0 truncate text-dash-body font-medium ${
+          done ? 'text-dash-muted' : 'text-dash-ink'
+        }`}
         title={item.name}
       >
         {item.name}
       </span>
-      {item.source === 'conditional' ? (
-        <span
-          title={item.conditionalReason}
-          className="inline-flex shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.05em] text-accent-strong"
-        >
-          path-specific
-        </span>
-      ) : (
-        <span className="inline-flex shrink-0 rounded border border-line bg-bg px-1.5 py-0.5 text-[9.5px] font-medium uppercase tracking-[0.05em] text-muted">
-          standard
-        </span>
-      )}
-      <span className="hidden shrink-0 text-[11px] text-muted sm:inline">{item.responsible}</span>
+      <span>
+        {item.source === 'conditional' ? (
+          <Badge tone="accent" title={item.conditionalReason}>
+            path-specific
+          </Badge>
+        ) : (
+          <Badge tone="neutral">standard</Badge>
+        )}
+      </span>
+      <span className="truncate text-dash-micro text-dash-muted" title={item.responsible}>
+        {item.responsible}
+      </span>
       <span
-        className={`shrink-0 text-[11px] tabular-nums ${
-          overdue || item.atRisk ? 'font-medium text-danger' : 'text-muted'
+        className={`text-dash-micro tabular-nums ${
+          overdue || item.atRisk ? 'font-medium text-dash-amber' : 'text-dash-muted'
         }`}
       >
         {overdue && (
@@ -78,7 +88,7 @@ function ItemLine({
         }
         aria-label={`Status of ${item.name}`}
         title="Advance this item — the change is audited and at-risk recomputes live"
-        className="shrink-0 rounded-md border border-line bg-canvas px-1.5 py-0.5 text-[11px] text-ink"
+        className="w-full rounded-dash-ctl border border-dash-line bg-dash-surface px-2 py-1 text-dash-body text-dash-ink"
       >
         {STATUS_OPTIONS.map((s) => (
           <option key={s} value={s}>
@@ -104,36 +114,40 @@ export default function WorkupRow({
 
   return (
     <article
-      className={`overflow-hidden rounded-xl border bg-canvas ${
-        atRisk ? 'border-line border-l-4 border-l-danger bg-danger/5' : 'border-line'
+      className={`overflow-hidden rounded-dash-card border border-l-2 border-dash-line bg-dash-surface shadow-dash-card ${
+        atRisk ? 'border-l-dash-amber' : 'border-l-transparent'
       }`}
     >
       {atRisk && (
-        <div className="flex items-center gap-1.5 border-b border-danger/20 bg-danger/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-danger">
-          <WarningIcon />
-          <span className="min-w-0 truncate">
-            At risk — visit {relativeDays(visitIn)}, {outstanding} item
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-dash-line bg-dash-amber-soft px-4 py-1 text-dash-micro">
+          <span className="flex shrink-0 items-center gap-1 font-semibold uppercase tracking-wide text-dash-amber">
+            <WarningIcon />
+            At risk
+          </span>
+          <span className="min-w-0 truncate tabular-nums text-dash-ink">
+            — visit {relativeDays(visitIn)}, {outstanding} item
             {outstanding === 1 ? '' : 's'} outstanding
           </span>
         </div>
       )}
 
       {/* Referral header line */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pt-2.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 pt-3">
         <button
           onClick={() => onOpen(id)}
           title="Open the full referral"
-          className="min-w-0 truncate text-left text-[13px] font-semibold text-ink hover:text-accent-strong"
+          className="min-w-0 truncate text-left text-dash-row text-dash-ink transition-colors hover:text-dash-accent"
         >
           {referral.payload.patient.name}
         </button>
-        <span className="min-w-0 truncate text-[12px] text-muted">→ {destination}</span>
+        <span className="min-w-0 truncate text-dash-body text-dash-muted">→ {destination}</span>
         <UrgencyBadge urgency={urgency} />
-        <span className="ml-auto shrink-0 text-[11.5px] tabular-nums text-muted">
-          Visit {formatDate(visitDate)} · <span className="font-medium text-ink">{relativeDays(visitIn)}</span>
+        <span className="ml-auto shrink-0 text-dash-micro tabular-nums text-dash-muted">
+          Visit {formatDate(visitDate)} ·{' '}
+          <span className="font-medium text-dash-ink">{relativeDays(visitIn)}</span>
           {syntheticVisit && (
             <span
-              className="ml-1 text-[10px] uppercase tracking-[0.05em]"
+              className="ml-1 uppercase tracking-wide text-dash-faint"
               title="Demo behavior — no scheduled visit in the fixture, so a visit date is projected from urgency (routine +10d, expedited +5d, urgent +2d)"
             >
               projected
@@ -143,7 +157,7 @@ export default function WorkupRow({
       </div>
 
       {/* Item lines */}
-      <ul className="mt-1 divide-y divide-line/60 px-3 pb-2">
+      <ul className="mt-1 divide-y divide-dash-line/60 px-4 pb-3">
         {items.map((item) => (
           <ItemLine key={item.name} referralId={id} item={item} />
         ))}

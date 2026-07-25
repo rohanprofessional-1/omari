@@ -13,11 +13,11 @@ import type { ActionModalMode } from './ActionModal'
  */
 
 const btnPrimary =
-  'rounded-md bg-accent-strong px-3.5 py-1.5 text-[12.5px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40'
+  'rounded-dash-ctl bg-dash-accent-strong px-3 py-1 text-dash-micro font-semibold text-white transition-colors hover:bg-dash-accent focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-dash-accent disabled:cursor-not-allowed disabled:opacity-40'
 const btnOutline =
-  'rounded-md border border-line bg-canvas px-3 py-1.5 text-[12.5px] font-medium text-ink transition-colors hover:bg-bg'
+  'rounded-dash-ctl border border-dash-line bg-dash-surface px-3 py-1 text-dash-micro font-medium text-dash-ink transition-colors hover:bg-dash-bg focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-dash-accent'
 const btnGhost =
-  'rounded-md px-2.5 py-1.5 text-[12.5px] font-medium text-muted transition-colors hover:text-ink'
+  'rounded-dash-ctl border border-transparent px-3 py-1 text-dash-micro font-medium text-dash-muted transition-colors hover:bg-dash-bg hover:text-dash-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-dash-accent'
 
 const DONE_VERB: Record<Exclude<ReviewStatus, 'pending'>, string> = {
   approved: 'Approved',
@@ -114,17 +114,17 @@ export default function ActionBar({
       ? new Date(review.reviewedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
       : null
     return (
-      <div className="sticky bottom-0 -mx-4 mt-4 border-t border-line bg-canvas/95 px-4 py-2.5 backdrop-blur">
+      <div className="sticky bottom-0 -mx-6 mt-4 border-t border-dash-line bg-dash-surface/95 px-6 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-[12.5px] text-ink">
+          <p className="text-dash-body text-dash-ink">
             <span className="font-medium">{DONE_VERB[status]}</span>
-            {review?.reviewer && <span className="text-muted"> by {review.reviewer}</span>}
-            {time && <span className="tabular-nums text-muted"> · {time}</span>}
+            {review?.reviewer && <span className="text-dash-muted"> by {review.reviewer}</span>}
+            {time && <span className="tabular-nums text-dash-muted"> · {time}</span>}
             {review?.correction && (
-              <span className="text-muted">
+              <span className="text-dash-muted">
                 {' '}
                 · {review.correction.field}: {review.correction.from} →{' '}
-                <span className="text-ink">{review.correction.to}</span>
+                <span className="text-dash-ink">{review.correction.to}</span>
               </span>
             )}
           </p>
@@ -143,7 +143,7 @@ export default function ActionBar({
   /* ── Pending → archetype-specific buttons ─────────────────────────────── */
 
   return (
-    <div className="sticky bottom-0 -mx-4 mt-4 border-t border-line bg-canvas/95 px-4 py-2.5 backdrop-blur">
+    <div className="sticky bottom-0 -mx-6 mt-4 border-t border-dash-line bg-dash-surface/95 px-6 py-3 backdrop-blur">
       <div className="flex flex-wrap items-center gap-2">
         {archetype === 'routed' && (
           <>

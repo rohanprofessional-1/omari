@@ -13,19 +13,19 @@ import DashboardPage from './DashboardPage'
  */
 function StandaloneDashboard() {
   return (
-    <div className="flex h-screen flex-col bg-bg text-ink">
-      <header className="omari-enter-bar relative z-10 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-canvas pl-2 pr-4">
+    <div className="flex h-screen flex-col bg-dash-bg text-dash-ink">
+      <header className="omari-enter-bar relative z-10 flex h-14 shrink-0 items-center gap-3 border-b border-dash-line bg-dash-surface pl-2 pr-4">
         <a href="/" className="flex items-center" title="Open the main Omari app">
           <img src="/omari-logo.png" alt="" aria-hidden className="h-12 w-12 object-contain" />
-          <span className="-ml-0.5 font-serif text-[19px] font-semibold tracking-tight text-accent-strong">
+          <span className="-ml-0.5 font-serif text-dash-title tracking-tight text-dash-accent-strong">
             Omari
           </span>
         </a>
-        <span className="h-5 w-px bg-line" aria-hidden />
-        <span className="text-[13px] font-semibold text-ink">Referral Review</span>
+        <span className="h-5 w-px bg-dash-line" aria-hidden />
+        <span className="text-dash-body font-semibold text-dash-ink">Referral Review</span>
         <a
           href="/"
-          className="ml-auto rounded-md px-2.5 py-1 text-[12px] font-medium text-muted hover:bg-bg hover:text-ink"
+          className="ml-auto rounded-dash-ctl px-3 py-1 text-dash-micro font-medium text-dash-muted transition-colors hover:bg-dash-bg hover:text-dash-ink"
         >
           Open Omari →
         </a>

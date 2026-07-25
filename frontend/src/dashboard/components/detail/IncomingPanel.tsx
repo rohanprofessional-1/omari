@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { ageFromDob, formatDate } from '../../lib/demoClock'
 import type { EpicReferralPayload } from '../../types'
+import Badge from '../shared/Badge'
 import ChannelBadge from '../shared/ChannelBadge'
 
 /**
@@ -18,7 +19,9 @@ const CHANNEL_LABELS: Record<EpicReferralPayload['channel'], string> = {
 
 function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-xl border border-line bg-canvas p-4 ${className}`}>
+    <section
+      className={`rounded-dash-card border border-dash-line bg-dash-surface p-4 shadow-dash-card ${className}`}
+    >
       {children}
     </section>
   )
@@ -26,15 +29,17 @@ function Card({ children, className = '' }: { children: ReactNode; className?: s
 
 function Kicker({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-muted">{children}</p>
+    <p className="text-dash-micro font-semibold uppercase tracking-wide text-dash-muted">
+      {children}
+    </p>
   )
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-baseline gap-2 py-0.5 text-[12.5px]">
-      <span className="w-24 shrink-0 text-[11.5px] text-muted">{label}</span>
-      <span className="min-w-0 text-ink">{children}</span>
+    <div className="flex items-baseline gap-2 py-1 text-dash-body">
+      <span className="w-24 shrink-0 text-dash-micro text-dash-muted">{label}</span>
+      <span className="min-w-0 text-dash-ink">{children}</span>
     </div>
   )
 }
@@ -81,7 +86,7 @@ function AttachmentIcon({ type }: { type: EpicReferralPayload['attachments'][num
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
-      className="shrink-0 text-muted"
+      className="shrink-0 text-dash-muted"
     >
       {paths[type]}
     </svg>
@@ -108,42 +113,42 @@ export default function IncomingPanel({ payload }: { payload: EpicReferralPayloa
         <div className="mt-2">
           <Field label="Referred by">
             <span className="font-medium">{referredBy.provider}</span>
-            <span className="text-muted"> — {referredBy.practice}</span>
+            <span className="text-dash-muted"> — {referredBy.practice}</span>
           </Field>
           <Field label="NPI">
             <span className="tabular-nums">{referredBy.npi}</span>
           </Field>
           <Field label="Phone">
             {referredBy.phone}
-            {referredBy.fax && <span className="text-muted"> · fax {referredBy.fax}</span>}
+            {referredBy.fax && <span className="text-dash-muted"> · fax {referredBy.fax}</span>}
           </Field>
           <Field label="Received">
             {formatDate(payload.receivedAt)}
-            <span className="text-muted"> via {CHANNEL_LABELS[payload.channel]}</span>
+            <span className="text-dash-muted"> via {CHANNEL_LABELS[payload.channel]}</span>
           </Field>
           <Field label="Priority">
-            <span className={payload.priority === 'urgent' ? 'font-medium text-danger' : ''}>
+            <span className={payload.priority === 'urgent' ? 'font-medium text-dash-red' : ''}>
               {payload.priority}
             </span>
-            <span className="text-muted"> (referrer-stated)</span>
+            <span className="text-dash-muted"> (referrer-stated)</span>
           </Field>
           <Field label="Referred to">{payload.referredToDepartment}</Field>
         </div>
       </Card>
 
       {/* Reason + clinical note as prose */}
-      <Card className="border-l-2 border-l-accent/30 bg-canvas">
+      <Card className="border-l-2 border-l-dash-accent">
         <Kicker>Reason for referral</Kicker>
-        <p className="mt-1.5 text-[13px] font-medium leading-snug text-ink">
+        <p className="mt-2 text-dash-body font-medium leading-snug text-dash-ink">
           {payload.reasonForReferral}
         </p>
-        <p className="mt-2.5 max-w-prose text-[13px] leading-relaxed text-ink">
+        <p className="mt-2 max-w-prose text-dash-body leading-relaxed text-dash-ink">
           {payload.clinicalNote}
         </p>
         {payload.channel === 'fax' && (
-          <span className="mt-2.5 inline-flex items-center gap-1 rounded border border-line bg-bg px-1.5 py-0.5 text-[10.5px] text-muted">
+          <Badge tone="neutral" className="mt-2">
             Faxed document — limited structured data
-          </span>
+          </Badge>
         )}
       </Card>
 
@@ -151,14 +156,14 @@ export default function IncomingPanel({ payload }: { payload: EpicReferralPayloa
       {payload.diagnoses.length > 0 && (
         <Card>
           <Kicker>Diagnoses (ICD-10)</Kicker>
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap gap-2">
             {payload.diagnoses.map((dx) => (
               <span
                 key={dx.icd10}
-                className="inline-flex items-baseline gap-1.5 rounded border border-line bg-bg px-1.5 py-0.5 text-[11px]"
+                className="inline-flex items-baseline gap-2 rounded-dash-ctl border border-dash-line bg-dash-bg px-2 py-1 text-dash-micro"
               >
-                <span className="font-semibold tabular-nums text-ink">{dx.icd10}</span>
-                <span className="text-muted">{dx.description}</span>
+                <span className="font-semibold tabular-nums text-dash-ink">{dx.icd10}</span>
+                <span className="text-dash-muted">{dx.description}</span>
               </span>
             ))}
           </div>
@@ -169,17 +174,17 @@ export default function IncomingPanel({ payload }: { payload: EpicReferralPayloa
       {payload.attachments.length > 0 && (
         <Card>
           <Kicker>Attachments</Kicker>
-          <ul className="mt-1.5">
+          <ul className="mt-2">
             {payload.attachments.map((att) => (
               <li
                 key={att.title}
-                className="flex cursor-default items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-bg"
+                className="flex cursor-default items-center gap-2 rounded-dash-ctl px-2 py-1 transition-colors hover:bg-dash-bg"
               >
                 <AttachmentIcon type={att.type} />
-                <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink" title={att.title}>
+                <span className="min-w-0 flex-1 truncate text-dash-body text-dash-ink" title={att.title}>
                   {att.title}
                 </span>
-                <span className="shrink-0 text-[11px] tabular-nums text-muted">
+                <span className="shrink-0 text-dash-micro tabular-nums text-dash-muted">
                   {formatDate(att.date)}
                   {att.pages !== undefined && ` · ${att.pages} pg`}
                 </span>
@@ -219,7 +224,7 @@ export default function IncomingPanel({ payload }: { payload: EpicReferralPayloa
           </Field>
           <Field label="DOB">
             {formatDate(patient.dob)}
-            <span className="text-muted"> ({ageFromDob(patient.dob)}y)</span>
+            <span className="text-dash-muted"> ({ageFromDob(patient.dob)}y)</span>
           </Field>
           <Field label="Sex">{patient.sex}</Field>
           <Field label="Phone">{patient.phone}</Field>
