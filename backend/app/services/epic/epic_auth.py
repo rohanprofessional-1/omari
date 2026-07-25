@@ -25,12 +25,23 @@ _token_expiry: float = 0.0
 
 def _load_private_key() -> bytes:
     """Load the RSA private key from the configured PEM file."""
+    import os
+    from pathlib import Path
+
     key_path = settings.EPIC_PRIVATE_KEY_PATH
     if not key_path:
         raise ValueError(
             "EPIC_PRIVATE_KEY_PATH is not configured. "
             "Set it in your .env file to the path of your RSA private key PEM."
         )
+    
+    # If key file is not found in CWD, attempt to resolve relative to backend/ directory
+    if not os.path.exists(key_path):
+        backend_dir = Path(__file__).resolve().parents[3]
+        fallback_path = backend_dir / key_path.lstrip("./")
+        if fallback_path.exists():
+            key_path = str(fallback_path)
+
     with open(key_path, "rb") as f:
         key_data = f.read()
 
