@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { deriveQuestion, type Choice } from '../lib/runner'
 import type { OrchestratorStep } from '../lib/orchestrator'
-import type { ChatMessage, Phase } from '../pages/Runner'
-import { StatusStepper } from '../pages/Runner'
+import type { ChatMessage, Phase } from '../pages/runner/chatTypes'
+import StatusStepper from './StatusStepper'
 import VoiceOrb, { ORB_BLUE, ORB_GREEN, useVoiceCapture, type VoiceCapture } from './VoiceOrb'
 
 /**
