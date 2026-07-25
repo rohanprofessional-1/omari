@@ -18,7 +18,12 @@ import { compile, type BaseTreeInput } from './compile'
 import { describeDeltas } from './describe'
 import { detectThresholdCandidates } from './detectAmbiguous'
 import { clinicalBasisHash, conditionFingerprint } from './resolve'
-import { DeltaSchema, type Delta, type DeltaOp } from './schema'
+import { DeltaOpSchema, DeltaSchema, type Delta } from './schema'
+import type { z } from 'zod'
+
+/** Pre-parse payload shape: fields with schema defaults (e.g. set_threshold's
+ *  `answerTypeChange`) are optional here and filled in by DeltaSchema.parse. */
+type DeltaOpInput = z.input<typeof DeltaOpSchema>
 
 declare const process: { exitCode?: number } | undefined
 
@@ -111,7 +116,7 @@ const base = makeBase('aaa111')
 const regenerated = makeBase('beef22', true)
 
 let seq = 0
-function delta(id: string, payload: DeltaOp, extra: Partial<Delta> = {}): Delta {
+function delta(id: string, payload: DeltaOpInput, extra: Partial<Delta> = {}): Delta {
   return DeltaSchema.parse({ id, seq: seq++, payload, provenance: {}, ...extra })
 }
 
@@ -421,7 +426,7 @@ const checks: Check[] = [
       // The next CPG revision quantified 'elevated' itself and dropped the
       // surveillance pathway; someone also grafted a second psa_level.
       const mutated = makeBase('cafe33') as BaseTreeInput & { nodes: any[] }
-      const psa = mutated.nodes.find((n: any) => n.variableKey === 'psa_level')
+      const psa: any = mutated.nodes.find((n: any) => n.variableKey === 'psa_level')
       psa.branches[1].condition = { op: 'range', min: 6 } // label kept, condition changed
       mutated.nodes = mutated.nodes.filter((n: any) => n.specialistName !== 'Active surveillance')
       psa.branches[0].nextNodeId = psa.branches[1].nextNodeId

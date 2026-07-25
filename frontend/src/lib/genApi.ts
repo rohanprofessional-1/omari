@@ -9,6 +9,10 @@ import type { InducedRuleSummary } from './generator/induce'
 import type { GapFinding } from './generator/gaps'
 import type { ValidationReport } from './generator/validate'
 
+// Re-exported so callers of this client (e.g. pages/Generate.tsx) import the
+// roster shape from the same module as the session functions that consume it.
+export type { GenRosterEntry } from './generator/types'
+
 /**
  * Blume — generator API client (/api/v1/gen via the Vite proxy → FastAPI).
  * Maps the backend's snake_case rows to the camelCase types the pure

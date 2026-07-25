@@ -1,11 +1,10 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { createTreeFull, fetchSpecialists } from '../lib/api'
 import {
   createGenSession,
   patchGenSession,
   generateCPGScaffold,
   type CPGBaseMeta,
-  type GenSession,
   type GenRosterEntry,
 } from '../lib/genApi'
 
@@ -19,13 +18,10 @@ import {
  */
 
 export default function Generate({
-  onOpenBuilder,
   onOpenReconcile,
 }: {
-  onOpenBuilder: () => void
   onOpenReconcile: () => void
 }) {
-  const [session, setSession] = useState<GenSession | null>(null)
   const [subspecialty, setSubspecialty] = useState('Peripheral nerve surgery')
   const [surgeonName, setSurgeonName] = useState('')
   const [roster, setRoster] = useState<GenRosterEntry[]>([{ name: '', specialty: '' }])
@@ -91,7 +87,6 @@ export default function Generate({
         surgeonName: surgeonName.trim() || undefined,
         roster: filledRoster,
       })
-      setSession(newSession)
 
       let latestTree = null
       const baseMetas: CPGBaseMeta[] = []

@@ -18,7 +18,7 @@ function App() {
         {page === 'builder' ? (
           <Builder />
         ) : page === 'generate' ? (
-          <Generate onOpenBuilder={() => setPage('builder')} onOpenReconcile={() => setPage('reconcile')} />
+          <Generate onOpenReconcile={() => setPage('reconcile')} />
         ) : page === 'reconcile' ? (
           <Reconcile onOpenBuilder={() => setPage('builder')} />
         ) : page === 'knowledge' ? (
