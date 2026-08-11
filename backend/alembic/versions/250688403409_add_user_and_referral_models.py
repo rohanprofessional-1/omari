@@ -44,22 +44,10 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email')
     )
-    op.create_table('attachments',
-    sa.Column('id', sa.String(length=36), nullable=False),
-    sa.Column('referral_id', sa.String(length=36), nullable=False),
-    sa.Column('title', sa.String(length=255), nullable=False),
-    sa.Column('type', sa.String(length=50), nullable=False),
-    sa.Column('date', sa.String(length=20), nullable=True),
-    sa.Column('pages', sa.Integer(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['referral_id'], ['referrals.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.drop_index(op.f('ix_knowledge_chunks_embedding'), table_name='knowledge_chunks', postgresql_ops={'embedding': 'vector_cosine_ops'}, postgresql_using='hnsw')
-    op.drop_index(op.f('ix_knowledge_chunks_tree_id'), table_name='knowledge_chunks')
-    op.drop_table('knowledge_chunks')
-    
+
+    # Drop knowledge_chunks safely (may not exist if vector ext was never loaded)
+    op.execute("DROP TABLE IF EXISTS knowledge_chunks CASCADE")
+
     # Create ENUMs for referrals
     sa.Enum('epic', 'fax', 'phone', 'other', name='referral_channel_enum').create(op.get_bind())
     sa.Enum('routine', 'urgent', name='referral_priority_enum').create(op.get_bind())
@@ -102,6 +90,20 @@ def upgrade() -> None:
     op.drop_column('variables', 'clinical_mappings')
     op.drop_column('variables', 'patient_examples')
     op.drop_column('variables', 'synonyms')
+
+    # Create attachments AFTER referrals is fully altered
+    op.create_table('attachments',
+    sa.Column('id', sa.String(length=36), nullable=False),
+    sa.Column('referral_id', sa.String(length=36), nullable=False),
+    sa.Column('title', sa.String(length=255), nullable=False),
+    sa.Column('type', sa.String(length=50), nullable=False),
+    sa.Column('date', sa.String(length=20), nullable=True),
+    sa.Column('pages', sa.Integer(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.ForeignKeyConstraint(['referral_id'], ['referrals.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
     # ### end Alembic commands ###
 
 
