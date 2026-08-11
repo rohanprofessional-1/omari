@@ -24,7 +24,7 @@ export default function TopBar() {
 
   return (
     <header
-      className={`omari-enter-bar relative z-10 flex shrink-0 items-center gap-4 border-b border-line bg-canvas pr-4 ${
+      className={`omari-enter-bar relative z-50 flex shrink-0 items-center gap-4 border-b border-line bg-canvas pr-4 ${
         isEmbedded ? 'h-12 pl-4' : 'h-14 pl-2'
       }`}
     >

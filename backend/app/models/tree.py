@@ -29,7 +29,7 @@ class Tree(Base, TimestampMixin):
     base_meta_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Relationships
-    clinic: Mapped["Clinic | None"] = relationship(back_populates="trees")
+    clinic: Mapped["Clinic | None"] = relationship(back_populates="trees", foreign_keys="[Tree.clinic_id]")
     nodes: Mapped[list["Node"]] = relationship(back_populates="tree", cascade="all, delete-orphan", lazy="selectin")
     conversations: Mapped[list["Conversation"]] = relationship(back_populates="tree", lazy="noload")
     versions: Mapped[list["TreeVersion"]] = relationship(
@@ -39,6 +39,9 @@ class Tree(Base, TimestampMixin):
     deltas: Mapped[list["TreeDelta"]] = relationship(
         back_populates="tree", cascade="all, delete-orphan", lazy="noload",
         order_by="TreeDelta.seq",
+    )
+    tree_specialists: Mapped[list["TreeSpecialist"]] = relationship(
+        back_populates="tree", cascade="all, delete-orphan", lazy="noload"
     )
 
 

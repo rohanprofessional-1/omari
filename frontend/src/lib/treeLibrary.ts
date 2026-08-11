@@ -5,6 +5,7 @@ import {
   createTreeFull,
   renameTree,
   deleteTree,
+  activateTree,
   type TreeSummary,
 } from './api'
 import { sampleTree } from '../data/sampleTree'
@@ -122,6 +123,11 @@ export function useTreeLibrary(): TreeLibrary {
     async (id: string) => {
       persistActive(id)
       await loadTree(id)
+      // Persist server-side so all clinic users share the same active tree.
+      // Best-effort: don't block the UI if the backend is unreachable.
+      activateTree(id).catch((e) =>
+        console.warn('Could not persist active tree server-side:', e)
+      )
     },
     [persistActive, loadTree],
   )

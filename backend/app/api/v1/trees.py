@@ -9,6 +9,8 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_db
 from app.models.tree import Tree, TreeVersion
 from app.models.node import Node, NodeType, DataSource, Urgency
+from app.models.specialist import Specialist
+from app.models.tree_specialist import TreeSpecialist
 from app.models.branch import Branch
 from app.models.condition import Condition, ConditionType
 from app.models.workup_item import WorkupItem
@@ -115,7 +117,17 @@ async def _insert_tree_nodes(db: AsyncSession, tree_id: str, nodes) -> None:
     """Persist the nested node/branch/condition/workup rows for a tree.
 
     Shared by create-full and update-full so the relational mapping of the
-    frontend tree shape lives in exactly one place."""
+    frontend tree shape lives in exactly one place.
+
+    Also resolves specialist_id by matching specialist_name against the specialists
+    table, and rebuilds the tree_specialists join table from the resolved IDs.
+    """
+    # Pre-load all specialist names once so we can resolve without N+1 queries.
+    spec_result = await db.execute(select(Specialist.id, Specialist.name))
+    name_to_id: dict[str, str] = {row.name: row.id for row in spec_result.fetchall()}
+
+    resolved_specialist_ids: set[str] = set()
+
     for n in nodes:
         node = Node(id=n.id, tree_id=tree_id, node_type=NodeType(n.type))
         if n.type == "variable":
@@ -130,6 +142,10 @@ async def _insert_tree_nodes(db: AsyncSession, tree_id: str, nodes) -> None:
             node.clinical_basis = n.clinicalBasis
             node.confirm_with_dr_li = n.confirmWithDrLi
             node.workup_spec = _normalize_workup(n.workup)
+            # Attempt FK resolution — best effort, never hard-fails.
+            if n.specialistName and n.specialistName in name_to_id:
+                node.specialist_id = name_to_id[n.specialistName]
+                resolved_specialist_ids.add(name_to_id[n.specialistName])
         elif n.type == "escalation":
             node.escalation_reason = n.reason
         db.add(node)
@@ -163,6 +179,11 @@ async def _insert_tree_nodes(db: AsyncSession, tree_id: str, nodes) -> None:
                     item_order=i,
                 )
             )
+
+    # Rebuild the tree_specialists join table from the resolved specialist IDs.
+    await db.execute(delete(TreeSpecialist).where(TreeSpecialist.tree_id == tree_id))
+    for spec_id in resolved_specialist_ids:
+        db.add(TreeSpecialist(tree_id=tree_id, specialist_id=spec_id))
 
 
 @router.put("/{tree_id}/full", response_model=TreeRead)
@@ -287,6 +308,56 @@ async def delete_tree(
 
     tree.is_active = False
     await db.commit()
+
+
+@router.post("/{id}/activate", response_model=dict)
+async def activate_tree(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Set this tree as the clinic's active routing tree (server-side).
+
+    For a single-clinic deployment this updates the first (and only) clinic row.
+    Returns {active_tree_id} so the frontend can confirm the change.
+    """
+    from app.models.clinic import Clinic
+    tree = await db.get(Tree, id)
+    if not tree:
+        raise HTTPException(status_code=404, detail="Tree not found")
+
+    result = await db.execute(select(Clinic).limit(1))
+    clinic = result.scalars().first()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="No clinic found")
+
+    clinic.active_tree_id = id
+    await db.commit()
+    return {"active_tree_id": id, "clinic_id": clinic.id}
+
+
+@router.get("/{id}/specialists")
+async def list_tree_specialists(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Return the specialists linked to this tree via the tree_specialists join table."""
+    result = await db.execute(
+        select(Specialist)
+        .join(TreeSpecialist, TreeSpecialist.specialist_id == Specialist.id)
+        .where(TreeSpecialist.tree_id == id)
+    )
+    specialists = result.scalars().all()
+    return [
+        {
+            "id": s.id,
+            "name": s.name,
+            "specialty": s.specialty,
+            "email": s.email,
+            "phone": s.phone,
+            "department": s.department,
+        }
+        for s in specialists
+    ]
 
 
 # ---------------------------------------------------------------------------

@@ -37,9 +37,9 @@ export default function SignInPage() {
   // Already signed in — don't show a sign-in form; go where you were going.
   if (user) return <Navigate to={from ?? homeFor(user.role)} replace />
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault()
-    const signedIn = signIn(email)
+    const signedIn = await signIn(email, password)
     if (!signedIn) {
       setError(`No Omari account for “${email.trim() || '…'}”. Pick one of the demo accounts below.`)
       return

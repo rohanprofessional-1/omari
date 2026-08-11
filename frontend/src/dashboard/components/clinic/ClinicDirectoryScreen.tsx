@@ -4,6 +4,7 @@ import { capacityFor } from '../../data/capacityMock'
 import { DEMO_NOW } from '../../lib/demoClock'
 import { caseloadFor, loadRoster, type RosterEntry } from '../../lib/roster'
 import { useDashboardStore } from '../../lib/reviewStore'
+import { useTreeLibrary } from '../../../lib/treeLibrary'
 import type { ReviewableReferral } from '../../types'
 import SignalDot from '../shared/SignalDot'
 import StatChip from '../shared/StatChip'
@@ -32,13 +33,26 @@ function hoursWaiting(receivedAt: string): number {
 
 export default function ClinicDirectoryScreen() {
   const { reviews } = useDashboardStore()
+  const treeLibrary = useTreeLibrary()
+  const { activeTree, loadingList, loadingTree } = treeLibrary
   const [roster, setRoster] = useState<RosterEntry[] | null>(null)
   const [referrals, setReferrals] = useState<ReviewableReferral[] | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    if (!activeTree && !loadingTree && !loadingList) {
+        // Only fetch if we at least resolved the library (even if no tree).
+        Promise.all([Promise.resolve([]), getReferralSource().listReferrals()]).then(([r, refs]) => {
+            if (cancelled) return
+            setRoster(r)
+            setReferrals(refs)
+          })
+        return
+    }
+    if (!activeTree) return
+    
     // The directory is a clinic-wide view — deliberately unscoped.
-    Promise.all([loadRoster(), getReferralSource().listReferrals()]).then(([r, refs]) => {
+    Promise.all([loadRoster(activeTree), getReferralSource().listReferrals()]).then(([r, refs]) => {
       if (cancelled) return
       setRoster(r)
       setReferrals(refs)
@@ -46,7 +60,7 @@ export default function ClinicDirectoryScreen() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [activeTree, loadingList, loadingTree])
 
   const stats = useMemo(() => {
     if (!referrals) return null
@@ -73,7 +87,7 @@ export default function ClinicDirectoryScreen() {
     }
   }, [referrals, reviews])
 
-  if (!roster || !referrals || !stats) {
+  if (!roster || !referrals || !stats || loadingList || loadingTree) {
     return (
       <div className="min-h-full bg-dash-bg">
         <div className="mx-auto w-full max-w-dash-page p-6">
@@ -175,7 +189,7 @@ export default function ClinicDirectoryScreen() {
 
         {/* Every row used to carry a "Routed by" column naming the same tree
             nine times. It is named once, here, with the library behind it. */}
-        <ClinicTreePanel destinations={roster.length} routed={stats.routed} />
+        <ClinicTreePanel destinations={roster.length} routed={stats.routed} library={treeLibrary} />
       </div>
     </div>
   )

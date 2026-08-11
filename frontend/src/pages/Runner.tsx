@@ -10,6 +10,7 @@ import { planConversationStep, type Extraction, type OrchestratorStep } from '..
 import { coreIntakeKeys, escalationCategoryLabel, type EscalationAnalysis } from '../lib/escalation'
 import { explainRoute, type RouteReason } from '../lib/explain'
 import { resolveWorkup } from '../lib/engine'
+import { createReferral } from '../lib/api'
 import { describeKeyedCondition } from '../lib/conditionText'
 import {
   loadThresholds,
@@ -262,6 +263,18 @@ function RunnerSession({
       case 'route':
         pushMessage('bot', routeHandoff(s.specialist))
         setPhase('done')
+        // POST real referral to backend
+        createReferral({
+          patient: {
+            first_name: 'Demo',
+            last_name: 'Patient',
+            mrn: 'MRN-' + Math.floor(Math.random() * 10000).toString(),
+          },
+          tree_id: tree.treeId,
+          extraction: nextFilled,
+          // Pass the specialist name so the backend can resolve the FK.
+          routed_specialist_name: s.specialistName,
+        }).catch(err => console.error("Failed to post referral", err))
         break
       case 'escalate':
         pushMessage('bot', ESCALATION_HANDOFF)

@@ -14,7 +14,8 @@ const API_BASE = '/api/v1'
  * than threading a token through each call site.
  */
 export function authHeaders(): Record<string, string> {
-  return {}
+  const token = localStorage.getItem('auth_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 /** Tree metadata as returned by the list endpoint (TreeRead). */
@@ -86,7 +87,7 @@ function mapCondition(c: any): Condition {
 }
 
 export async function fetchClinics(): Promise<ClinicSummary[]> {
-  const res = await fetch(`${API_BASE}/clinics`)
+  const res = await fetch(`${API_BASE}/clinics`, { headers: authHeaders() })
   if (!res.ok) throw new Error('Failed to fetch clinics')
   return res.json()
 }
@@ -97,6 +98,7 @@ export async function previewKnowledgeBase(
 ): Promise<KnowledgeBasePreviewResponse> {
   const res = await fetch(`${API_BASE}/clinics/${clinicId}/knowledge-base/preview`, {
     method: 'POST',
+    headers: { ...authHeaders() },
     body: formData,
   })
   if (!res.ok) {
@@ -107,13 +109,13 @@ export async function previewKnowledgeBase(
 }
 
 export async function fetchTrees(): Promise<TreeSummary[]> {
-  const res = await fetch(`${API_BASE}/trees?is_active=true`)
+  const res = await fetch(`${API_BASE}/trees?is_active=true`, { headers: authHeaders() })
   if (!res.ok) throw new Error('Failed to fetch trees')
   return res.json()
 }
 
 export async function fetchTree(id: string): Promise<Tree> {
-  const res = await fetch(`${API_BASE}/trees/${id}`)
+  const res = await fetch(`${API_BASE}/trees/${id}`, { headers: authHeaders() })
   if (!res.ok) throw new Error('Failed to fetch tree')
   const data = await res.json()
 
@@ -165,13 +167,13 @@ export async function fetchTree(id: string): Promise<Tree> {
 }
 
 export async function fetchVariables() {
-  const res = await fetch(`${API_BASE}/variables`)
+  const res = await fetch(`${API_BASE}/variables`, { headers: authHeaders() })
   if (!res.ok) throw new Error('Failed to fetch variables')
   return res.json()
 }
 
 export async function fetchSpecialists() {
-  const res = await fetch(`${API_BASE}/specialists`)
+  const res = await fetch(`${API_BASE}/specialists`, { headers: authHeaders() })
   if (!res.ok) throw new Error('Failed to fetch specialists')
   return res.json()
 }
@@ -180,7 +182,7 @@ export async function startConversation(treeId: string, patientId?: string) {
   const body = patientId ? { tree_id: treeId, patient_id: patientId } : { tree_id: treeId }
   const res = await fetch(`${API_BASE}/conversations`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body)
   })
   if (!res.ok) throw new Error('Failed to start conversation')
@@ -190,7 +192,7 @@ export async function startConversation(treeId: string, patientId?: string) {
 export async function sendChatMessage(conversationId: string, message: string) {
   const res = await fetch(`${API_BASE}/conversations/${conversationId}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ message })
   })
   if (!res.ok) {
@@ -201,7 +203,7 @@ export async function sendChatMessage(conversationId: string, message: string) {
 }
 
 export async function getConversation(conversationId: string) {
-  const res = await fetch(`${API_BASE}/conversations/${conversationId}`)
+  const res = await fetch(`${API_BASE}/conversations/${conversationId}`, { headers: authHeaders() })
   if (!res.ok) throw new Error('Failed to fetch conversation')
   return res.json()
 }
@@ -221,7 +223,7 @@ export async function createTreeFull(
 ): Promise<TreeSummary> {
   const res = await fetch(`${API_BASE}/trees/full`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
       name,
       description: opts.description,
@@ -244,7 +246,7 @@ export async function updateTreeFull(
 ): Promise<TreeSummary> {
   const res = await fetch(`${API_BASE}/trees/${id}/full`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
       name: opts.name,
       description: opts.description,
@@ -263,7 +265,7 @@ export async function publishTree(
 ): Promise<{ id: string; version_no: number; signed_by?: string | null }> {
   const res = await fetch(`${API_BASE}/trees/${id}/publish`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ signed_by: opts.signedBy, validation_summary: opts.validationSummary }),
   })
   if (!res.ok) throw new Error(`Failed to publish tree: ${await res.text()}`)
@@ -274,7 +276,7 @@ export async function publishTree(
 export async function renameTree(id: string, name: string): Promise<TreeSummary> {
   const res = await fetch(`${API_BASE}/trees/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ name }),
   })
   if (!res.ok) throw new Error('Failed to rename tree')
@@ -283,6 +285,47 @@ export async function renameTree(id: string, name: string): Promise<TreeSummary>
 
 /** Soft-delete a stored tree (the backend sets is_active = false). */
 export async function deleteTree(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/trees/${id}`, { method: 'DELETE' })
+  const res = await fetch(`${API_BASE}/trees/${id}`, { method: 'DELETE', headers: authHeaders() })
   if (!res.ok && res.status !== 204) throw new Error('Failed to delete tree')
+}
+
+/** Mark this tree as the clinic's active routing tree (persisted server-side). */
+export async function activateTree(id: string): Promise<{ active_tree_id: string; clinic_id: string }> {
+  const res = await fetch(`${API_BASE}/trees/${id}/activate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+  })
+  if (!res.ok) throw new Error('Failed to activate tree')
+  return res.json()
+}
+
+/** Return the specialists linked to this tree (from the tree_specialists join table). */
+export async function fetchTreeSpecialists(treeId: string): Promise<{ id: string; name: string; specialty?: string; email?: string; phone?: string; department?: string }[]> {
+  const res = await fetch(`${API_BASE}/trees/${treeId}/specialists`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('Failed to fetch tree specialists')
+  return res.json()
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Referrals                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export async function fetchReferrals(): Promise<any[]> {
+  const res = await fetch(`${API_BASE}/referrals`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('Failed to fetch referrals')
+  return res.json()
+}
+
+export async function createReferral(payload: any): Promise<{ id: string; display_id: string }> {
+  const res = await fetch(`${API_BASE}/referrals`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload)
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to create referral: ${text}`)
+  }
+  return res.json()
 }

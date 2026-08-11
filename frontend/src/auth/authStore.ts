@@ -3,8 +3,9 @@ import type { Role } from '../types/roles'
 import { isRole } from '../types/roles'
 import { localStorageWorks } from '../lib/canStore'
 import { setRole as setDashboardRole } from '../dashboard/lib/reviewStore'
-import { demoUserForRole, findDemoUser } from './demoUsers'
+import { demoUserForRole } from './demoUsers'
 import type { AuthSnapshot, User } from './types'
+import { login as apiLogin, clearAuthToken } from '../lib/authApi'
 
 /**
  * MOCK AUTH — nothing here is server-side, and none of it is security.
@@ -34,6 +35,13 @@ const canStore = localStorageWorks()
 
 function loadUser(): User | null {
   if (!canStore) return null
+  
+  // If we don't have a JWT token, we shouldn't consider ourselves logged in
+  if (!localStorage.getItem('auth_token')) {
+    localStorage.removeItem(USER_KEY)
+    return null
+  }
+  
   try {
     const raw = localStorage.getItem(USER_KEY)
     if (!raw) return null
@@ -88,14 +96,18 @@ export function getUser(): User | null {
  * demo. Returns null when no demo account matches.
  * TODO(auth): becomes POST /api/v1/auth/login.
  */
-export function signIn(email: string): User | null {
-  const user = findDemoUser(email)
-  if (!user) return null
-  commit(user)
-  return user
+export async function signIn(email: string, password: string = 'mock_password'): Promise<User | null> {
+  try {
+    const res = await apiLogin(email, password)
+    commit(res.user)
+    return res.user
+  } catch (err) {
+    return null
+  }
 }
 
 export function signOut(): void {
+  clearAuthToken()
   commit(null)
 }
 
@@ -104,10 +116,13 @@ export function signOut(): void {
  * signing out. Deliberately distinct from signIn so it is easy to delete
  * alongside demoUsers.ts.
  */
-export function switchDemoRole(role: Role): User {
+export async function switchDemoRole(role: Role): Promise<User> {
   const user = demoUserForRole(role)
-  commit(user)
-  return user
+  // Hit the backend login so we get a real token for this role
+  const signedIn = await signIn(user.email, 'omari')
+  if (!signedIn) throw new Error("Failed to sign in demo role")
+  commit(signedIn)
+  return signedIn
 }
 
 /** React binding. Re-renders on any auth change. */

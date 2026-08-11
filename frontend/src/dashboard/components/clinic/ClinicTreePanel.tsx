@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchTrees, type TreeSummary } from '../../../lib/api'
 import { formatDate } from '../../lib/demoClock'
-import { DEPLOYED_TREE_LABEL } from '../../lib/roster'
 import Badge from '../shared/Badge'
 import { TABLE_CARD, TABLE_ROW } from '../shared/tableChrome'
+import type { TreeLibrary } from '../../../lib/treeLibrary'
 
 /**
  * The clinic's decision tree, folded into the bottom of the directory.
@@ -34,33 +33,19 @@ const LIBRARY_GRID =
 export default function ClinicTreePanel({
   destinations,
   routed,
+  library,
 }: {
   /** Routable destinations in the compiled tree — already counted by the directory. */
   destinations: number
   /** Referrals the compiled tree actually gave a destination to. */
   routed: number
+  /** Tree library controller. */
+  library: TreeLibrary
 }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
-  const [trees, setTrees] = useState<TreeSummary[] | null>(null)
-  const [offline, setOffline] = useState(false)
-
-  // Only talk to the library once the panel is actually opened — collapsed is
-  // the default, and the header's facts need no network.
-  useEffect(() => {
-    if (!open || trees !== null) return
-    let cancelled = false
-    fetchTrees()
-      .then((rows) => !cancelled && setTrees(rows))
-      .catch(() => {
-        if (cancelled) return
-        setTrees([])
-        setOffline(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [open, trees])
+  const trees = library.trees
+  const offline = library.error !== null
 
   const openIn = (key: string, path: string, id: string) => {
     localStorage.setItem(key, id)
@@ -97,7 +82,7 @@ export default function ClinicTreePanel({
         <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-dash-green" />
         <h2 className="shrink-0 text-dash-col uppercase text-dash-ink">Decision tree</h2>
         <span className="truncate text-dash-micro font-medium text-dash-ink">
-          {DEPLOYED_TREE_LABEL}
+          {library.activeTree?.name || 'Unknown Tree'}
         </span>
         <Badge tone="green" className="shrink-0 font-semibold uppercase tracking-wide">
           In force
@@ -114,18 +99,23 @@ export default function ClinicTreePanel({
             applied over the base guideline. Open it in the Builder to see or change its structure.
           </p>
 
-          {trees === null ? (
+          {library.loadingList ? (
             <div className="m-4 h-16 animate-pulse rounded-dash-ctl bg-dash-line/60 motion-reduce:animate-none" />
           ) : offline ? (
             <p className="px-4 py-3 text-dash-body text-dash-muted">
               Tree library unreachable — the clinic is still routing by the built-in{' '}
-              <span className="font-medium text-dash-ink">{DEPLOYED_TREE_LABEL}</span> tree above.
+              <span className="font-medium text-dash-ink">{library.activeTree?.name || 'sample'}</span> tree.
               Start the backend to manage saved trees.
             </p>
           ) : trees.length === 0 ? (
-            <p className="px-4 py-3 text-dash-body text-dash-muted">
-              No trees saved yet. Build one in the Builder, or generate one from a guideline.
-            </p>
+            <div className="flex items-center gap-4 px-4 py-3">
+              <p className="text-dash-body text-dash-muted">
+                No trees saved yet. Build one in the Builder, or generate one from a guideline.
+              </p>
+              <button onClick={() => library.importStarters()} className={btn}>
+                Import Sample Trees
+              </button>
+            </div>
           ) : (
             <>
               <div
@@ -141,7 +131,7 @@ export default function ClinicTreePanel({
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 truncate text-dash-body font-medium text-dash-ink">
                       {tree.name}
-                      {tree.is_active && (
+                      {tree.id === library.activeId && (
                         <Badge tone="green" className="font-semibold uppercase tracking-wide">
                           Active
                         </Badge>
@@ -158,6 +148,17 @@ export default function ClinicTreePanel({
                     {tree.authored_by || '—'}
                   </span>
                   <div className="flex flex-wrap justify-end gap-1.5">
+                    {tree.id !== library.activeId && (
+                      <button
+                        className={btn}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          library.select(tree.id)
+                        }}
+                      >
+                        Make Active
+                      </button>
+                    )}
                     <button
                       className={btn}
                       onClick={() => openIn(BUILDER_KEY, '/admin/builder', tree.id)}
@@ -170,6 +171,19 @@ export default function ClinicTreePanel({
                     >
                       Set up
                     </button>
+                    {tree.id !== library.activeId && (
+                      <button
+                        className={`${btn} text-dash-red hover:text-dash-red`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (window.confirm(`Delete tree "${tree.name}"?`)) {
+                            library.remove(tree.id)
+                          }
+                        }}
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}

@@ -9,3 +9,4 @@ anthropic>=0.30.0
 python-dotenv>=1.0.0
 pymupdf4llm>=0.0.17
 ebooklib>=0.18
+PyJWT>=2.8.0

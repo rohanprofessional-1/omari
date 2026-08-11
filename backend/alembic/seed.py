@@ -19,6 +19,10 @@ from app.models.specialist import Specialist
 from app.models.tree import Tree
 from app.models.variable import AnswerType, Variable
 from app.models.workup_item import WorkupItem
+from app.models.user import User, UserRole
+from app.models.patient import Patient
+from app.models.referring_provider import ReferringProvider
+from app.models.referral import Referral, ReferralChannel, ReferralPriority, ReferralStatus
 
 DATA_DIR = Path(__file__).parent.parent / "app" / "data"
 
@@ -188,6 +192,36 @@ async def seed() -> None:
                 print(f"Imported tree from {file_path.name}")
             except Exception as e:
                 print(f"Skipping {file_path.name}: {e}")
+
+        # Create demo users from frontend/src/auth/demoUsers.ts
+        demo_users = [
+            {"email": "gkancharla@gmail.com", "name": "M. Okafor", "role": UserRole.admin},
+            {"email": "n.li@dukenerve.org", "name": "Dr. Neill Li", "role": UserRole.surgeon, "spec_name": "Dr. Neill Li"},
+            {"email": "e.saltzman@dukenerve.org", "name": "Dr. Eliana Saltzman", "role": UserRole.surgeon, "spec_name": "Dr. Eliana Saltzman"},
+            {"email": "d.bhowmick@dukenerve.org", "name": "Dr. Deb Bhowmick", "role": UserRole.surgeon, "spec_name": "Dr. Deb Bhowmick"},
+            {"email": "marla.testfield@example.com", "name": "Marla Testfield", "role": UserRole.patient},
+            {"email": "surgeon@omari.com", "name": "Dr. Omari Surgeon", "role": UserRole.surgeon},
+        ]
+        
+        for u in demo_users:
+            existing_user = (await db.execute(select(User).where(User.email == u["email"]))).scalars().first()
+            if not existing_user:
+                spec_id = None
+                if "spec_name" in u:
+                    spec = (await db.execute(select(Specialist).where(Specialist.name == u["spec_name"]))).scalars().first()
+                    if spec:
+                        spec_id = spec.id
+                
+                db.add(User(
+                    id=str(uuid.uuid4()),
+                    email=u["email"],
+                    hashed_password="omari",
+                    role=u["role"],
+                    name=u["name"],
+                    specialist_id=spec_id
+                ))
+        await db.commit()
+
                 
         print("Seed complete.")
 

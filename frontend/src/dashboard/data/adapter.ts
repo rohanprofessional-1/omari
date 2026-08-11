@@ -1,6 +1,7 @@
 import { deriveTreeResult } from '../lib/deriveTreeResult'
 import type { ReferralScope, ReferralSource, ReviewableReferral } from '../types'
 import { REFERRAL_FIXTURES } from './fixtures/referrals'
+import { fetchReferrals as apiFetchReferrals } from '../../lib/api'
 
 /**
  * Dashboard — referral source adapter. THIS IS THE EPIC SWAP SEAM.
@@ -81,9 +82,82 @@ class MockEpicSource implements ReferralSource {
   }
 }
 
+class LiveEpicSource implements ReferralSource {
+  private cache: ReviewableReferral[] | null = null
+  private lastFetch = 0
+
+  private async fetchAndMaterialize(): Promise<ReviewableReferral[]> {
+    // Basic cache (5 seconds) to avoid spamming the backend
+    if (this.cache && Date.now() - this.lastFetch < 5000) {
+      return this.cache
+    }
+
+    const backendReferrals = await apiFetchReferrals()
+    
+    this.cache = backendReferrals.map((r: any) => {
+      // Map backend model back to the EpicReferralPayload fixture shape the frontend expects
+      const payload: any = {
+        referralId: r.display_id, // Map display ID to referralId for URL routing
+        receivedAt: r.received_at,
+        channel: r.channel,
+        patient: {
+          name: r.patient?.name || 'Unknown Patient',
+          mrn: r.patient?.mrn || 'Unknown MRN',
+          dob: r.patient?.dob || 'Unknown DOB',
+          sex: r.patient?.sex || 'Unknown',
+          phone: r.patient?.phone || ''
+        },
+        referredBy: {
+          provider: r.referred_by?.provider || 'Unknown Provider',
+          npi: r.referred_by?.npi || '',
+          practice: r.referred_by?.practice || '',
+          phone: r.referred_by?.phone || '',
+          fax: r.referred_by?.fax || ''
+        },
+        referredToDepartment: 'Neurology',
+        priority: r.priority || 'routine',
+        reasonForReferral: r.reason_for_referral || '',
+        clinicalNote: r.clinical_note || '',
+        diagnoses: [],
+        attachments: [],
+        structured: r.structured_data || {}
+      }
+      
+      const extraction = {
+        variables: r.extraction || {},
+        sources: {}
+      }
+
+      const fixture = { payload, extraction, annotations: r.annotations || {} }
+      
+      return {
+        payload,
+        extraction,
+        result: deriveTreeResult(fixture),
+      }
+    })
+    
+    this.lastFetch = Date.now()
+    return this.cache
+  }
+
+  async listReferrals(scope?: ReferralScope): Promise<ReviewableReferral[]> {
+    const materialized = await this.fetchAndMaterialize()
+    return applyScope(materialized, scope)
+  }
+
+  async getReferral(id: string, scope?: ReferralScope): Promise<ReviewableReferral | null> {
+    const materialized = await this.fetchAndMaterialize()
+    const match = materialized.find((r) => r.payload.referralId === id)
+    if (!match) return null
+    return applyScope([match], scope)[0] ?? null
+  }
+}
+
 let singleton: ReferralSource | null = null
 
 export function getReferralSource(): ReferralSource {
-  if (!singleton) singleton = new MockEpicSource()
+  if (!singleton) singleton = new LiveEpicSource()
   return singleton
 }
+

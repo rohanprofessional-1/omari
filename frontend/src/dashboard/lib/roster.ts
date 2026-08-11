@@ -1,5 +1,5 @@
-import { fetchSpecialists } from '../../lib/api'
-import { DASHBOARD_TREE } from '../data/dashboardDeltas'
+import { fetchSpecialists, fetchTreeSpecialists } from '../../lib/api'
+import type { Tree } from '../../types/tree'
 import type { ReviewState, ReviewableReferral } from '../types'
 import { destinationOf } from './scope'
 
@@ -19,10 +19,6 @@ import { destinationOf } from './scope'
  *   caseload view would be a lie.
  */
 
-/** Tree schema has no display name, only DASHBOARD_TREE.treeId. One label,
- *  used wherever the deployed tree is named on screen. */
-export const DEPLOYED_TREE_LABEL = 'Duke Nerve Center'
-
 export interface RosterEntry {
   /** Matches TreeResult.routedTo.specialistName and User.specialistName. */
   name: string
@@ -41,9 +37,9 @@ export interface Caseload {
 }
 
 /** Every routable destination in the clinic's compiled tree. No network. */
-export function treeRoster(): RosterEntry[] {
+export function treeRoster(activeTree: Tree): RosterEntry[] {
   const seen = new Map<string, RosterEntry>()
-  for (const node of DASHBOARD_TREE.nodes) {
+  for (const node of activeTree.nodes) {
     if (node.type !== 'specialist') continue
     if (seen.has(node.specialistName)) continue
     seen.set(node.specialistName, {
@@ -86,13 +82,50 @@ export function mergeRoster(api: unknown, tree: RosterEntry[]): RosterEntry[] {
   })
 }
 
-/** The directory, enriched if the API answers and unchanged if it doesn't. */
-export async function loadRoster(): Promise<RosterEntry[]> {
-  const tree = treeRoster()
+/** The directory, enriched if the API answers and unchanged if it doesn't.
+ *
+ * Merges two data sources:
+ *  1. The tree nodes (always available, used as the base).
+ *  2. The tree_specialists join table (enriches with contact details AND adds
+ *     any specialists who were manually linked to the tree in the DB but whose
+ *     name may differ slightly from the node string).
+ */
+export async function loadRoster(activeTree: Tree): Promise<RosterEntry[]> {
+  const tree = treeRoster(activeTree)
   try {
-    return mergeRoster(await fetchSpecialists(), tree)
+    // Fetch both enrichment sources in parallel.
+    const [apiSpecialists, treeSpecialists] = await Promise.all([
+      fetchSpecialists().catch(() => []),
+      fetchTreeSpecialists(activeTree.treeId).catch(() => []),
+    ])
+
+    // Build a name→details map from the DB specialists.
+    const byName = new Map<string, typeof apiSpecialists[number]>()
+    for (const s of apiSpecialists as any[]) {
+      if (s?.name) byName.set(s.name, s)
+    }
+
+    // Start with the tree-derived roster enriched by DB contact details.
+    const enriched = mergeRoster(apiSpecialists, tree)
+
+    // Add any specialists from the join table who aren't already in the roster
+    // (e.g. manually linked with a slightly different name).
+    const inRoster = new Set(enriched.map((e) => e.name))
+    for (const ts of treeSpecialists as any[]) {
+      if (ts?.name && !inRoster.has(ts.name)) {
+        enriched.push({
+          name: ts.name,
+          specialty: ts.specialty ?? '—',
+          email: ts.email ?? undefined,
+          phone: ts.phone ?? undefined,
+          department: ts.department ?? undefined,
+        })
+      }
+    }
+
+    return enriched
   } catch {
-    // Backend down — the tree roster is a complete answer on its own.
+    // Backend fully down — tree roster is a complete answer on its own.
     return tree
   }
 }
