@@ -84,8 +84,9 @@ def _detect_cpg_sections(text: str) -> list[tuple[str, str]]:
         for i, (pos, heading) in enumerate(best_splits):
             end = best_splits[i + 1][0] if i + 1 < len(best_splits) else len(text)
             body = text[pos:end].strip()
-            # Clean section name — strip ### markers, numbering artifacts
-            name = re.sub(r"^#{1,3}\s*", "", heading)
+            # Clean section name — strip ### markers, markdown asterisks, numbering artifacts
+            name = re.sub(r"^#{1,6}\s*", "", heading)
+            name = re.sub(r"[*_]", "", name)
             name = re.sub(r"^(Recommendation|Guideline|Step)\s+(\d+)[:\.]?\s*", r"\1 \2: ", name, flags=re.IGNORECASE)
             name = name.strip().rstrip(":")
             if len(body) >= _MIN_SECTION_CHARS:
@@ -140,6 +141,7 @@ def _fallback_chunking(text: str) -> list[tuple[str, str]]:
         if len(chunk) >= _MIN_SECTION_CHARS:
             # Try to extract a name from the first sentence
             first_sentence = chunk.split(". ")[0][:80]
+            first_sentence = re.sub(r"[*_#]", "", first_sentence).strip()
             name = f"Section {section_num}: {first_sentence}"
             chunks.append((name, chunk))
             section_num += 1
@@ -150,6 +152,38 @@ def _fallback_chunking(text: str) -> list[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 # Step 2: Merge sub-trees
 # ---------------------------------------------------------------------------
+
+def _dedup_variable_keys(nodes: list[dict]) -> list[dict]:
+    """Normalize near-duplicate variable keys created by parallel extraction.
+    
+    E.g., 'has_bone_pain' and 'bone_pain' -> keep the first seen, rewrite others.
+    """
+    stem_to_key: dict[str, str] = {}
+    key_remaps: dict[str, str] = {}
+    
+    for node in nodes:
+        if node.get("type") == "variable" and "variableKey" in node:
+            key = node["variableKey"]
+            if not key:
+                continue
+                
+            stem = key.lower()
+            if stem.startswith("has_"):
+                stem = stem[4:]
+            elif stem.startswith("is_"):
+                stem = stem[3:]
+                
+            if stem in stem_to_key:
+                canonical = stem_to_key[stem]
+                if key != canonical:
+                    key_remaps[key] = canonical
+                    node["variableKey"] = canonical
+            else:
+                stem_to_key[stem] = key
+                
+    return nodes
+
+
 
 def _EMPTY_WORKUP_SPEC() -> dict:
     return {"always": [], "conditional": [], "doNotOrderUnless": []}
@@ -176,29 +210,20 @@ def _normalize_scaffold_nodes(nodes: list[dict]) -> list[dict]:
     return nodes
 
 
-def _merge_cpg_subtrees(
-    subtrees: list[tuple[str, list[dict]]],
+async def _merge_cpg_subtrees(
+    subtrees: list[tuple[str, str, list[dict]]],
     existing_tree: dict | None = None,
     document_name: str = "New Document",
     doc_id: str | None = None,
 ) -> tuple[list[dict], str]:
-    """Merge per-section sub-trees into a unified tree.
-
-    - Prefixes node IDs with a document UUID and section index to avoid collisions
-    - Detects cross-section references and wires them
-    - Creates placeholder specialist nodes for unresolved action endpoints
-    - Merges into an existing tree by appending to or creating a master root node
-
-    Returns (all_nodes, root_node_id).
-    """
+    """Merge per-section sub-trees into a unified tree."""
     all_nodes: list[dict] = []
-    section_entries: list[tuple[str, str]] = []  # (section_name, entry_node_id)
+    section_entries: list[tuple[str, str, str]] = []  # (section_name, patient_label, entry_node_id)
     doc_id = doc_id or uuid.uuid4().hex[:6]
     doc_prefix = f"doc_{doc_id}_"
-    # Track action references that might point to other sections
-    action_references: dict[str, str] = {}  # lowered action text → node_id
+    action_references: dict[str, str] = {}
 
-    for section_idx, (section_name, nodes) in enumerate(subtrees):
+    for section_idx, (section_name, patient_label, nodes) in enumerate(subtrees):
         if not nodes:
             continue
         prefix = f"{doc_prefix}s{section_idx}_"
@@ -221,7 +246,7 @@ def _merge_cpg_subtrees(
             all_nodes.append(node)
 
         if entry_id:
-            section_entries.append((section_name, entry_id))
+            section_entries.append((section_name, patient_label, entry_id))
 
     if not section_entries:
         return [], ""
@@ -256,24 +281,40 @@ def _merge_cpg_subtrees(
 
     # Determine the document-level entry point
     if len(section_entries) == 1:
-        doc_entry_id = section_entries[0][1]
+        doc_entry_id = section_entries[0][2]
     else:
-        doc_entry_id = f"{doc_prefix}cpg_root"
-        root_branches = []
-        for section_name, entry_id in section_entries:
-            root_branches.append({
-                "label": section_name,
-                "condition": {"op": "equals", "value": section_name.lower().replace(" ", "_")[:60]},
-                "nextNodeId": entry_id,
+        section_summaries = [
+            {"section_name": name, "patient_label": label, "entry_id": eid}
+            for name, label, eid in section_entries
+        ]
+        
+        root_node = await anthropic_service.cpg_build_root_routing(
+            document_name=document_name,
+            section_summaries=section_summaries,
+            doc_prefix=doc_prefix
+        )
+        
+        if root_node:
+            all_nodes.insert(0, root_node)
+            doc_entry_id = root_node["id"]
+        else:
+            doc_entry_id = f"{doc_prefix}cpg_root"
+            root_branches = []
+            for section_name, patient_label, entry_id in section_entries:
+                root_branches.append({
+                    "label": section_name,
+                    "patientLabel": patient_label,
+                    "condition": {"op": "equals", "value": section_name.lower().replace(" ", "_")[:60]},
+                    "nextNodeId": entry_id,
+                })
+            all_nodes.insert(0, {
+                "id": doc_entry_id,
+                "type": "variable",
+                "variableKey": f"{doc_prefix}cpg_section",
+                "prompt": "Which of the following best describes your situation?",
+                "dataSource": "patient",
+                "branches": root_branches,
             })
-        all_nodes.insert(0, {
-            "id": doc_entry_id,
-            "type": "variable",
-            "variableKey": f"{doc_prefix}cpg_section",
-            "prompt": f"Which section of the {document_name} applies?",
-            "dataSource": "patient",
-            "branches": root_branches,
-        })
 
     # Merge into existing tree if provided
     if not existing_tree or not existing_tree.get("nodes"):
@@ -413,6 +454,7 @@ async def generate_scaffold_from_cpg(
     filename: str | None = None,
     content_type: str | None = None,
     existing_tree: dict | None = None,
+    roster: list[dict] | None = None,
 ) -> CPGScaffoldResponse:
     """Top-level pipeline: document → draft tree scaffold.
 
@@ -448,47 +490,51 @@ async def generate_scaffold_from_cpg(
     if not anthropic_service.is_available:
         raise RuntimeError("Anthropic API key not configured — cannot extract tree from CPG.")
 
-    subtrees: list[tuple[str, list[dict]]] = []
-    seen_keys: list[str] = []
+    import asyncio
 
-    for section_name, section_text in sections:
+    async def _extract_one(section_name: str, section_text: str) -> tuple[str, str, list[dict]]:
         try:
-            nodes = await anthropic_service.cpg_extract_section(
+            nodes, patient_label = await anthropic_service.cpg_extract_section(
                 section_text=section_text,
                 section_name=section_name,
                 subspecialty=subspecialty,
-                existing_variable_keys=seen_keys,
+                existing_variable_keys=[],
+                roster=roster,
             )
             logger.warning(f"[DEBUG-CPG] nodes from LLM for '{section_name}': {nodes}")
             
-            # Filter out any non-dict items the LLM might have returned
             valid_nodes = [n for n in nodes if isinstance(n, dict)]
-            
-            # Track keys to avoid duplicates across sections
-            for node in valid_nodes:
-                key = node.get("variableKey")
-                if key and key not in seen_keys:
-                    seen_keys.append(key)
-            subtrees.append((section_name, valid_nodes))
-            # Update section info with node count
-            for info in section_infos:
-                if info.name == section_name:
-                    info.node_count = len(valid_nodes)
+            return section_name, patient_label, valid_nodes
         except Exception:
             logger.warning(f"[cpg] section extraction failed for '{section_name}'", exc_info=True)
-            subtrees.append((section_name, []))
+            return section_name, section_name, []
+
+    results = await asyncio.gather(*[
+        _extract_one(name, text) for name, text in sections
+    ])
+    
+    subtrees: list[tuple[str, str, list[dict]]] = list(results)
+
+    # Update section info with node count
+    for info in section_infos:
+        for name, patient_label, nodes in subtrees:
+            if info.name == name:
+                info.node_count = len(nodes)
+                break
 
     document_name = filename.rsplit(".", 1)[0] if filename else "Text Document"
 
-    total_nodes_extracted = sum(len(nodes) for _, nodes in subtrees)
+    total_nodes_extracted = sum(len(nodes) for _, _, nodes in subtrees)
     if total_nodes_extracted == 0:
         logger.warning(f"[cpg] LLM extraction produced zero nodes for '{document_name}'. Returning empty scaffold.")
 
     # --- Merge ---
     doc_id = uuid.uuid4().hex[:6]
-    merged_nodes, root_id = _merge_cpg_subtrees(
+    merged_nodes, root_id = await _merge_cpg_subtrees(
         subtrees, existing_tree=existing_tree, document_name=document_name, doc_id=doc_id
     )
+
+    merged_nodes = _dedup_variable_keys(merged_nodes)
 
     # --- Normalize to full Tree schema shape ---
     merged_nodes = _normalize_scaffold_nodes(merged_nodes)

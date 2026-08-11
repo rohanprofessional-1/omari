@@ -788,6 +788,7 @@ async def generate_cpg_scaffold(
             filename=filename,
             content_type=content_type,
             existing_tree=session.draft_tree_json,
+            roster=session.roster_json,
         )
     except ValueError as e:
         import traceback

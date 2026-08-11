@@ -46,6 +46,7 @@ export default function ClinicTreePanel({
   const [open, setOpen] = useState(false)
   const trees = library.trees
   const offline = library.error !== null
+  const activeSummary = trees?.find(t => t.id === library.activeId)
 
   const openIn = (key: string, path: string, id: string) => {
     localStorage.setItem(key, id)
@@ -82,7 +83,7 @@ export default function ClinicTreePanel({
         <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-dash-green" />
         <h2 className="shrink-0 text-dash-col uppercase text-dash-ink">Decision tree</h2>
         <span className="truncate text-dash-micro font-medium text-dash-ink">
-          {library.activeTree?.name || 'Unknown Tree'}
+          {activeSummary?.name || 'Unknown Tree'}
         </span>
         <Badge tone="green" className="shrink-0 font-semibold uppercase tracking-wide">
           In force
@@ -104,7 +105,7 @@ export default function ClinicTreePanel({
           ) : offline ? (
             <p className="px-4 py-3 text-dash-body text-dash-muted">
               Tree library unreachable — the clinic is still routing by the built-in{' '}
-              <span className="font-medium text-dash-ink">{library.activeTree?.name || 'sample'}</span> tree.
+              <span className="font-medium text-dash-ink">{activeSummary?.name || 'sample'}</span> tree.
               Start the backend to manage saved trees.
             </p>
           ) : trees.length === 0 ? (

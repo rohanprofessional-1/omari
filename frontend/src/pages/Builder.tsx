@@ -918,10 +918,15 @@ function BuilderCanvas() {
 
   // Generator handoff: the Generate wizard saves its validated draft to the
   // library and asks the Builder to open it by leaving the id in localStorage.
+  // If no specific tree is requested, default to the clinic's active tree.
   useEffect(() => {
-    const id = localStorage.getItem('omari:builderOpenTreeId')
+    let id = localStorage.getItem('omari:builderOpenTreeId')
     if (id) {
       localStorage.removeItem('omari:builderOpenTreeId')
+    } else {
+      id = localStorage.getItem('omari:activeTreeId')
+    }
+    if (id) {
       void loadTreeFromDb(id)
     }
   }, [loadTreeFromDb])

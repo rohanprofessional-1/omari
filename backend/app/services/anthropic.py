@@ -992,7 +992,8 @@ class AnthropicService:
         section_name: str,
         subspecialty: str,
         existing_variable_keys: list[str] | None = None,
-    ) -> list[dict[str, Any]]:
+        roster: list[dict[str, Any]] | None = None,
+    ) -> tuple[list[dict[str, Any]], str]:
         """Extract decision tree nodes from a single CPG section.
 
         Returns a list of node dicts compatible with the Omari NodeIn schema.
@@ -1015,6 +1016,10 @@ class AnthropicService:
                     "analysis": {
                         "type": "string",
                         "description": "Chain-of-thought analysis of the clinical scenarios. Identify the key variables, conditions, and actions before attempting to structure them into nodes."
+                    },
+                    "sectionPatientLabel": {
+                        "type": "string",
+                        "description": "A patient-friendly, human-readable menu option for this section's topic written as a first-person symptom or situation (e.g. 'My headaches are changing' instead of 'Check for unusual headache patterns'). Keep it short.",
                     },
                     "nodes": {
                         "type": "array",
@@ -1067,8 +1072,9 @@ class AnthropicService:
                                             "patientLabel": {
                                                 "type": "string",
                                                 "description": (
-                                                    "Patient-friendly label, e.g. "
-                                                    "'Your PSA is above 10'."
+                                                    "Patient-friendly label written as a first-person statement "
+                                                    "or simple answer, e.g. "
+                                                    "'My PSA is above 10' or 'Yes, I have bone pain' or 'No'."
                                                 ),
                                             },
                                             "condition": {
@@ -1119,6 +1125,13 @@ class AnthropicService:
                                     "type": "string",
                                     "description": "For type=specialist: clinical area.",
                                 },
+                                "specialistId": {
+                                    "type": "string",
+                                    "description": (
+                                        "For type=specialist: if a clear match is found "
+                                        "in the provided roster, set the specialist's id here."
+                                    ),
+                                },
                                 "reason": {
                                     "type": "string",
                                     "description": "For type=escalation: why escalation is needed.",
@@ -1147,11 +1160,18 @@ class AnthropicService:
             "RULES:\n"
             "- Each clinical decision point becomes a 'variable' node with a "
             "snake_case variableKey and a patient-facing prompt.\n"
+            "- CRITICAL: You MUST deconstruct complex clinical criteria into granular, single-symptom "
+            "patient questions. For example, instead of asking 'Does the patient have migraine features?', "
+            "you must create separate variable nodes for 'Do you have nausea?', 'Does light bother you?', etc. "
+            "This ensures the variables represent individual symptoms that a patient would naturally describe.\n"
             "- Use MULTI-BRANCH nodes when the guideline implies more than two "
             "outcomes (e.g. 'PSA < 4, PSA 4-10, PSA > 10' is one variable node "
             "with three branches using op=range).\n"
             "- When the guideline says to perform a test, order imaging, or refer, "
-            "create a 'specialist' node as a PLACEHOLDER endpoint — set "
+            "create a 'specialist' node. If a roster is provided and the action clearly "
+            "matches ONE person's area of focus, use their name as specialistName, set their "
+            "specialty, and include their specialistId. If the match is ambiguous, or no one fits, "
+            "or no roster is provided, create a PLACEHOLDER endpoint — set "
             "specialistName to the action description, NOT a person's name.\n"
             "- When the guideline mentions red flags, emergency criteria, or "
             "'urgent referral', create an 'escalation' node.\n"
@@ -1180,6 +1200,12 @@ class AnthropicService:
                 "\n\nVariable keys already used in earlier sections (reuse when "
                 f"the same concept appears): {', '.join(existing_variable_keys[:50])}"
             )
+        if roster:
+            roster_str = "\n".join(
+                f"- {r.get('name')} (specialty: {r.get('specialty')} — focus: {r.get('focus')} — id: {r.get('id')})"
+                for r in roster if r.get('name')
+            )
+            user += f"\n\nClinic roster (for specialistId matching):\n{roster_str}"
 
         logger.info(
             f"[blume/cpg-extract] → section='{section_name}' · "
@@ -1206,8 +1232,133 @@ class AnthropicService:
             logger.warning(f"[blume/cpg-extract] Claude Analysis for '{section_name}':\n{analysis}")
             
         nodes = (tool_use.input if tool_use else {}).get("nodes", [])
+        patient_label = (tool_use.input if tool_use else {}).get("sectionPatientLabel", section_name)
         logger.info(f"[blume/cpg-extract] ✓ {len(nodes)} nodes from '{section_name}'")
-        return nodes
+        return nodes, patient_label
+
+    async def cpg_build_root_routing(
+        self,
+        document_name: str,
+        section_summaries: list[dict[str, Any]],
+        doc_prefix: str,
+    ) -> dict[str, Any] | None:
+        """
+        Takes the extracted CPG sections and generates a smart triage root node.
+        """
+        if not self.client:
+            raise RuntimeError("Anthropic API key not configured.")
+
+        tool = {
+            "name": "generate_root_node",
+            "description": "Generate a single patient-facing variable node that acts as the entry point triage question, routing the patient to the appropriate clinical section.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "analysis": {
+                        "type": "string",
+                        "description": "Analyze the sections. Do they represent a sequential workflow, or distinct patient presentations? Formulate a triage question that makes sense to a patient."
+                    },
+                    "root_node": {
+                        "type": "object",
+                        "description": "A variable node that routes to the section entry points.",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "type": {"type": "string", "enum": ["variable"]},
+                            "variableKey": {"type": "string"},
+                            "prompt": {
+                                "type": "string",
+                                "description": "The first-person or direct question asked to the patient, e.g. 'What brings you in today?' or 'Which of these best describes your situation?'"
+                            },
+                            "branches": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "label": {"type": "string"},
+                                        "patientLabel": {
+                                            "type": "string",
+                                            "description": "First-person patient friendly response, e.g. 'I have new or severe symptoms' or 'I want to discuss treatment'."
+                                        },
+                                        "condition": {
+                                            "type": "object",
+                                            "properties": {
+                                                "op": {"type": "string", "enum": ["equals"]},
+                                                "value": {"type": "string"}
+                                            },
+                                            "required": ["op", "value"]
+                                        },
+                                        "nextNodeId": {
+                                            "type": "string",
+                                            "description": "Must exactly match one of the provided section entry_ids."
+                                        }
+                                    },
+                                    "required": ["label", "patientLabel", "condition", "nextNodeId"]
+                                }
+                            }
+                        },
+                        "required": ["id", "type", "variableKey", "prompt", "branches"]
+                    }
+                },
+                "required": ["analysis", "root_node"]
+            }
+        }
+
+        system = (
+            "You are a clinical triage architect. You are given a list of sections "
+            "extracted from a Clinical Practice Guideline (CPG). Your job is to create "
+            "a single root 'variable' node that routes a patient to the correct section.\n\n"
+            "RULES:\n"
+            "- The prompt MUST be patient-friendly.\n"
+            "- The branches MUST cover the provided sections.\n"
+            "- Branch patientLabels MUST be written as first-person statements (e.g. 'I am experiencing...').\n"
+            "- The nextNodeId for each branch MUST exactly match the entry_id of the corresponding section.\n"
+            "- Do not invent new sections. Only route to the provided entry_ids."
+        )
+
+        sections_text = "\n".join(
+            f"- Section: {s['section_name']}\n  Topic: {s['patient_label']}\n  entry_id: {s['entry_id']}"
+            for s in section_summaries
+        )
+
+        user = (
+            f"Guideline Name: {document_name}\n\n"
+            f"Extracted Sections:\n{sections_text}"
+        )
+
+        logger.info(f"[blume/cpg-root] Initiating root routing generation for {len(section_summaries)} sections...")
+
+        try:
+            message = await self.client.messages.create(
+                model=settings.ANTHROPIC_MODEL,
+                max_tokens=2048,
+                temperature=0,
+                system=system,
+                tools=[tool],
+                tool_choice={"type": "tool", "name": tool["name"], "disable_parallel_tool_use": True},
+                messages=[{"role": "user", "content": user}],
+            )
+        except Exception as e:
+            logger.error(f"[blume/cpg-root] Error calling Anthropic API: {e}")
+            return None
+
+        logger.info(f"[blume/cpg-root] Received response from Anthropic: {message.stop_reason}")
+
+        tool_use = next((b for b in message.content if b.type == "tool_use"), None)
+        if tool_use:
+            analysis = tool_use.input.get("analysis", "")
+            logger.warning(f"[blume/cpg-root] Claude Analysis:\n{analysis}")
+            node = tool_use.input.get("root_node")
+            if node:
+                # Ensure the node has correct properties
+                node["id"] = f"{doc_prefix}cpg_root"
+                node["dataSource"] = "patient"
+                logger.info(f"[blume/cpg-root] Successfully generated root node.")
+                return node
+            else:
+                logger.warning(f"[blume/cpg-root] Missing 'root_node' in tool output: {tool_use.input}")
+        else:
+            logger.warning(f"[blume/cpg-root] No tool_use in message content: {message.content}")
+        return None
 
     # ------------------------------------------------------------------
     # Builder assistant — conversational tree editing.
