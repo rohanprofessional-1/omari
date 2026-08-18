@@ -98,6 +98,7 @@ export default function QueueFilters({
         <option value="epic">Epic</option>
         <option value="fax">Fax</option>
         <option value="phone">Phone</option>
+        <option value="other">Patient Portal</option>
       </select>
 
       <select

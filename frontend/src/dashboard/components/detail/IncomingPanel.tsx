@@ -16,6 +16,7 @@ const CHANNEL_LABELS: Record<EpicReferralPayload['channel'], string> = {
   epic: 'Epic',
   fax: 'Fax',
   phone: 'Phone',
+  other: 'Patient Portal',
 }
 
 function Card({ children, className = '' }: { children: ReactNode; className?: string }) {

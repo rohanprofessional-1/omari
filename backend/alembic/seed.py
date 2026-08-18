@@ -216,8 +216,13 @@ async def seed() -> None:
             {"email": "n.li@dukenerve.org", "name": "Dr. Neill Li", "role": UserRole.surgeon, "spec_name": "Dr. Neill Li"},
             {"email": "e.saltzman@dukenerve.org", "name": "Dr. Eliana Saltzman", "role": UserRole.surgeon, "spec_name": "Dr. Eliana Saltzman"},
             {"email": "d.bhowmick@dukenerve.org", "name": "Dr. Deb Bhowmick", "role": UserRole.surgeon, "spec_name": "Dr. Deb Bhowmick"},
+            {"email": "s.mithani@dukenerve.org", "name": "Dr. Suhail Mithani", "role": UserRole.surgeon, "spec_name": "Dr. Suhail Mithani"},
+            {"email": "m.abdelbarr@dukenerve.org", "name": "Dr. Muhammad Abd-El-Barr", "role": UserRole.surgeon, "spec_name": "Dr. Muhammad Abd-El-Barr"},
+            {"email": "g.smith@dukenerve.org", "name": "Dr. Gabriel Smith", "role": UserRole.surgeon, "spec_name": "Dr. Gabriel Smith"},
+            {"email": "neuromuscular@dukenerve.org", "name": "Dr. Lisa Hobson-Webb", "role": UserRole.surgeon, "spec_name": "Dr. Lisa Hobson-Webb / Dr. Vern Juel"},
+            {"email": "k.vorenkamp@dukenerve.org", "name": "Dr. Kevin Vorenkamp", "role": UserRole.surgeon, "spec_name": "Dr. Kevin Vorenkamp"},
+            {"email": "handtherapy@dukenerve.org", "name": "Hand Therapy Team", "role": UserRole.surgeon, "spec_name": "Hand Therapy / Occupational Therapy"},
             {"email": "marla.testfield@example.com", "name": "Marla Testfield", "role": UserRole.patient},
-            {"email": "surgeon@omari.com", "name": "Dr. Omari Surgeon", "role": UserRole.surgeon},
         ]
 
         for u in demo_users:

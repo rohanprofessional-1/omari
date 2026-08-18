@@ -1,0 +1,115 @@
+/**
+ * Epic EHR Design Tokens
+ *
+ * Scoped to .epic-shell so they don't bleed into the rest of the app.
+ * Applied automatically by EpicContainer.
+ */
+
+.epic-shell {
+  /* Epic Navy & Neutral Palette */
+  --epic-navy-700: #003B71;
+  --epic-navy-900: #001E3D;
+  --epic-bg: #F3F4F6;
+  --epic-surface: #FFFFFF;
+  --epic-border: #D1D5DB;
+  --epic-border-light: #E5E7EB;
+  --epic-text-main: #1F2937;
+  --epic-text-muted: #6B7280;
+  --epic-text-inverse: #FFFFFF;
+
+  /* Status Accents */
+  --epic-blue: #0284C7;
+  --epic-blue-hover: #0369A1;
+  --epic-green: #059669;
+  --epic-green-light: #D1FAE5;
+  --epic-amber: #D97706;
+  --epic-amber-light: #FEF3C7;
+  --epic-red: #DC2626;
+  --epic-red-light: #FEE2E2;
+
+  /* Typography */
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--epic-text-main);
+  background: var(--epic-bg);
+}
+
+/* Utility classes scoped to Epic shell */
+.epic-shell .epic-card {
+  background: var(--epic-surface);
+  border: 1px solid var(--epic-border);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.epic-shell .epic-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s, box-shadow 0.15s;
+  border: none;
+}
+
+.epic-shell .epic-btn-primary {
+  background: var(--epic-blue);
+  color: white;
+}
+.epic-shell .epic-btn-primary:hover {
+  background: var(--epic-blue-hover);
+}
+.epic-shell .epic-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.epic-shell .epic-btn-success {
+  background: var(--epic-green);
+  color: white;
+}
+.epic-shell .epic-btn-success:hover {
+  background: #047857;
+}
+
+.epic-shell .epic-btn-secondary {
+  background: var(--epic-surface);
+  color: var(--epic-text-main);
+  border: 1px solid var(--epic-border);
+}
+.epic-shell .epic-btn-secondary:hover {
+  background: var(--epic-bg);
+}
+
+.epic-shell .epic-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.epic-shell .epic-badge-green {
+  background: var(--epic-green-light);
+  color: #065F46;
+}
+.epic-shell .epic-badge-amber {
+  background: var(--epic-amber-light);
+  color: #92400E;
+}
+.epic-shell .epic-badge-red {
+  background: var(--epic-red-light);
+  color: #991B1B;
+}
+.epic-shell .epic-badge-blue {
+  background: #DBEAFE;
+  color: #1E40AF;
+}

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import RequireRole from './auth/RequireRole'
 import SignInPage from './auth/SignInPage'
+import EpicDemo from './epic/EpicDemo'
 import { useAuth } from './auth/authStore'
 import AppShell from './shell/AppShell'
 import { homeFor } from './shell/nav'
@@ -42,6 +43,7 @@ export default function AppRoutes() {
   return (
     <Routes>
       <Route path="/signin" element={<SignInPage />} />
+      <Route path="/epic-demo" element={<EpicDemo />} />
 
       <Route element={<AppShell />}>
         <Route index element={<HomeRedirect />} />

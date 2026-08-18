@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import DemoRoleChip from '../auth/DemoRoleChip'
+import SurgeonPicker from '../auth/SurgeonPicker'
 import { useAuth } from '../auth/authStore'
 import { isEmbedded } from './embed'
 import { SECTIONS } from './nav'
@@ -60,6 +61,7 @@ export default function TopBar() {
 
       {!isEmbedded && (
         <div className="ml-auto flex items-center gap-3">
+          {user?.role === 'surgeon' && <SurgeonPicker />}
           <DemoRoleChip />
           <AccountTools />
         </div>

@@ -5,7 +5,10 @@ export interface User {
     email: string;
     name: string;
     role: "admin" | "surgeon" | "patient";
-    specialist_id: string | null;
+    clinicId?: string | null;
+    specialist_id?: string | null;
+    specialistName?: string | null;
+    mrn?: string | null;
 }
 
 export interface LoginResponse {

@@ -25,6 +25,7 @@ import { triageTurn, type TriageSituation } from '../lib/triage'
 import { deriveQuestion, fillTemplate, type Choice } from '../lib/runner'
 import { composeConfirmation } from '../lib/confirmation'
 import OrbExperience from '../components/OrbExperience'
+import { useAuth } from '../auth/authStore'
 import type { FilledVariables, Tree, Urgency, VariableNode, VariableSpec } from '../types/tree'
 
 // NOTE: presentation-only file. The deterministic engine makes ALL routing
@@ -142,6 +143,7 @@ function RunnerSession({
   usingSample: boolean
   audience: RunnerAudience
 }) {
+  const { user } = useAuth()
   const idRef = useRef(0)
   const nextId = () => ++idRef.current
 
@@ -263,18 +265,33 @@ function RunnerSession({
       case 'route':
         pushMessage('bot', routeHandoff(s.specialist))
         setPhase('done')
-        // POST real referral to backend
-        createReferral({
-          patient: {
-            first_name: 'Demo',
-            last_name: 'Patient',
-            mrn: 'MRN-' + Math.floor(Math.random() * 10000).toString(),
-          },
-          tree_id: tree.treeId,
-          extraction: nextFilled,
-          // Pass the specialist name so the backend can resolve the FK.
-          routed_specialist_name: s.specialistName,
-        }).catch(err => console.error("Failed to post referral", err))
+        // POST real referral to backend — use the signed-in patient's identity
+        // when in patient mode, or the conversation transcript for clinician mode.
+        {
+          const isPatient = audience === 'patient' && user?.role === 'patient'
+          const nameParts = user?.name?.split(' ') ?? []
+          const patientPayload = isPatient && user
+            ? {
+                first_name: nameParts[0] || user.name,
+                last_name: nameParts.slice(1).join(' ') || '',
+                mrn: user.mrn,
+              }
+            : {
+                first_name: 'Intake',
+                last_name: 'Patient',
+                // Generate a stable-ish MRN from timestamp so it's traceable
+                mrn: 'MRN-' + Date.now().toString(36).toUpperCase(),
+              }
+
+          createReferral({
+            patient: patientPayload,
+            tree_id: tree.treeId,
+            channel: 'other',
+            extraction: { variables: nextFilled },
+            reason_for_referral: messages[1]?.text ?? undefined,
+            routed_specialist_name: s.specialistName,
+          }).catch((err) => console.error('Failed to post referral', err))
+        }
         break
       case 'escalate':
         pushMessage('bot', ESCALATION_HANDOFF)

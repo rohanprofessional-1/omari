@@ -44,7 +44,7 @@ class ReferralCreate(BaseModel):
     # If routed_specialist_id is not known, supply the name and the API will resolve it.
     routed_specialist_name: Optional[str] = None
     tree_id: Optional[str] = None
-    channel: ReferralChannel = ReferralChannel.epic
+    channel: ReferralChannel = ReferralChannel.other
     priority: ReferralPriority = ReferralPriority.routine
     reason_for_referral: Optional[str] = None
     clinical_note: Optional[str] = None
@@ -167,7 +167,25 @@ async def list_referrals(
     
     if current_user.role == UserRole.surgeon and current_user.specialist_id:
         query = query.where(Referral.routed_specialist_id == current_user.specialist_id)
-        
+    elif current_user.role == UserRole.patient:
+        # Patients should only see their own referrals — resolve by matching name
+        from app.models.patient import Patient
+        name_parts = current_user.name.split()
+        if len(name_parts) >= 2:
+            patient_result = await db.execute(
+                select(Patient.id).where(
+                    Patient.first_name == name_parts[0],
+                    Patient.last_name == name_parts[-1]
+                )
+            )
+            patient_ids = [r[0] for r in patient_result.all()]
+            if patient_ids:
+                query = query.where(Referral.patient_id.in_(patient_ids))
+            else:
+                return []  # no matching patient → empty
+        else:
+            return []
+
     result = await db.execute(query)
     referrals = result.scalars().all()
     

@@ -40,7 +40,7 @@ export const DEMO_USERS: User[] = [
     email: 'n.li@dukenerve.org',
     name: 'Dr. Neill Li',
     role: 'surgeon',
-    specialistName: 'Dr. Neill Li', // dukeNerveTree.ts:281
+    specialistName: 'Dr. Neill Li',
   },
   {
     id: 'u-surgeon-saltzman',
@@ -48,7 +48,7 @@ export const DEMO_USERS: User[] = [
     email: 'e.saltzman@dukenerve.org',
     name: 'Dr. Eliana Saltzman',
     role: 'surgeon',
-    specialistName: 'Dr. Eliana Saltzman', // dukeNerveTree.ts:298 — busiest destination
+    specialistName: 'Dr. Eliana Saltzman',
   },
   {
     id: 'u-surgeon-bhowmick',
@@ -56,7 +56,55 @@ export const DEMO_USERS: User[] = [
     email: 'd.bhowmick@dukenerve.org',
     name: 'Dr. Deb Bhowmick',
     role: 'surgeon',
-    specialistName: 'Dr. Deb Bhowmick', // dukeNerveTree.ts:349 — has a clinic delta
+    specialistName: 'Dr. Deb Bhowmick',
+  },
+  {
+    id: 'u-surgeon-mithani',
+    clinicId: CLINIC_ID,
+    email: 's.mithani@dukenerve.org',
+    name: 'Dr. Suhail Mithani',
+    role: 'surgeon',
+    specialistName: 'Dr. Suhail Mithani',
+  },
+  {
+    id: 'u-surgeon-abdelbarr',
+    clinicId: CLINIC_ID,
+    email: 'm.abdelbarr@dukenerve.org',
+    name: 'Dr. Muhammad Abd-El-Barr',
+    role: 'surgeon',
+    specialistName: 'Dr. Muhammad Abd-El-Barr',
+  },
+  {
+    id: 'u-surgeon-smith',
+    clinicId: CLINIC_ID,
+    email: 'g.smith@dukenerve.org',
+    name: 'Dr. Gabriel Smith',
+    role: 'surgeon',
+    specialistName: 'Dr. Gabriel Smith',
+  },
+  {
+    id: 'u-surgeon-neuromuscular',
+    clinicId: CLINIC_ID,
+    email: 'neuromuscular@dukenerve.org',
+    name: 'Dr. Lisa Hobson-Webb',
+    role: 'surgeon',
+    specialistName: 'Dr. Lisa Hobson-Webb / Dr. Vern Juel',
+  },
+  {
+    id: 'u-surgeon-vorenkamp',
+    clinicId: CLINIC_ID,
+    email: 'k.vorenkamp@dukenerve.org',
+    name: 'Dr. Kevin Vorenkamp',
+    role: 'surgeon',
+    specialistName: 'Dr. Kevin Vorenkamp',
+  },
+  {
+    id: 'u-surgeon-handtherapy',
+    clinicId: CLINIC_ID,
+    email: 'handtherapy@dukenerve.org',
+    name: 'Hand Therapy Team',
+    role: 'surgeon',
+    specialistName: 'Hand Therapy / Occupational Therapy',
   },
   {
     id: 'u-patient-testfield',
@@ -64,7 +112,7 @@ export const DEMO_USERS: User[] = [
     email: 'marla.testfield@example.com',
     name: 'Marla Testfield',
     role: 'patient',
-    mrn: 'MRN-4839201', // fixtures/referrals.ts → REF-2026-0142
+    mrn: 'MRN-4839201',
   },
 ]
 

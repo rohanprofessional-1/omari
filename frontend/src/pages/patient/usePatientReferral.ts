@@ -66,7 +66,17 @@ export function usePatientReferral(): PatientReferral {
   return useMemo(() => {
     const referral = fetched?.[0] ?? null
     const id = referral?.payload.referralId
-    const status: ReviewStatus = (id && reviews[id]?.status) || 'pending'
+    // Check localStorage first (optimistic), then fall back to the backend's
+    // persisted status so cross-device / multi-user decisions propagate.
+    let status: ReviewStatus = (id && reviews[id]?.status) || 'pending'
+    if (status === 'pending' && referral?.backendStatus) {
+      // Map backend statuses to the frontend's ReviewStatus vocabulary
+      if (referral.backendStatus === 'reviewed' || referral.backendStatus === 'scheduled') {
+        status = 'approved'
+      } else if (referral.backendStatus === 'dismissed') {
+        status = 'rejected'
+      }
+    }
     const booking = (id && bookings[id]) || null
 
     const entries = referral

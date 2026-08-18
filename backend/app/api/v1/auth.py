@@ -54,7 +54,37 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
         )
-        
+
+    # Resolve specialist name and patient MRN for the frontend's scoping logic
+    specialist_name = None
+    if user.specialist_id:
+        from app.models.specialist import Specialist
+        spec = await db.get(Specialist, user.specialist_id)
+        if spec:
+            specialist_name = spec.name
+
+    patient_mrn = None
+    if user.role.value == "patient":
+        from app.models.patient import Patient
+        # Find the patient record matching this user's email/name
+        pat_result = await db.execute(
+            select(Patient).where(Patient.email == user.email)
+        )
+        pat = pat_result.scalars().first()
+        if not pat:
+            # Fallback: match by name
+            name_parts = user.name.split()
+            if len(name_parts) >= 2:
+                pat_result = await db.execute(
+                    select(Patient).where(
+                        Patient.first_name == name_parts[0],
+                        Patient.last_name == name_parts[-1]
+                    )
+                )
+                pat = pat_result.scalars().first()
+        if pat:
+            patient_mrn = pat.mrn
+
     # Create JWT token
     access_token_expires = datetime.datetime.utcnow() + datetime.timedelta(days=7)
     access_token = jwt.encode(
@@ -68,10 +98,13 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
         "token_type": "bearer",
         "user": {
             "id": user.id,
+            "clinicId": "duke-nerve-center",
             "email": user.email,
             "name": user.name,
-            "role": user.role,
-            "specialist_id": user.specialist_id
+            "role": user.role.value if hasattr(user.role, 'value') else user.role,
+            "specialist_id": user.specialist_id,
+            "specialistName": specialist_name,
+            "mrn": patient_mrn,
         }
     }
 

@@ -327,5 +327,47 @@ export async function createReferral(payload: any): Promise<{ id: string; displa
     const text = await res.text()
     throw new Error(`Failed to create referral: ${text}`)
   }
+  const result = await res.json()
+  // Invalidate the dashboard's referral cache so the new referral appears
+  // immediately in the surgeon/admin queue without waiting for the 5s TTL.
+  try {
+    const { invalidateReferralCache } = await import('../dashboard/data/adapter')
+    invalidateReferralCache()
+  } catch { /* non-critical */ }
+  return result
+}
+
+export interface ReferralUpdatePayload {
+  /** New status: 'reviewed' | 'scheduled' | 'dismissed' */
+  status?: string
+  /** Correct the routed specialist (by ID) */
+  routed_specialist_id?: string
+  /** Correct the routed specialist (by name — backend resolves the ID) */
+  routed_specialist_name?: string
+  /** Override priority */
+  priority?: 'routine' | 'urgent'
+  /** Merge additional annotations (review notes, urgency overrides, etc.) */
+  annotations?: Record<string, unknown>
+}
+
+/**
+ * Update a referral's status or routing (PATCH /referrals/:id).
+ *
+ * Used by surgeons to approve/reject/correct referrals, persisting the
+ * decision server-side rather than only in localStorage.
+ */
+export async function updateReferral(
+  referralId: string,
+  payload: ReferralUpdatePayload,
+): Promise<any> {
+  const res = await fetch(`${API_BASE}/referrals/${referralId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to update referral: ${text}`)
+  }
   return res.json()
 }
