@@ -18,6 +18,7 @@ import Reconcile from './pages/Reconcile'
 import Runner from './pages/Runner'
 import MyReferralScreen from './pages/patient/MyReferralScreen'
 import AppointmentsScreen from './pages/patient/AppointmentsScreen'
+import AuditLogScreen from './dashboard/components/audit/AuditLogScreen'
 
 /**
  * Omari — the route table.
@@ -79,6 +80,7 @@ export default function AppRoutes() {
               </div>
             }
           />
+          <Route path="/admin/audit" element={<AuditLogScreen />} />
         </Route>
 
         {/* ── Surgeon — their own referrals, plus the two tools they use. ─── */}

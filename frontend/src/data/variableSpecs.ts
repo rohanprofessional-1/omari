@@ -24,9 +24,9 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     patientQuestion:
       'Which of these best describes what is going on right now?',
     answerType: 'single_choice',
-    options: ['mass_lump', 'acute_trauma', 'typical_nerve_symptoms', 'unsure'],
+    options: ['mass_lump', 'acute_trauma', 'typical_nerve_symptoms', 'unsure', 'out_of_scope'],
     extractionHints:
-      'Map to "mass_lump" for any mention of a lump, bump, swelling, knot, or growth they can feel. Map to "acute_trauma" for a recent injury, cut, accident, fall, fracture, or "it happened suddenly after X". Map to "typical_nerve_symptoms" for ongoing pins-and-needles, numbness, shooting pain, or weakness without a lump or recent injury. Use "unsure" only when the text is too vague to place.',
+      'Map to "mass_lump" for any mention of a lump, bump, swelling, knot, or growth they can feel. Map to "acute_trauma" for a recent injury, cut, accident, fall, fracture, or "it happened suddenly after X". Map to "typical_nerve_symptoms" for ongoing pins-and-needles, numbness, shooting pain, or weakness without a lump or recent injury. Use "unsure" only when the text is too vague to place. Use "out_of_scope" when the patient describes a completely unrelated medical issue (e.g. sore throat, chest pain, stomach ache).',
   },
   dominantSymptom: {
     key: 'dominantSymptom',
@@ -85,9 +85,9 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     patientQuestion:
       'First, a quick safety check — is any of these happening?',
     answerType: 'single_choice',
-    options: ['acute_trauma', 'mass_lump', 'acute', 'none'],
+    options: ['acute_trauma', 'mass_lump', 'acute', 'none', 'out_of_scope'],
     extractionHints:
-      'Map to "acute_trauma" for an acute injury: laceration/knife/blast, avulsion, stretch or crush (e.g. a motor-vehicle accident), an open wound with new numbness/weakness, a suspected nerve cut with a surgical wound, or an acute (recent) brachial plexus injury (adult trauma or birth injury). Map to "mass_lump" ONLY for a mass/lump that is rapidly growing or sounds suspicious for tumour. Map to "acute" for rapidly progressive weakness, acute foot drop, or acute wrist drop, or cauda-equina-type signals (sudden bowel/bladder change with leg weakness/numbness). Map to "none" when there is NO such red flag — ongoing/chronic symptoms without acute injury, fast-growing mass, or rapidly progressive weakness. When unsure between a generic old injury and an acute one, prefer "none" and let intake clarify.',
+      'Map to "acute_trauma" for an acute injury: laceration/knife/blast, avulsion, stretch or crush (e.g. a motor-vehicle accident), an open wound with new numbness/weakness, a suspected nerve cut with a surgical wound, or an acute (recent) brachial plexus injury (adult trauma or birth injury). Map to "mass_lump" ONLY for a mass/lump that is rapidly growing or sounds suspicious for tumour. Map to "acute" for rapidly progressive weakness, acute foot drop, or acute wrist drop, or cauda-equina-type signals (sudden bowel/bladder change with leg weakness/numbness). Map to "none" when there is NO such red flag — ongoing/chronic symptoms without acute injury, fast-growing mass, or rapidly progressive weakness. When unsure between a generic old injury and an acute one, prefer "none" and let intake clarify. Use "out_of_scope" when the patient describes a completely unrelated medical issue (e.g. sore throat, chest pain, stomach ache).',
   },
   presentationCategory: {
     key: 'presentationCategory',
@@ -96,9 +96,9 @@ const VARIABLE_SPECS_RAW: Record<string, VariableSpec> = {
     patientQuestion:
       'Which of these best fits your situation overall?',
     answerType: 'single_choice',
-    options: ['compression', 'traumatic_chronic', 'mass_stable', 'pain_predominant', 'functional_umn', 'unclear'],
+    options: ['compression', 'traumatic_chronic', 'mass_stable', 'pain_predominant', 'functional_umn', 'unclear', 'out_of_scope'],
     extractionHints:
-      'Map to "compression" for ongoing pins-and-needles/numbness/weakness suggesting a pinched or entrapped nerve (carpal tunnel, cubital tunnel, etc.). Map to "traumatic_chronic" for symptoms following an OLD/healed injury or prior surgery (not acute — acute injuries are the red-flag screen). Map to "mass_stable" for a lump/mass that is stable or slowly changing. Map to "pain_predominant" when pain is by far the main problem and the cause/target is unclear. Map to "functional_umn" for loss of function (e.g. a stiff, weak limb) AFTER a stroke, brain injury, cerebral palsy, or spinal-cord injury. Use "unclear" only when it genuinely does not fit any of these.',
+      'Map to "compression" for ongoing pins-and-needles/numbness/weakness suggesting a pinched or entrapped nerve (carpal tunnel, cubital tunnel, etc.). Map to "traumatic_chronic" for symptoms following an OLD/healed injury or prior surgery (not acute — acute injuries are the red-flag screen). Map to "mass_stable" for a lump/mass that is stable or slowly changing. Map to "pain_predominant" when pain is by far the main problem and the cause/target is unclear. Map to "functional_umn" for loss of function (e.g. a stiff, weak limb) AFTER a stroke, brain injury, cerebral palsy, or spinal-cord injury. Use "unclear" only when it genuinely does not fit any of these but is still related to limbs/nerves. Use "out_of_scope" when the patient describes a completely unrelated medical issue (e.g. sore throat, chest pain, stomach ache).',
   },
   primarySymptom: {
     key: 'primarySymptom',

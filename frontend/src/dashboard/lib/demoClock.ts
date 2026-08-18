@@ -15,8 +15,11 @@ const MS_PER_DAY = 86_400_000
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /** Whole years between a date of birth and DEMO_NOW. */
-export function ageFromDob(dob: string): number {
+export function ageFromDob(dob: string | null | undefined): number | null {
+  if (!dob) return null
   const birth = new Date(dob)
+  if (Number.isNaN(birth.getTime())) return null
+  
   let age = DEMO_NOW.getFullYear() - birth.getFullYear()
   const beforeBirthday =
     DEMO_NOW.getMonth() < birth.getMonth() ||

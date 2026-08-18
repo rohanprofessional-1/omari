@@ -19,7 +19,7 @@ import type { FilledVariables, Tree } from '../types/tree'
  *    gather full intake first, then escalate.
  */
 
-export type EscalationCategory = 'emergency' | 'ambiguous' | 'complex'
+export type EscalationCategory = 'emergency' | 'out_of_scope' | 'ambiguous' | 'complex'
 
 export interface EscalationAnalysis {
   category: EscalationCategory
@@ -39,6 +39,9 @@ export interface EscalationAnalysis {
 // Values that signal a genuine emergency / red flag → escalate fast.
 const EMERGENCY_VALUES = new Set(['mass_lump', 'acute_trauma', 'acute', 'cauda_equina'])
 
+// Values that signal the presentation is completely unrelated to this clinic → escalate fast.
+const OUT_OF_SCOPE_VALUES = new Set(['out_of_scope'])
+
 // Values that signal the presentation couldn't be pinned down → clarify + gather.
 const AMBIGUOUS_VALUES = new Set([
   'unsure',
@@ -52,6 +55,42 @@ const AMBIGUOUS_VALUES = new Set([
 /** True when a resolved value is an explicit "can't pin this down" answer. */
 export function isAmbiguousValue(value: unknown): boolean {
   return value !== undefined && value !== null && AMBIGUOUS_VALUES.has(String(value))
+}
+
+/**
+ * Scan all confidently extracted variables for a value that requires an immediate
+ * fast-track escalation (emergency or out-of-scope), bypassing the routing tree.
+ */
+export function checkFastTrack(
+  filled: FilledVariables,
+  highThreshold: number,
+): EscalationAnalysis | undefined {
+  for (const [key, extraction] of Object.entries(filled)) {
+    if (extraction.confidence >= highThreshold) {
+      const valStr = String(extraction.value)
+      if (EMERGENCY_VALUES.has(valStr)) {
+        return {
+          category: 'emergency',
+          triggerKey: key,
+          triggerValue: extraction.value,
+          triggerConfidence: extraction.confidence,
+          reasonText: `Emergency value '${valStr}' extracted for '${key}'`,
+          pathTaken: [],
+        }
+      }
+      if (OUT_OF_SCOPE_VALUES.has(valStr)) {
+        return {
+          category: 'out_of_scope',
+          triggerKey: key,
+          triggerValue: extraction.value,
+          triggerConfidence: extraction.confidence,
+          reasonText: `Out of scope value '${valStr}' extracted for '${key}'`,
+          pathTaken: [],
+        }
+      }
+    }
+  }
+  return undefined
 }
 
 /**
@@ -104,6 +143,9 @@ export function classifyEscalation(
   if (triggerValue !== undefined && EMERGENCY_VALUES.has(String(triggerValue))) {
     // Emergency takes precedence — a confident red-flag value never waits.
     category = 'emergency'
+  } else if (triggerValue !== undefined && OUT_OF_SCOPE_VALUES.has(String(triggerValue))) {
+    // Out-of-scope takes precedence over standard ambiguity — no need to gather core intake.
+    category = 'out_of_scope'
   } else if (
     noBranchMatched ||
     (triggerValue !== undefined && AMBIGUOUS_VALUES.has(String(triggerValue))) ||
@@ -122,6 +164,8 @@ export function escalationCategoryLabel(analysis: EscalationAnalysis): string {
   switch (analysis.category) {
     case 'emergency':
       return 'Emergency red flag — escalated immediately'
+    case 'out_of_scope':
+      return 'Out of scope — escalated immediately'
     case 'ambiguous':
       return analysis.clarifiedKeys && analysis.clarifiedKeys.length > 0
         ? 'Ambiguous after clarification'

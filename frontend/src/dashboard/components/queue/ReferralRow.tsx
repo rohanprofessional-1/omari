@@ -77,12 +77,12 @@ export default function ReferralRow({
       {/* Patient — the anchor: name in row-primary ink, age/sex in micro meta */}
       <span
         className="flex min-w-0 items-baseline gap-1.5"
-        title={`${payload.patient.name} · ${payload.patient.mrn}`}
+        title={`${payload.patient.name} · ${payload.patient.mrn || 'No MRN'}`}
       >
         <span className="truncate text-dash-row text-dash-ink">{payload.patient.name}</span>
         <span className="shrink-0 text-dash-micro tabular-nums text-dash-faint">
-          {age}
-          {payload.patient.sex}
+          {age !== null ? age : ''}
+          {payload.patient.sex && payload.patient.sex !== 'Unknown' ? payload.patient.sex : (age === null ? 'Unknown' : '')}
         </span>
       </span>
 

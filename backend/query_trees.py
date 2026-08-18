@@ -13,7 +13,7 @@ async def main():
         tree = result.fetchone()
         if tree:
             print(f"Nodes for tree {tree.id}:")
-            nodes = await db.execute(text(f"SELECT count(*) FROM nodes WHERE tree_id = '{tree.id}';"))
+            nodes = await db.execute(text("SELECT count(*) FROM nodes WHERE tree_id = :tree_id;"), {"tree_id": tree.id})
             print(nodes.fetchone())
 
 if __name__ == "__main__":

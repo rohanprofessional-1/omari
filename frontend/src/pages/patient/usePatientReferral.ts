@@ -37,6 +37,8 @@ export interface PatientReferral {
   plan: CarePlan
   /** Everything that has happened and is still to come, in order. */
   journey: JourneyEvent[]
+  /** True if the clinic has requested more information before approving. */
+  infoRequested: boolean
 }
 
 /* `patientItems` / `outstandingPatientItems` used to live here, filtering the
@@ -111,6 +113,7 @@ export function usePatientReferral(): PatientReferral {
       booking,
       plan,
       journey,
+      infoRequested: status === 'info_requested',
     }
   }, [fetched, reviews, workupOverrides, bookings, testBookings, audit])
 }

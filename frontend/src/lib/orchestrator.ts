@@ -2,6 +2,9 @@ import { evaluateCondition, runEngine } from './engine'
 import {
   classifyEscalation,
   isAmbiguousValue,
+  checkFastTrack,
+  coreIntakeKeys,
+  escalationCategoryLabel,
   type EscalationAnalysis,
 } from './escalation'
 // Default extractor is the DEMO_MODE-aware provider: real Claude call when off,
@@ -254,10 +257,15 @@ export function planConversationStep(
   const engine = runEngine(tree, filled)
   const pathTaken = engine.pathTaken
 
-  // 1. EMERGENCY interrupt — the only thing that finishes before full intake.
+  // 1. FAST-TRACK interrupt — emergencies and completely out-of-scope concerns finish before full intake.
+  const fastTrack = checkFastTrack(filled, high)
+  if (fastTrack) {
+    return { kind: 'escalate', reason: fastTrack.reasonText, pathTaken, analysis: fastTrack }
+  }
+
   if (engine.outcome === 'escalated') {
     const analysis = classifyEscalation(tree, filled, engine, high)
-    if (analysis.category === 'emergency') {
+    if (analysis.category === 'emergency' || analysis.category === 'out_of_scope') {
       return { kind: 'escalate', reason: engine.escalationReason, pathTaken, analysis }
     }
   }

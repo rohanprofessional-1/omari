@@ -12,6 +12,8 @@ from app.models.user import User, UserRole
 from app.models.referral import Referral, ReferralChannel, ReferralPriority, ReferralStatus
 from app.models.patient import Patient
 from app.models.referring_provider import ReferringProvider
+from app.models.audit_log import AuditAction
+from app.services.audit_service import record_audit
 
 router = APIRouter(prefix="/referrals", tags=["referrals"])
 
@@ -49,6 +51,7 @@ class ReferralCreate(BaseModel):
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_referral(
     req: ReferralCreate,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Any:
     # 1. Get or create patient
@@ -119,6 +122,105 @@ async def create_referral(
         status=ReferralStatus.new
     )
     db.add(referral)
+    await db.flush()
+
+    # Audit: referral.created
+    await record_audit(
+        db,
+        patient_id=patient.id,
+        actor=None,
+        action=AuditAction.referral_created,
+        resource_type="referral",
+        resource_id=referral.id,
+        detail={
+            "display_id": referral.display_id,
+            "channel": req.channel.value,
+            "priority": req.priority.value,
+        },
+    )
+
+    # Automatically evaluate the tree if data is provided and it's from Epic
+    if req.channel == ReferralChannel.epic:
+        from app.models.tree import Tree
+        from app.models.node import Node
+        from app.models.branch import Branch
+        from app.schemas.tree import TreeReadFull
+        from app.services.tree_engine import run_engine
+        from sqlalchemy.orm import selectinload
+
+        tree_id_to_use = req.tree_id
+        if not tree_id_to_use:
+            # Fall back to any available tree if one is not specified
+            tree_res = await db.execute(select(Tree).limit(1))
+            fallback_tree = tree_res.scalars().first()
+            if fallback_tree:
+                tree_id_to_use = fallback_tree.id
+
+        if tree_id_to_use:
+            tree_query = select(Tree).where(Tree.id == tree_id_to_use).options(
+                selectinload(Tree.nodes).selectinload(Node.branches).selectinload(Branch.condition),
+                selectinload(Tree.nodes).selectinload(Node.workup_items),
+            )
+            tree_obj = (await db.execute(tree_query)).scalars().first()
+
+            if tree_obj:
+                tree_schema = TreeReadFull.model_validate(tree_obj)
+                extracted = req.extraction or {}
+                engine_result = run_engine(tree_schema, extracted)
+
+                if engine_result.outcome == "routed":
+                    # Fully routed; just update the referral
+                    from app.models.specialist import Specialist
+                    spec = engine_result.specialist
+                    specialist_record = (await db.execute(
+                        select(Specialist).where(Specialist.name == spec.specialist_name)
+                    )).scalars().first()
+                    
+                    if specialist_record:
+                        referral.routed_specialist_id = specialist_record.id
+                
+                elif engine_result.outcome == "incomplete":
+                    # Information is missing; create a Conversation
+                    from app.models.conversation import Conversation, ConversationStatus, PatientVariable, VariableVia
+                    
+                    conversation = Conversation(
+                        patient_id=patient.id,
+                        referral_id=referral.id,
+                        tree_id=tree_obj.id,
+                        status=ConversationStatus.in_progress
+                    )
+                    db.add(conversation)
+                    await db.flush()
+
+                    # Seed the known variables
+                    from datetime import datetime, timezone
+                    for k, v in extracted.items():
+                        pv = PatientVariable(
+                            conversation_id=conversation.id,
+                            variable_key=k,
+                            via=VariableVia.extraction,
+                            filled_at=datetime.now(timezone.utc)
+                        )
+                        if isinstance(v, bool):
+                            pv.value_boolean = v
+                        elif isinstance(v, (int, float)):
+                            pv.value_number = v
+                        elif isinstance(v, str):
+                            pv.value_string = v
+                        else:
+                            pv.value_json = v
+                        db.add(pv)
+
+                    await record_audit(
+                        db,
+                        patient_id=patient.id,
+                        actor=None,
+                        action=AuditAction.conversation_started,
+                        resource_type="conversation",
+                        resource_id=conversation.id,
+                        detail={"tree_id": tree_obj.id, "reason": "epic_incomplete_intake"},
+                    )
+
     await db.commit()
     await db.refresh(referral)
     

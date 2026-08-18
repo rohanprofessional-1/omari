@@ -6,6 +6,7 @@ from typing import Optional, Any, List
 
 class ConversationCreate(BaseModel):
     patient_id: Optional[str] = None
+    referral_id: Optional[str] = None
     tree_id: str
 
 
@@ -68,6 +69,7 @@ class ActionRead(BaseModel):
 class ConversationRead(BaseModel):
     id: str
     patient_id: Optional[str] = None
+    referral_id: Optional[str] = None
     tree_id: Optional[str] = None
     status: str
     outcome_specialist_id: Optional[str] = None

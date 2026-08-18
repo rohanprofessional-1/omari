@@ -32,6 +32,7 @@ export const SECTIONS: Record<Role, NavItem[]> = {
     { to: '/admin/builder', label: 'Builder' },
     { to: '/admin/knowledge', label: 'Knowledge' },
     { to: '/admin/runner', label: 'Runner' },
+    { to: '/admin/audit', label: 'Audit Log' },
   ],
   // A specialist's own work, plus the two authoring tools they actually use:
   // the tree they route by, and the guideline knowledge behind it.

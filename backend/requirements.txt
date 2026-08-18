@@ -10,3 +10,4 @@ python-dotenv>=1.0.0
 pymupdf4llm>=0.0.17
 ebooklib>=0.18
 PyJWT>=2.8.0
+bcrypt>=4.1.2

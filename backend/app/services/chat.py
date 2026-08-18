@@ -278,6 +278,46 @@ class ChatService:
                     if specialist_record:
                         conversation.outcome_specialist_id = specialist_record.id
                         
+                    # Create Referral if one doesn't exist
+                    if not conversation.referral_id and conversation.patient_id:
+                        import uuid
+                        from datetime import datetime, timezone
+                        from app.models.referral import Referral, ReferralChannel, ReferralStatus, ReferralPriority
+                        from app.services.audit_service import record_audit
+                        from app.models.audit_log import AuditAction
+                        
+                        now_str = datetime.now(timezone.utc).strftime("%Y%m")
+                        short_uuid = str(uuid.uuid4())[:4].upper()
+                        display_id = f"REF-{now_str}-{short_uuid}"
+                        
+                        referral = Referral(
+                            display_id=display_id,
+                            patient_id=conversation.patient_id,
+                            routed_specialist_id=conversation.outcome_specialist_id,
+                            tree_id=conversation.tree_id,
+                            channel=ReferralChannel.other, # Or could be portal if added
+                            priority=ReferralPriority.routine,
+                            status=ReferralStatus.new,
+                            extraction=filled
+                        )
+                        self.db.add(referral)
+                        await self.db.flush()
+                        
+                        conversation.referral_id = referral.id
+                        
+                        await record_audit(
+                            self.db,
+                            patient_id=conversation.patient_id,
+                            actor=None,
+                            action=AuditAction.referral_created,
+                            resource_type="referral",
+                            resource_id=referral.id,
+                            detail={
+                                "display_id": referral.display_id,
+                                "source": "portal_intake"
+                            },
+                        )
+
                     result["response"] = f"Thank you! Based on your symptoms, we are routing you to {spec.specialist_name or spec.specialty}."
                 
                 elif engine_result.outcome == "escalated":

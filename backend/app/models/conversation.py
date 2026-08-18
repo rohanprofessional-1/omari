@@ -36,6 +36,7 @@ class Conversation(Base, TimestampMixin):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     patient_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("patients.id"), nullable=True)
+    referral_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("referrals.id"), nullable=True)
     tree_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("trees.id"), nullable=True)
     # Pin the IMMUTABLE published snapshot used for this intake (auditability).
     tree_version_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("tree_versions.id"), nullable=True)
@@ -59,6 +60,7 @@ class Conversation(Base, TimestampMixin):
 
     # Relationships
     patient: Mapped["Patient | None"] = relationship(back_populates="conversations")
+    referral: Mapped["Referral | None"] = relationship()
     tree: Mapped["Tree | None"] = relationship(back_populates="conversations")
     outcome_specialist: Mapped["Specialist | None"] = relationship()
     turns: Mapped[list["ConversationTurn"]] = relationship(

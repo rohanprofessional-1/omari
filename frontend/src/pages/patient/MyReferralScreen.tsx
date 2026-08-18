@@ -173,7 +173,7 @@ function TaskRow({ test }: { test: PlanTest }) {
 /* ── Screen ──────────────────────────────────────────────────────────────── */
 
 export default function MyReferralScreen() {
-  const { loading, referral, redirected, careTeam, plan, journey } = usePatientReferral()
+  const { loading, referral, redirected, careTeam, plan, journey, infoRequested } = usePatientReferral()
 
   if (loading) {
     return (
@@ -258,6 +258,11 @@ export default function MyReferralScreen() {
         {/* 1 · What only you can do */}
         {actions.length > 0 ? (
           <ActionPanel actions={actions.slice(0, 3)} />
+        ) : infoRequested ? (
+          <CalmPanel
+            title="We need a bit more information"
+            body={`${careTeam} is reviewing your referral but needs a few more details to finalize your plan. Someone from the clinic will reach out soon, or you can call us directly.`}
+          />
         ) : !approved ? (
           <CalmPanel
             title="Nothing needed from you yet"

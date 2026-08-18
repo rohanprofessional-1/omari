@@ -20,6 +20,7 @@ from app.api.v1 import (
     deltas,
     auth,
     referrals,
+    audit,
 )
 
 
@@ -63,6 +64,7 @@ app.include_router(deltas.router, prefix=settings.API_V1_PREFIX, tags=["deltas"]
 app.include_router(deltas.reconcile_router, prefix=settings.API_V1_PREFIX, tags=["deltas"])
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX, tags=["auth"])
 app.include_router(referrals.router, prefix=settings.API_V1_PREFIX, tags=["referrals"])
+app.include_router(audit.router, prefix=settings.API_V1_PREFIX, tags=["audit"])
 
 
 @app.get(f"{settings.API_V1_PREFIX}/health", tags=["health"])

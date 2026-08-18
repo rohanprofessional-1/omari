@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.referring_provider import ReferringProvider
 from app.models.referral import Referral
 from app.models.attachment import Attachment
+from app.models.audit_log import AuditLog, AuditAction
 from app.models.generator import (
     GenerationSession,
     SyntheticCase,
@@ -60,4 +61,6 @@ __all__ = [
     "Gap",
     "ValidationRun",
     "ValidationResult",
+    "AuditLog",
+    "AuditAction",
 ]

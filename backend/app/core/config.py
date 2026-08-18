@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Blume API"
     API_V1_PREFIX: str = "/api/v1"
     DEBUG: bool = True
+    # Auth
+    SECRET_KEY: str = "change_me_in_production"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 

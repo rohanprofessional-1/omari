@@ -26,6 +26,7 @@ import { deriveQuestion, fillTemplate, type Choice } from '../lib/runner'
 import { composeConfirmation } from '../lib/confirmation'
 import OrbExperience from '../components/OrbExperience'
 import type { FilledVariables, Tree, Urgency, VariableNode, VariableSpec } from '../types/tree'
+import { useAuth } from '../auth/authStore'
 
 // NOTE: presentation-only file. The deterministic engine makes ALL routing
 // decisions (nextStep → runEngine). Nothing here decides what to ask, names a
@@ -142,6 +143,7 @@ function RunnerSession({
   usingSample: boolean
   audience: RunnerAudience
 }) {
+  const auth = useAuth()
   const idRef = useRef(0)
   const nextId = () => ++idRef.current
 
@@ -263,18 +265,38 @@ function RunnerSession({
       case 'route':
         pushMessage('bot', routeHandoff(s.specialist))
         setPhase('done')
-        // POST real referral to backend
-        createReferral({
-          patient: {
-            first_name: 'Demo',
-            last_name: 'Patient',
-            mrn: 'MRN-' + Math.floor(Math.random() * 10000).toString(),
-          },
-          tree_id: tree.treeId,
-          extraction: nextFilled,
-          // Pass the specialist name so the backend can resolve the FK.
-          routed_specialist_name: s.specialistName,
-        }).catch(err => console.error("Failed to post referral", err))
+        
+        // POST real referral to backend using the authenticated user
+        if (auth.user?.role === 'patient') {
+          const parts = auth.user.name.split(' ')
+          const lastName = parts.pop() || 'Unknown'
+          const firstName = parts.join(' ') || 'Unknown'
+          
+          createReferral({
+            patient: {
+              first_name: firstName,
+              last_name: lastName,
+              mrn: auth.user.mrn || 'MRN-' + Math.floor(Math.random() * 10000).toString(),
+            },
+            tree_id: tree.treeId,
+            extraction: nextFilled,
+            routed_specialist_name: s.specialistName,
+            channel: 'other', 
+          }).catch(err => console.error("Failed to post referral:", err instanceof Error ? err.message : "Unknown error"))
+        } else {
+          // If a clinician or admin is testing it, just use Demo Patient
+          createReferral({
+            patient: {
+              first_name: 'Demo',
+              last_name: 'Patient',
+              mrn: 'MRN-' + Math.floor(Math.random() * 10000).toString(),
+            },
+            tree_id: tree.treeId,
+            extraction: nextFilled,
+            routed_specialist_name: s.specialistName,
+            channel: 'other',
+          }).catch(err => console.error("Failed to post referral:", err instanceof Error ? err.message : "Unknown error"))
+        }
         break
       case 'escalate':
         pushMessage('bot', ESCALATION_HANDOFF)
