@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { overrideInfoForNode } from '../../data/dashboardDeltas'
+import { useActiveTree } from '../../lib/activeTreeStore'
 import type { DecisionStep, TreeResult, VariableSource } from '../../types'
 
 /**
@@ -74,9 +74,12 @@ export function OverrideBadge() {
  * and the struck-through CPG text the clinic's rule replaced.
  */
 export function OverrideDetails({ nodeId }: { nodeId: string }) {
+  const { overrideInfoByNode } = useActiveTree()
+  const info = overrideInfoByNode.get(nodeId)
   const [open, setOpen] = useState(false)
-  const info = overrideInfoForNode(nodeId)
+
   if (!info) return null
+
   return (
     <div className="mt-1">
       <button

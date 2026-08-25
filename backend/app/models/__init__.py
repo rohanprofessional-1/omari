@@ -22,6 +22,7 @@ from app.models.generator import (
     ValidationRun,
     ValidationResult,
 )
+from app.models.referral import Referral, ReferralReview, ReferralAuditEvent
 
 __all__ = [
     "Base",
@@ -50,4 +51,7 @@ __all__ = [
     "Gap",
     "ValidationRun",
     "ValidationResult",
+    "Referral",
+    "ReferralReview",
+    "ReferralAuditEvent",
 ]

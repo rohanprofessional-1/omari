@@ -4,7 +4,6 @@ import { confidenceBand } from '../../lib/orchestrator'
 import { classifyEscalation } from '../../lib/escalation'
 import { VARIABLE_SPECS } from '../../data/variableSpecs'
 import type { Tree, VariableNode } from '../../types/tree'
-import { DASHBOARD_TREE, OVERRIDE_NODE_IDS } from '../data/dashboardDeltas'
 import { DEMO_NOW, isAtRisk } from './demoClock'
 import { buildMissingVariableInfo } from './missingVariables'
 import type {
@@ -63,8 +62,13 @@ function toDashboardWorkup(
   })
 }
 
-export function deriveTreeResult(fixture: ReferralFixture): TreeResult {
-  const tree: Tree = DASHBOARD_TREE
+import type { OverrideInfo } from './activeTreeStore'
+
+export function deriveTreeResult(
+  fixture: ReferralFixture,
+  tree: Tree,
+  overrideNodeIds: Set<string>
+): TreeResult {
   const { variables, sources } = fixture.extraction
   const annotations = fixture.annotations
   const result = runEngine(tree, variables)
@@ -86,7 +90,7 @@ export function deriveTreeResult(fixture: ReferralFixture): TreeResult {
       nodeId: node?.id ?? '',
       source,
       citation: node?.prompt,
-      overridden: node ? OVERRIDE_NODE_IDS.has(node.id) : false,
+      overridden: node ? overrideNodeIds.has(node.id) : false,
     }
   })
 
@@ -126,7 +130,7 @@ export function deriveTreeResult(fixture: ReferralFixture): TreeResult {
     escalated: false,
     confidence,
     confidenceReason,
-    overrideNodeIds: [...OVERRIDE_NODE_IDS],
+    overrideNodeIds: [...overrideNodeIds],
     terminalOverridden: false,
     flags,
     visitDate: annotations?.visitDate,
@@ -142,7 +146,7 @@ export function deriveTreeResult(fixture: ReferralFixture): TreeResult {
     base.urgency = result.specialist.urgency
     base.terminalCitation = result.specialist.clinicalBasis
     base.confirmWithDrLi = result.specialist.confirmWithDrLi
-    base.terminalOverridden = OVERRIDE_NODE_IDS.has(terminalId)
+    base.terminalOverridden = overrideNodeIds.has(terminalId)
     base.resolvedWorkup = result.resolvedWorkup
     base.requiredWorkup = toDashboardWorkup(result.resolvedWorkup.ordered, annotations)
   } else if (result.outcome === 'incomplete') {

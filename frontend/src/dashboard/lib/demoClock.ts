@@ -1,41 +1,46 @@
 import type { WorkupStatus } from '../types'
 
 /**
- * Dashboard — pinned demo clock.
+ * Dashboard — clock utilities.
  *
- * Every date computation in the dashboard flows through DEMO_NOW so fixtures,
- * derivations, and tests are deterministic regardless of when they run.
+ * Previously pinned to DEMO_NOW for deterministic demo rendering. Now uses
+ * the real wall clock so dates, waiting times, and at-risk indicators reflect
+ * actual reality.
+ *
+ * All date computation in the dashboard flows through these utilities.
  */
 
-export const DEMO_NOW = new Date('2026-07-24T09:00:00')
+/** The current time. Previously pinned to '2026-07-24T09:00:00' for demos. */
+export const DEMO_NOW = new Date()
 
 const MS_PER_HOUR = 3_600_000
 const MS_PER_DAY = 86_400_000
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-/** Whole years between a date of birth and DEMO_NOW. */
+/** Whole years between a date of birth and now. */
 export function ageFromDob(dob: string): number {
   const birth = new Date(dob)
-  let age = DEMO_NOW.getFullYear() - birth.getFullYear()
+  const now = new Date()
+  let age = now.getFullYear() - birth.getFullYear()
   const beforeBirthday =
-    DEMO_NOW.getMonth() < birth.getMonth() ||
-    (DEMO_NOW.getMonth() === birth.getMonth() && DEMO_NOW.getDate() < birth.getDate())
+    now.getMonth() < birth.getMonth() ||
+    (now.getMonth() === birth.getMonth() && now.getDate() < birth.getDate())
   if (beforeBirthday) age -= 1
   return age
 }
 
 /** Human waiting-time since receipt: '3d', '6h', '<1h'. */
 export function waitingSince(receivedAt: string): string {
-  const diff = DEMO_NOW.getTime() - new Date(receivedAt).getTime()
+  const diff = Date.now() - new Date(receivedAt).getTime()
   if (diff < MS_PER_HOUR) return '<1h'
   if (diff < MS_PER_DAY) return `${Math.floor(diff / MS_PER_HOUR)}h`
   return `${Math.floor(diff / MS_PER_DAY)}d`
 }
 
-/** Days from DEMO_NOW until `iso` (negative when past). */
+/** Days from now until `iso` (negative when past). */
 export function daysUntil(iso: string): number {
-  return Math.ceil((new Date(iso).getTime() - DEMO_NOW.getTime()) / MS_PER_DAY)
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / MS_PER_DAY)
 }
 
 /** Month/day/year of an ISO date. Date-only strings ('2026-07-24') parse as UTC
@@ -69,7 +74,7 @@ export function formatDateShort(iso: string): string {
 
 /**
  * A workup item is at risk when it has not come back (not resulted/reviewed)
- * AND its due date is within 7 days of DEMO_NOW or already past.
+ * AND its due date is within 7 days of now or already past.
  */
 export function isAtRisk(
   item: { status: WorkupStatus; dueBy: string },

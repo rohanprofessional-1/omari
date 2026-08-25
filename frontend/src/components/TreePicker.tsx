@@ -243,13 +243,35 @@ export default function TreePicker({
                             )}
                           </span>
                           <span className="min-w-0">
-                            <span className="block truncate text-[13px] font-medium text-ink">{t.name}</span>
+                            <span className="flex items-center gap-1.5 truncate">
+                              <span className="truncate text-[13px] font-medium text-ink">{t.name}</span>
+                              {t.is_active && (
+                                <span className="shrink-0 rounded bg-accent/10 px-1 py-0.5 text-[8px] font-bold uppercase tracking-wider text-accent">
+                                  Live
+                               </span>
+                              )}
+                            </span>
                             <span className="block truncate text-[10px] text-muted">
                               v{t.version} · updated {fmtDate(t.updated_at)}
                             </span>
                           </span>
                         </button>
                         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                          {!t.is_active && (
+                            <button
+                              onClick={() => {
+                                if (window.confirm('Set as active tree for the clinic? This will change the referral logic on the dashboard immediately.')) {
+                                  void run(() => library.activate(t.id))
+                                }
+                              }}
+                              title="Activate for Clinic"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted hover:bg-accent/10 hover:text-accent"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                              </svg>
+                            </button>
+                          )}
                           <button
                             onClick={() => onRename(t.id, t.name)}
                             title="Rename"

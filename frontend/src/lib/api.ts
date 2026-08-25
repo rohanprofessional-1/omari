@@ -106,8 +106,11 @@ export async function previewKnowledgeBase(
   return res.json()
 }
 
-export async function fetchTrees(): Promise<TreeSummary[]> {
-  const res = await fetch(`${API_BASE}/trees?is_active=true`)
+export async function fetchTrees(opts: { is_active?: boolean } = {}): Promise<TreeSummary[]> {
+  const url = opts.is_active !== undefined 
+    ? `${API_BASE}/trees?is_active=${opts.is_active}` 
+    : `${API_BASE}/trees`
+  const res = await fetch(url)
   if (!res.ok) throw new Error('Failed to fetch trees')
   return res.json()
 }
@@ -281,8 +284,191 @@ export async function renameTree(id: string, name: string): Promise<TreeSummary>
   return res.json()
 }
 
+/** Activate a stored tree (and deactivate others). */
+export async function activateTree(id: string): Promise<TreeSummary> {
+  const res = await fetch(`${API_BASE}/trees/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_active: true }),
+  })
+  if (!res.ok) throw new Error('Failed to activate tree')
+  return res.json()
+}
+
 /** Soft-delete a stored tree (the backend sets is_active = false). */
 export async function deleteTree(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/trees/${id}`, { method: 'DELETE' })
   if (!res.ok && res.status !== 204) throw new Error('Failed to delete tree')
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Referrals — the review pipeline                                             */
+/* -------------------------------------------------------------------------- */
+
+export interface ApiReferralPayload {
+  referralId: string
+  receivedAt: string
+  channel: string
+  patient: { name: string; mrn: string; dob: string; sex: string; phone: string }
+  referredBy: { provider: string; npi: string; practice: string; phone: string; fax?: string }
+  referredToDepartment: string
+  priority: string
+  reasonForReferral: string
+  clinicalNote: string
+  diagnoses: { icd10: string; description: string }[]
+  attachments: { title: string; type: string; date: string; pages?: number }[]
+  structured: { vitals?: Record<string, string>; meds?: string[]; problems?: string[] }
+}
+
+export interface ApiExtractionVariable {
+  value: string | number | boolean
+  confidence: number
+}
+
+export interface ApiReferralExtraction {
+  variables: Record<string, ApiExtractionVariable>
+  sources: Record<string, string>
+}
+
+export interface ApiReferralAnnotations {
+  scope?: { kind: string; suggestedRedirect: string; reason: string }
+  flags?: { ambiguousBetween?: string[]; statedReasonMismatch?: boolean }
+  workupState?: Record<string, { status: string; responsible: string; dueDaysBeforeVisit: number }>
+  visitDate?: string
+}
+
+export interface ApiReferral {
+  id: string
+  payload: ApiReferralPayload
+  extraction: ApiReferralExtraction
+  annotations: ApiReferralAnnotations | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiReviewRead {
+  id: string
+  referral_id: string
+  status: string
+  reviewer: string | null
+  reviewed_at: string | null
+  surgeon_seen: boolean
+  correction: Record<string, string> | null
+  workup_overrides: Record<string, string> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiAuditEvent {
+  id: string
+  referral_id: string
+  at: string
+  actor: string
+  role: string
+  action: string
+  correction: Record<string, string> | null
+  note: string | null
+}
+
+/** Create a new referral from intake (patient chatbot completion). */
+export async function createReferral(data: {
+  payload: ApiReferralPayload
+  extraction: ApiReferralExtraction
+  annotations?: ApiReferralAnnotations | null
+  clinic_id?: string | null
+}): Promise<ApiReferral> {
+  const res = await fetch(`${API_BASE}/referrals`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(`Failed to create referral: ${await res.text()}`)
+  return res.json()
+}
+
+/** Fetch all referrals, optionally scoped by MRN or clinic. */
+export async function fetchReferrals(opts?: {
+  mrn?: string
+  clinicId?: string
+}): Promise<ApiReferral[]> {
+  const params = new URLSearchParams()
+  if (opts?.mrn) params.set('mrn', opts.mrn)
+  if (opts?.clinicId) params.set('clinic_id', opts.clinicId)
+  const qs = params.toString()
+  const res = await fetch(`${API_BASE}/referrals${qs ? `?${qs}` : ''}`)
+  if (!res.ok) throw new Error('Failed to fetch referrals')
+  return res.json()
+}
+
+/** Fetch a single referral by its external referral ID. */
+export async function fetchReferral(referralId: string): Promise<ApiReferral> {
+  const res = await fetch(`${API_BASE}/referrals/${encodeURIComponent(referralId)}`)
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('Referral not found')
+    throw new Error('Failed to fetch referral')
+  }
+  return res.json()
+}
+
+/** Submit a review decision for a referral. */
+export async function submitReview(
+  referralId: string,
+  data: {
+    status: string
+    actor: string
+    role: string
+    correction?: { field: string; from: string; to: string; reason: string }
+    note?: string
+  },
+): Promise<ApiReviewRead> {
+  const res = await fetch(`${API_BASE}/referrals/${encodeURIComponent(referralId)}/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to submit review')
+  return res.json()
+}
+
+/** Fetch all reviews for a referral. */
+export async function fetchReviews(referralId: string): Promise<ApiReviewRead[]> {
+  const res = await fetch(`${API_BASE}/referrals/${encodeURIComponent(referralId)}/reviews`)
+  if (!res.ok) throw new Error('Failed to fetch reviews')
+  return res.json()
+}
+
+/** Fetch all reviews across all referrals. */
+export async function fetchAllReviews(): Promise<ApiReviewRead[]> {
+  const res = await fetch(`${API_BASE}/referrals/reviews/all`)
+  if (!res.ok) throw new Error('Failed to fetch all reviews')
+  return res.json()
+}
+
+/** Fetch all audit events across all referrals. */
+export async function fetchAllAuditEvents(): Promise<ApiAuditEvent[]> {
+  const res = await fetch(`${API_BASE}/referrals/audit/all`)
+  if (!res.ok) throw new Error('Failed to fetch audit events')
+  return res.json()
+}
+
+/** Fetch audit trail for a single referral. */
+export async function fetchAuditEvents(referralId: string): Promise<ApiAuditEvent[]> {
+  const res = await fetch(`${API_BASE}/referrals/${encodeURIComponent(referralId)}/audit`)
+  if (!res.ok) throw new Error('Failed to fetch audit events')
+  return res.json()
+}
+
+/** Update a workup item's status. */
+export async function updateWorkupStatus(
+  referralId: string,
+  data: { item_name: string; status: string; actor: string; role: string },
+): Promise<ApiReviewRead> {
+  const res = await fetch(`${API_BASE}/referrals/${encodeURIComponent(referralId)}/workup-status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to update workup status')
+  return res.json()
 }

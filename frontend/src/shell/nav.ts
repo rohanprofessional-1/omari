@@ -33,18 +33,18 @@ export const SECTIONS: Record<Role, NavItem[]> = {
     { to: '/admin/knowledge', label: 'Knowledge' },
     { to: '/admin/runner', label: 'Runner' },
   ],
-  // A specialist's own work, plus the two authoring tools they actually use:
-  // the tree they route by, and the guideline knowledge behind it.
+  // A specialist's own referrals, the clinic directory, tree generation, and
+  // the builder. No knowledge tab or runner — those are admin-only.
   surgeon: [
     { to: '/surgeon/referrals', label: 'Referrals' },
+    { to: '/surgeon/clinic', label: 'Clinic' },
+    { to: '/surgeon/generate', label: 'Generate' },
     { to: '/surgeon/builder', label: 'Builder' },
-    { to: '/surgeon/knowledge', label: 'Knowledge' },
   ],
-  // Intake, then their own referral. Nothing clinical, nothing about anyone else.
+  // Intake, then their own referral status. Nothing clinical, nothing about anyone else.
   patient: [
     { to: '/patient/intake', label: 'Intake' },
     { to: '/patient/status', label: 'My referral' },
-    { to: '/patient/appointments', label: 'Appointments' },
   ],
 }
 

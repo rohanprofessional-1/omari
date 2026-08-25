@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchTrees, type TreeSummary } from '../../../lib/api'
+import { fetchTrees, activateTree, type TreeSummary } from '../../../lib/api'
 import { formatDate } from '../../lib/demoClock'
 import { DEPLOYED_TREE_LABEL } from '../../lib/roster'
 import Badge from '../shared/Badge'
@@ -65,6 +65,18 @@ export default function ClinicTreePanel({
   const openIn = (key: string, path: string, id: string) => {
     localStorage.setItem(key, id)
     navigate(path)
+  }
+
+  const onActivate = async (id: string) => {
+    if (!window.confirm('Set as active tree for the clinic? This will change the referral logic on the dashboard immediately.')) return
+    try {
+      await activateTree(id)
+      const rows = await fetchTrees()
+      setTrees(rows)
+    } catch (e) {
+      console.error(e)
+      alert('Failed to activate tree')
+    }
   }
 
   return (
@@ -158,6 +170,14 @@ export default function ClinicTreePanel({
                     {tree.authored_by || '—'}
                   </span>
                   <div className="flex flex-wrap justify-end gap-1.5">
+                    {!tree.is_active && (
+                      <button
+                        className={btn}
+                        onClick={() => void onActivate(tree.id)}
+                      >
+                        Activate
+                      </button>
+                    )}
                     <button
                       className={btn}
                       onClick={() => openIn(BUILDER_KEY, '/admin/builder', tree.id)}

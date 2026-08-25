@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getReferralSource } from '../../data/adapter'
-import { capacityFor } from '../../data/capacityMock'
 import { DEMO_NOW } from '../../lib/demoClock'
 import { caseloadFor, loadRoster, type RosterEntry } from '../../lib/roster'
 import { useDashboardStore } from '../../lib/reviewStore'
+import { useActiveTree } from '../../lib/activeTreeStore'
 import type { ReviewableReferral } from '../../types'
 import SignalDot from '../shared/SignalDot'
 import StatChip from '../shared/StatChip'
@@ -12,13 +12,13 @@ import ClinicTreePanel from './ClinicTreePanel'
 
 /** One column template, shared by the header and every row so they can't drift. */
 const GRID =
-  'grid grid-cols-[minmax(0,2.4fr)_minmax(0,1.5fr)_minmax(0,1.5fr)] items-center gap-3'
+  'grid grid-cols-[minmax(0,2.4fr)_minmax(0,1.5fr)] items-center gap-3'
 
 /**
  * Clinic directory — who is in the clinic and what each of them is carrying.
  *
- * Four blocks: a clinic-level stats strip, the specialist list with caseload,
- * a capacity column, and which tree routes to each person.
+ * Three blocks: a clinic-level stats strip, the specialist list with caseload,
+ * and which tree routes to each person.
  *
  * Everything except contact details is derived from data already on the client
  * (the compiled tree + the referral fixtures + the review store), so the screen
@@ -32,13 +32,15 @@ function hoursWaiting(receivedAt: string): number {
 
 export default function ClinicDirectoryScreen() {
   const { reviews } = useDashboardStore()
+  const { status, tree, error } = useActiveTree()
   const [roster, setRoster] = useState<RosterEntry[] | null>(null)
   const [referrals, setReferrals] = useState<ReviewableReferral[] | null>(null)
 
   useEffect(() => {
+    if (!tree) return
     let cancelled = false
     // The directory is a clinic-wide view — deliberately unscoped.
-    Promise.all([loadRoster(), getReferralSource().listReferrals()]).then(([r, refs]) => {
+    Promise.all([loadRoster(tree), getReferralSource().listReferrals()]).then(([r, refs]) => {
       if (cancelled) return
       setRoster(r)
       setReferrals(refs)
@@ -46,7 +48,7 @@ export default function ClinicDirectoryScreen() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [tree])
 
   const stats = useMemo(() => {
     if (!referrals) return null
@@ -73,6 +75,12 @@ export default function ClinicDirectoryScreen() {
     }
   }, [referrals, reviews])
 
+  if (status === 'loading') {
+    return <div className="p-12 text-dash-muted text-dash-small">Loading clinic active tree...</div>
+  }
+  if (status === 'error' || !tree) {
+    return <div className="p-12 text-red-500 text-dash-small">Failed to load tree: {error}</div>
+  }
   if (!roster || !referrals || !stats) {
     return (
       <div className="min-h-full bg-dash-bg">
@@ -105,9 +113,9 @@ export default function ClinicDirectoryScreen() {
         </div>
 
         {/* ── Blocks 2–4 · Specialist, caseload, capacity, routed by ─────── */}
-        <div className={TABLE_CARD}>
+        <div className={`mb-12 ${TABLE_CARD}`}>
           <div className={`${GRID} ${TABLE_HEAD}`}>
-            {['Specialist', 'Caseload', 'Capacity'].map((h) => (
+            {['Specialist', 'Caseload'].map((h) => (
               <span key={h} className="truncate">
                 {h}
               </span>
@@ -116,7 +124,6 @@ export default function ClinicDirectoryScreen() {
 
           {roster.map((entry) => {
             const load = caseloadFor(entry.name, referrals, reviews)
-            const cap = capacityFor(entry.name)
             return (
               <div key={entry.name} className={`${GRID} ${TABLE_ROW}`}>
                 {/* Specialist */}
@@ -154,18 +161,6 @@ export default function ClinicDirectoryScreen() {
                       )}
                     </div>
                   )}
-                </div>
-
-                {/* Capacity — invented; see data/capacityMock.ts */}
-                <div className="min-w-0">
-                  <p className="truncate text-dash-micro text-dash-strong">
-                    {cap.clinicDays.join(' · ')}
-                    <span className="tabular-nums text-dash-muted"> · {cap.slotsPerWeek}/wk</span>
-                  </p>
-                  <p className="truncate text-dash-micro text-dash-muted">
-                    {cap.acceptingNew ? 'Next open ' : 'Booked out to '}
-                    {cap.nextAvailableLabel}
-                  </p>
                 </div>
 
               </div>

@@ -1,6 +1,5 @@
 import { useSyncExternalStore } from 'react'
 import { localStorageWorks } from '../../lib/canStore'
-import { DEMO_NOW } from '../../dashboard/lib/demoClock'
 
 /**
  * What the patient has booked: the consultation, and each test before it.
@@ -20,10 +19,9 @@ import { DEMO_NOW } from '../../dashboard/lib/demoClock'
  * test — is the part that survives the swap.
  */
 
-/** Stamped from the DEMO clock, not the wall clock — the patient's whole
- *  timeline is told in demo time, and mixing the two reorders it. */
+/** Use the real wall clock for booking timestamps. */
 function stampedNow(): string {
-  return DEMO_NOW.toISOString()
+  return new Date().toISOString()
 }
 
 const KEY = 'omari:patient:appointment:v1'

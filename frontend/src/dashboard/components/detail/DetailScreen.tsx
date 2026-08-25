@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../../auth/authStore'
 import { getForUser } from '../../lib/scope'
 import { backLabelFor } from '../../lib/useOpenReferral'
-import { ageFromDob, waitingSince } from '../../lib/demoClock'
+import { ageFromDob, waitingSince, formatDate } from '../../lib/demoClock'
 import { useDashboardStore } from '../../lib/reviewStore'
 import type { ReviewStatus, ReviewableReferral } from '../../types'
 import Badge, { type BadgeTone } from '../shared/Badge'
@@ -95,7 +95,7 @@ export default function DetailScreen() {
   // has nothing to go back to, so send it to the section instead.
   const onBack = () => (origin ? navigate(-1) : navigate('..'))
 
-  const { reviews } = useDashboardStore()
+  const { reviews, audit } = useDashboardStore()
   const { user } = useAuth()
   const [referral, setReferral] = useState<ReviewableReferral | null>(null)
   const [loading, setLoading] = useState(true)
@@ -146,6 +146,11 @@ export default function DetailScreen() {
   const status: ReviewStatus = review?.status ?? 'pending'
   const pill = REVIEW_PILL[status]
 
+  // Find the latest note provided by the patient (if any)
+  const patientNoteEvent = audit
+    .filter((e) => e.referralId === referralId && e.role === 'patient' && e.note)
+    .pop()
+
   return (
     <div className="mx-auto w-full max-w-dash-page px-6 pt-4">
       {/* Header row */}
@@ -181,6 +186,18 @@ export default function DetailScreen() {
       <div className="mt-3">
         <ReviewStepper decided={status !== 'pending'} />
       </div>
+
+      {patientNoteEvent && (
+        <div className="mt-4 rounded-dash-card border-2 border-red-200 bg-red-50 p-4 shadow-sm">
+          <p className="text-dash-micro font-semibold uppercase tracking-wide text-red-800">
+            Missing Information Provided by Patient
+          </p>
+          <p className="mt-2 text-dash-body font-medium text-red-950">"{patientNoteEvent.note}"</p>
+          <p className="mt-2 text-dash-micro text-red-800/80">
+            Received {formatDate(patientNoteEvent.at)}
+          </p>
+        </div>
+      )}
 
       {/* Two-column split — right (conclusion) slightly wider */}
       <div className="mt-4 grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] items-start gap-4">

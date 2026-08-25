@@ -17,7 +17,6 @@ import KnowledgeBase from './pages/KnowledgeBase'
 import Reconcile from './pages/Reconcile'
 import Runner from './pages/Runner'
 import MyReferralScreen from './pages/patient/MyReferralScreen'
-import AppointmentsScreen from './pages/patient/AppointmentsScreen'
 
 /**
  * Omari — the route table.
@@ -81,7 +80,7 @@ export default function AppRoutes() {
           />
         </Route>
 
-        {/* ── Surgeon — their own referrals, plus the two tools they use. ─── */}
+        {/* ── Surgeon — their referrals, clinic, generate, and builder. ─── */}
         <Route element={<RequireRole role="surgeon" />}>
           <Route path="/surgeon" element={<Navigate to="/surgeon/referrals" replace />} />
           <Route path="/surgeon/referrals" element={<ReferralsLayout />}>
@@ -91,19 +90,19 @@ export default function AppRoutes() {
             <Route path="workup" element={<WorkupScreen />} />
             <Route path=":referralId" element={<DetailScreen />} />
           </Route>
+          <Route path="/surgeon/clinic" element={<ClinicDirectoryScreen />} />
+          <Route path="/surgeon/generate" element={<GenerateLayout />}>
+            <Route index element={<SurgeonGenerateRoute />} />
+            <Route path="setup" element={<SurgeonReconcileRoute />} />
+          </Route>
           <Route path="/surgeon/builder" element={<Builder />} />
-          <Route path="/surgeon/knowledge" element={<KnowledgeBase />} />
         </Route>
 
-        {/* ── Patient — intake and their own referral. Nothing clinical. ──── */}
+        {/* ── Patient — intake and their own referral status. ───────────── */}
         <Route element={<RequireRole role="patient" />}>
           <Route path="/patient" element={<Navigate to="/patient/intake" replace />} />
-          {/* The orb owns this whole pane and its own scrolling — no wrapper
-              scroll, or the stage and the content would scroll against each
-              other. */}
           <Route path="/patient/intake" element={<Runner audience="patient" />} />
           <Route path="/patient/status" element={<MyReferralScreen />} />
-          <Route path="/patient/appointments" element={<AppointmentsScreen />} />
         </Route>
 
         <Route path="*" element={<HomeRedirect />} />
@@ -126,4 +125,14 @@ function GenerateRoute() {
 function ReconcileRoute() {
   const navigate = useNavigate()
   return <Reconcile onOpenBuilder={() => navigate('/admin/builder')} />
+}
+
+function SurgeonGenerateRoute() {
+  const navigate = useNavigate()
+  return <Generate onOpenReconcile={() => navigate('/surgeon/generate/setup')} />
+}
+
+function SurgeonReconcileRoute() {
+  const navigate = useNavigate()
+  return <Reconcile onOpenBuilder={() => navigate('/surgeon/builder')} />
 }

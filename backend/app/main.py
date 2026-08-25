@@ -18,6 +18,7 @@ from app.api.v1 import (
     knowledge_bases,
     runner,
     deltas,
+    referrals,
 )
 
 
@@ -59,6 +60,7 @@ app.include_router(knowledge_bases.router, prefix=settings.API_V1_PREFIX, tags=[
 app.include_router(runner.router, prefix=settings.API_V1_PREFIX, tags=["runner"])
 app.include_router(deltas.router, prefix=settings.API_V1_PREFIX, tags=["deltas"])
 app.include_router(deltas.reconcile_router, prefix=settings.API_V1_PREFIX, tags=["deltas"])
+app.include_router(referrals.router, prefix=settings.API_V1_PREFIX, tags=["referrals"])
 
 
 @app.get(f"{settings.API_V1_PREFIX}/health", tags=["health"])

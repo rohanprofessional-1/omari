@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import type { AuditEvent, Correction, ReviewState, ReviewStatus, Role, WorkupStatus } from '../types'
 import { isRole } from '../../types/roles'
 import { localStorageWorks } from '../../lib/canStore'
+import { submitReview } from '../../lib/api'
 
 /**
  * Dashboard — review store. localStorage-backed, module-level state with a
@@ -108,6 +109,28 @@ function newEventId(): string {
   return `evt-${Date.now()}-${eventCounter}`
 }
 
+export function hydrateReviews(reviewsFromBackend: ReviewState[]): void {
+  const newReviews: Record<string, ReviewState> = {}
+  for (const r of reviewsFromBackend) {
+    newReviews[r.referralId] = r
+  }
+  snapshot = {
+    ...snapshot,
+    reviews: { ...snapshot.reviews, ...newReviews },
+  }
+  persist()
+  notify()
+}
+
+export function hydrateAudit(eventsFromBackend: AuditEvent[]): void {
+  snapshot = {
+    ...snapshot,
+    audit: eventsFromBackend,
+  }
+  persist()
+  notify()
+}
+
 /* ── Actions (module-level → referentially stable) ────────────────────────── */
 
 /**
@@ -150,6 +173,15 @@ export function applyAction(
   }
   persist()
   notify()
+
+  // Fire-and-forget to the backend so it persists beyond local storage
+  submitReview(referralId, {
+    status: action,
+    actor: opts.actor,
+    role: opts.role,
+    correction: opts.correction,
+    note: opts.note,
+  }).catch((err) => console.error('Failed to submit review to backend:', err))
 }
 
 /** Return a reviewed referral to the pending queue; audited. */
@@ -247,26 +279,7 @@ export function setWorkupStatus(
 }
 
 /**
- * Wipe all demo review state (reviews, audit, workup, surgeon visit).
- *
- * The CURRENT ROLE is deliberately preserved: it is who you are signed in as,
- * not demo data. Resetting it would sign the admin out of their own view mid-demo.
- */
-export function resetDemoData(): void {
-  const role = snapshot.role
-  if (canStore) {
-    for (const key of ALL_KEYS) localStorage.removeItem(key)
-    localStorage.setItem(ROLE_KEY, role)
-  }
-  snapshot = {
-    reviews: {},
-    audit: [],
-    workupOverrides: {},
-    role,
-    surgeonLastVisit: null,
-  }
-  notify()
-}
+
 
 export function getSurgeonLastVisit(): string | null {
   return snapshot.surgeonLastVisit
@@ -303,6 +316,5 @@ export function useDashboardStore() {
     markSurgeonVisit,
     setRole,
     setWorkupStatus,
-    resetDemoData,
   }
 }

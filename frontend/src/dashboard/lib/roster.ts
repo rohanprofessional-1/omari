@@ -1,6 +1,6 @@
 import { fetchSpecialists } from '../../lib/api'
-import { DASHBOARD_TREE } from '../data/dashboardDeltas'
 import type { ReviewState, ReviewableReferral } from '../types'
+import type { Tree } from '../../types/tree'
 import { destinationOf } from './scope'
 
 /**
@@ -41,9 +41,9 @@ export interface Caseload {
 }
 
 /** Every routable destination in the clinic's compiled tree. No network. */
-export function treeRoster(): RosterEntry[] {
+export function treeRoster(tree: Tree): RosterEntry[] {
   const seen = new Map<string, RosterEntry>()
-  for (const node of DASHBOARD_TREE.nodes) {
+  for (const node of tree.nodes) {
     if (node.type !== 'specialist') continue
     if (seen.has(node.specialistName)) continue
     seen.set(node.specialistName, {
@@ -87,13 +87,13 @@ export function mergeRoster(api: unknown, tree: RosterEntry[]): RosterEntry[] {
 }
 
 /** The directory, enriched if the API answers and unchanged if it doesn't. */
-export async function loadRoster(): Promise<RosterEntry[]> {
-  const tree = treeRoster()
+export async function loadRoster(tree: Tree): Promise<RosterEntry[]> {
+  const tRoster = treeRoster(tree)
   try {
-    return mergeRoster(await fetchSpecialists(), tree)
+    return mergeRoster(await fetchSpecialists(), tRoster)
   } catch {
     // Backend down — the tree roster is a complete answer on its own.
-    return tree
+    return tRoster
   }
 }
 

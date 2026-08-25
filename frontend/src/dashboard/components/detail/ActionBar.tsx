@@ -56,7 +56,7 @@ export default function ActionBar({
   const archetype = archetypeOf(referral)
 
   const approveEnabled =
-    status === 'pending' && (archetype === 'routed' || (archetype === 'needs_info' && role === 'surgeon'))
+    status === 'pending' && (archetype === 'routed' || archetype === 'needs_info')
 
   const approve = () => applyAction(id, 'approved', { actor, role })
 

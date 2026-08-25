@@ -15,6 +15,7 @@ from app.models.branch import Branch
 from app.models.clinic import Clinic
 from app.models.condition import Condition, ConditionType
 from app.models.node import DataSource, Node, NodeType, Urgency
+from app.models.referral import Referral
 from app.models.specialist import Specialist
 from app.models.tree import Tree
 from app.models.variable import AnswerType, Variable
@@ -169,7 +170,7 @@ async def seed() -> None:
         clinic = clinic_result.scalars().first()
         if not clinic:
             clinic = Clinic(
-                id=str(uuid.uuid4()),
+                id="duke-nerve-center",
                 name="Demo Clinic",
                 type="Neurology",
             )
@@ -188,6 +189,76 @@ async def seed() -> None:
                 print(f"Imported tree from {file_path.name}")
             except Exception as e:
                 print(f"Skipping {file_path.name}: {e}")
+                
+        # Seed referrals
+        existing_referral = (await db.execute(select(Referral).limit(1))).scalars().first()
+        if not existing_referral:
+            from datetime import datetime
+            r1 = Referral(
+                id=str(uuid.uuid4()),
+                referral_id="REF-2026-9281",
+                clinic_id=clinic.id,
+                received_at=datetime.now(),
+                channel="epic",
+                patient_name="Marla Testfield",
+                patient_mrn="MRN-4839201",
+                patient_dob="1975-04-12",
+                patient_sex="F",
+                patient_phone="555-0102",
+                referred_by_provider="Self-referred (Omari AI)",
+                referred_by_npi="",
+                referred_by_practice="Omari Virtual Intake",
+                referred_by_phone="",
+                referred_to_department="Hand Surgery",
+                priority="routine",
+                reason_for_referral="Hand pain and numbness",
+                clinical_note="",
+                diagnoses=[],
+                attachments=[],
+                structured={},
+                extraction_variables={
+                    "chiefComplaint": {"value": "carpal_tunnel_symptoms", "confidence": 0.95},
+                    "duration": {"value": "months", "confidence": 0.9},
+                },
+                extraction_sources={
+                    "chiefComplaint": "patient-stated",
+                    "duration": "patient-stated"
+                }
+            )
+            
+            r2 = Referral(
+                id=str(uuid.uuid4()),
+                referral_id="REF-2026-3392",
+                clinic_id=clinic.id,
+                received_at=datetime.now(),
+                channel="epic",
+                patient_name="James Wilson",
+                patient_mrn="MRN-8472910",
+                patient_dob="1982-11-23",
+                patient_sex="M",
+                patient_phone="555-0992",
+                referred_by_provider="Dr. Gregory House",
+                referred_by_npi="1234567890",
+                referred_by_practice="Princeton Plainsboro",
+                referred_by_phone="555-1234",
+                referred_to_department="Hand Surgery",
+                priority="urgent",
+                reason_for_referral="Traumatic hand injury",
+                clinical_note="",
+                diagnoses=[],
+                attachments=[],
+                structured={},
+                extraction_variables={
+                    "chiefComplaint": {"value": "acute_injury", "confidence": 0.99}
+                },
+                extraction_sources={
+                    "chiefComplaint": "referrer-stated"
+                }
+            )
+            
+            db.add_all([r1, r2])
+            await db.commit()
+            print("Imported seed referrals.")
                 
         print("Seed complete.")
 

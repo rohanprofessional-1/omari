@@ -916,15 +916,31 @@ function BuilderCanvas() {
     setOpenTreeId(null)
   }, [loadTree])
 
-  // Generator handoff: the Generate wizard saves its validated draft to the
+  const [initialLoadDone, setInitialLoadDone] = useState(false)
+
+  // Generator handoff & Default Load: The Generate wizard saves its validated draft to the
   // library and asks the Builder to open it by leaving the id in localStorage.
+  // If no handoff is present, we load the active tree by default.
   useEffect(() => {
+    if (initialLoadDone) return
+
     const id = localStorage.getItem('omari:builderOpenTreeId')
     if (id) {
       localStorage.removeItem('omari:builderOpenTreeId')
-      void loadTreeFromDb(id)
+      void loadTreeFromDb(id).finally(() => setInitialLoadDone(true))
+    } else {
+      fetchTrees()
+        .then((trees) => {
+          setDbTrees(trees)
+          const active = trees.find((t) => t.is_active)
+          if (active) {
+            void loadTreeFromDb(active.id)
+          }
+        })
+        .catch(console.error)
+        .finally(() => setInitialLoadDone(true))
     }
-  }, [loadTreeFromDb])
+  }, [initialLoadDone, loadTreeFromDb])
 
   // Single save → the shared Postgres tree library (so the tree shows up in the
   // Runner's tree picker and survives reloads / other browsers). The canvas is

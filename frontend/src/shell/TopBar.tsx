@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
-import DemoRoleChip from '../auth/DemoRoleChip'
 import { useAuth } from '../auth/authStore'
 import { isEmbedded } from './embed'
 import { SECTIONS } from './nav'
@@ -24,7 +23,7 @@ export default function TopBar() {
 
   return (
     <header
-      className={`omari-enter-bar relative z-10 flex shrink-0 items-center gap-4 border-b border-line bg-canvas pr-4 ${
+      className={`omari-enter-bar relative z-50 flex shrink-0 items-center gap-4 border-b border-line bg-canvas pr-4 ${
         isEmbedded ? 'h-12 pl-4' : 'h-14 pl-2'
       }`}
     >
@@ -60,7 +59,6 @@ export default function TopBar() {
 
       {!isEmbedded && (
         <div className="ml-auto flex items-center gap-3">
-          <DemoRoleChip />
           <AccountTools />
         </div>
       )}
@@ -171,9 +169,9 @@ function AccountTools() {
         {menu === 'account' && user && (
           <Dropdown>
             <div className="flex items-center gap-2.5 px-2.5 py-2">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-strong text-sm font-semibold text-white">
-                {initial}
-              </span>
+              <div className="flex w-8 h-8 items-center justify-center rounded-full bg-dash-accent-soft text-dash-accent-strong text-dash-body font-semibold">
+                {user.name.charAt(0).toUpperCase()}
+              </div>
               <span className="min-w-0">
                 <span className="block truncate text-[13px] font-medium text-ink">{user.name}</span>
                 <span className="block truncate text-[11px] text-muted">{user.email}</span>

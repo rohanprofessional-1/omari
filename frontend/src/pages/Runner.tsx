@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { sampleTree } from '../data/sampleTree'
+import { useAuth } from '../auth/authStore'
 import { useTreeLibrary, type TreeLibrary } from '../lib/treeLibrary'
 import TreePicker from '../components/TreePicker'
 import StatusStepper from '../components/StatusStepper'
@@ -22,6 +24,7 @@ import { extract } from '../lib/extraction'
 import { voiceTurn } from '../lib/voice'
 import { triageTurn, type TriageSituation } from '../lib/triage'
 import { deriveQuestion, fillTemplate, type Choice } from '../lib/runner'
+import { createReferral } from '../lib/api'
 import { composeConfirmation } from '../lib/confirmation'
 import OrbExperience from '../components/OrbExperience'
 import type { FilledVariables, Tree, Urgency, VariableNode, VariableSpec } from '../types/tree'
@@ -157,9 +160,72 @@ function RunnerSession({
   const [step, setStep] = useState<OrchestratorStep | null>(null)
   const [phase, setPhase] = useState<Phase>('intro')
   const [error, setError] = useState<string | null>(null)
+  const { user } = useAuth()
+  const navigate = useNavigate()
+
   const [draft, setDraft] = useState('')
   const lastTextRef = useRef('') // the initial free-text (for the error-retry button)
   const lastPatientRef = useRef('') // the patient's most recent utterance (for warm acknowledgment)
+
+  // Track if we've already submitted the referral to avoid double POSTs
+  const submittedRef = useRef(false)
+
+  // When the intake conversation finishes (routes), POST the referral
+  useEffect(() => {
+    if (audience !== 'patient' || phase !== 'done' || step?.kind !== 'route' || !user || submittedRef.current) return
+    submittedRef.current = true
+
+    const run = async () => {
+      try {
+        await createReferral({
+          clinic_id: user.clinicId,
+          payload: {
+            referralId: `REF-${new Date().getFullYear()}-${Math.floor(Math.random() * 10000)}`,
+            receivedAt: new Date().toISOString(),
+            channel: 'epic', // Omari chatbot essentially simulates an Epic self-referral for the demo
+            patient: {
+              name: user.name,
+              mrn: user.mrn || 'MRN-UNKNOWN',
+              dob: '1980-01-01',
+              sex: 'F',
+              phone: '555-0102',
+            },
+            referredBy: {
+              provider: 'Self-referred (Omari AI)',
+              npi: '',
+              practice: 'Omari Virtual Intake',
+              phone: '',
+            },
+            referredToDepartment: step.specialist.specialty,
+            priority: step.urgency === 'routine' ? 'routine' : 'urgent',
+            reasonForReferral: lastTextRef.current || 'Patient-reported symptoms via AI intake',
+            clinicalNote: '', // The AI generates a summary instead
+            diagnoses: [],
+            attachments: [],
+            structured: {},
+          },
+          extraction: {
+            variables: filled,
+            sources: Object.keys(filled).reduce(
+              (acc, k) => ({ ...acc, [k]: 'patient-stated' }),
+              {}
+            ),
+          },
+        })
+        
+        // Wait a beat to let them read the "I've sent your referral over" message, then bounce them
+        setTimeout(() => {
+          navigate('/patient/status')
+        }, 3000)
+      } catch (err) {
+        console.error('Failed to save referral', err)
+        setError('Failed to submit your referral. Please try again or call the clinic.')
+        setPhase('error')
+        submittedRef.current = false // Allow retry
+      }
+    }
+    void run()
+  }, [phase, step, audience, user, filled, navigate])
 
   // Escalation-policy bookkeeping (persists across turns). The engine still
   // decides; these only track our clarify-then-gather intake before a handoff.

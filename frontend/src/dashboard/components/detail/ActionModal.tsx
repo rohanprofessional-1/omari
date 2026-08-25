@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { DASHBOARD_TREE } from '../../data/dashboardDeltas'
+import { useActiveTree } from '../../lib/activeTreeStore'
 import type { SpecialistNode } from '../../../types/tree'
 import { applyAction, reviewerNameFor, useDashboardStore } from '../../lib/reviewStore'
 import type { Correction, ReviewableReferral, Role } from '../../types'
@@ -88,8 +88,9 @@ function ChangeDestinationModal({
   role: Role
   onClose: () => void
 }) {
+  const { tree } = useActiveTree()
   const { result } = referral
-  const terminals = DASHBOARD_TREE.nodes.filter((n): n is SpecialistNode => n.type === 'specialist')
+  const terminals = (tree?.nodes || []).filter((n): n is SpecialistNode => n.type === 'specialist')
   const [selectedId, setSelectedId] = useState<string | null>(result.routedTo?.nodeId ?? null)
   /** '' = follow the selected terminal's default urgency. */
   const [urgency, setUrgency] = useState<Urgency | ''>('')

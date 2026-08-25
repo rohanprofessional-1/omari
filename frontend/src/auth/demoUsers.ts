@@ -66,6 +66,14 @@ export const DEMO_USERS: User[] = [
     role: 'patient',
     mrn: 'MRN-4839201', // fixtures/referrals.ts → REF-2026-0142
   },
+  {
+    id: 'u-patient-wilson',
+    clinicId: CLINIC_ID,
+    email: 'james.wilson@example.com',
+    name: 'James Wilson',
+    role: 'patient',
+    mrn: 'MRN-8472910', // From seed.py REF-2026-3392
+  },
 ]
 
 /** Case-insensitive lookup by email. Password is not checked (demo). */

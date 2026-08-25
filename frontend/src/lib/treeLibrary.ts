@@ -5,6 +5,7 @@ import {
   createTreeFull,
   renameTree,
   deleteTree,
+  activateTree,
   type TreeSummary,
 } from './api'
 import { sampleTree } from '../data/sampleTree'
@@ -45,6 +46,7 @@ export interface TreeLibrary {
   rename: (id: string, name: string) => Promise<void>
   remove: (id: string) => Promise<void>
   importStarters: () => Promise<void>
+  activate: (id: string) => Promise<void>
 }
 
 export function useTreeLibrary(): TreeLibrary {
@@ -93,7 +95,9 @@ export function useTreeLibrary(): TreeLibrary {
       const list = await fetchTrees()
       setTrees(list)
       const stored = readStored()
-      const pick = list.find((t) => t.id === stored) ?? list[0]
+      const activeTree = list.find((t) => t.is_active)
+      const storedTree = list.find((t) => t.id === stored)
+      const pick = storedTree ?? activeTree ?? list[0]
       if (pick) {
         persistActive(pick.id)
         await loadTree(pick.id)
@@ -161,6 +165,14 @@ export function useTreeLibrary(): TreeLibrary {
     await refresh()
   }, [refresh])
 
+  const activate = useCallback(
+    async (id: string) => {
+      await activateTree(id)
+      await refresh()
+    },
+    [refresh],
+  )
+
   return {
     trees,
     activeId,
@@ -175,5 +187,6 @@ export function useTreeLibrary(): TreeLibrary {
     rename,
     remove,
     importStarters,
+    activate,
   }
 }

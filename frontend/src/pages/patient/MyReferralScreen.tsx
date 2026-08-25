@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../../auth/authStore'
+import { applyAction } from '../../dashboard/lib/reviewStore'
 import { formatDate, formatDateShort } from '../../dashboard/lib/demoClock'
 import { humanWait, type PlanTest } from './carePlan'
 import { isBehindUs, type JourneyEvent } from './journey'
@@ -56,12 +59,12 @@ function ActionPanel({ actions }: { actions: Action[] }) {
               <span className="block text-[15px] font-semibold text-ink">{action.title}</span>
               <span className="block text-[13px] leading-snug text-muted">{action.why}</span>
             </span>
-            <Link
-              to="/patient/appointments"
+            <button
+              onClick={() => alert('Appointment scheduling coming soon')}
               className="shrink-0 rounded-md bg-accent-strong px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#27508f]"
             >
               {action.cta}
-            </Link>
+            </button>
           </li>
         ))}
       </ol>
@@ -76,6 +79,65 @@ function CalmPanel({ title, body }: { title: string; body: string }) {
       <h2 className="text-caption uppercase text-muted">Do this next</h2>
       <p className="mt-2 text-[15px] font-semibold text-ink">{title}</p>
       <p className="mt-1 text-[13px] leading-relaxed text-muted">{body}</p>
+    </section>
+  )
+}
+
+function MissingInfoPanel({
+  referralId,
+  reason,
+}: {
+  referralId: string
+  reason: string
+}) {
+  const { user } = useAuth()
+  const [info, setInfo] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleSubmit = () => {
+    if (!info.trim() || !user) return
+    setSubmitting(true)
+    // Send it back to pending with the provided info as a note
+    applyAction(referralId, 'pending', {
+      actor: user.name,
+      role: user.role,
+      note: info,
+    })
+    // UI will optimistically update based on usePatientReferral
+  }
+
+  return (
+    <section className="rounded-xl border border-danger/30 bg-[#fdf5f5] p-5 shadow-sm">
+      <h2 className="text-[13px] font-bold uppercase tracking-wider text-danger/90">
+        Missing Information Needed
+      </h2>
+      <p className="mt-2 text-[15px] font-semibold text-ink">
+        The clinic requested more details before they can proceed.
+      </p>
+      {reason && (
+        <p className="mt-1.5 text-[14px] leading-relaxed text-ink/80 italic border-l-2 border-danger/30 pl-3">
+          "{reason}"
+        </p>
+      )}
+      <div className="mt-4">
+        <textarea
+          value={info}
+          onChange={(e) => setInfo(e.target.value)}
+          placeholder="Type your answer here..."
+          className="w-full resize-y rounded-md border border-line bg-white p-3 text-[14px] text-ink shadow-sm placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+          rows={3}
+          disabled={submitting}
+        />
+        <div className="mt-3 flex justify-end">
+          <button
+            onClick={handleSubmit}
+            disabled={!info.trim() || submitting}
+            className="rounded-md bg-accent-strong px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-accent-strong/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitting ? 'Sending...' : 'Send details'}
+          </button>
+        </div>
+      </div>
     </section>
   )
 }
@@ -173,7 +235,7 @@ function TaskRow({ test }: { test: PlanTest }) {
 /* ── Screen ──────────────────────────────────────────────────────────────── */
 
 export default function MyReferralScreen() {
-  const { loading, referral, redirected, careTeam, plan, journey } = usePatientReferral()
+  const { loading, referral, redirected, careTeam, plan, journey, status, review } = usePatientReferral()
 
   if (loading) {
     return (
@@ -256,7 +318,12 @@ export default function MyReferralScreen() {
 
       <div className="mt-5 space-y-4">
         {/* 1 · What only you can do */}
-        {actions.length > 0 ? (
+        {status === 'info_requested' ? (
+          <MissingInfoPanel
+            referralId={referral.payload.referralId}
+            reason={review?.correction?.reason || 'Please provide additional details regarding your referral.'}
+          />
+        ) : actions.length > 0 ? (
           <ActionPanel actions={actions.slice(0, 3)} />
         ) : !approved ? (
           <CalmPanel

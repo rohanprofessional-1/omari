@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, update
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db
@@ -28,6 +28,14 @@ from app.services.tree_serializer import serialize_tree
 
 router = APIRouter(prefix="/trees")
 
+async def _deactivate_other_trees(db: AsyncSession, active_tree_id: str, clinic_id: str | None) -> None:
+    """Ensure only one tree is active per clinic (or globally if clinic_id is None)."""
+    query = update(Tree).where(Tree.id != active_tree_id)
+    if clinic_id:
+        query = query.where(Tree.clinic_id == clinic_id)
+    else:
+        query = query.where(Tree.clinic_id.is_(None))
+    await db.execute(query.values(is_active=False))
 
 def _normalize_workup(workup) -> dict | None:
     """Legacy flat list or WorkupSpecIn → the canonical WorkupSpec dict."""
@@ -75,6 +83,12 @@ async def create_tree(
     db.add(tree)
     await db.commit()
     await db.refresh(tree)
+    
+    if tree.is_active:
+        await _deactivate_other_trees(db, tree.id, tree.clinic_id)
+        await db.commit()
+        await db.refresh(tree)
+        
     return tree
 
 
@@ -108,6 +122,12 @@ async def create_tree_full(
 
     await db.commit()
     await db.refresh(tree)
+
+    if tree.is_active:
+        await _deactivate_other_trees(db, tree.id, tree.clinic_id)
+        await db.commit()
+        await db.refresh(tree)
+
     return tree
 
 
@@ -273,6 +293,12 @@ async def update_tree(
         
     await db.commit()
     await db.refresh(tree)
+
+    if update_data.get("is_active") is True:
+        await _deactivate_other_trees(db, tree.id, tree.clinic_id)
+        await db.commit()
+        await db.refresh(tree)
+
     return tree
 
 

@@ -38,8 +38,4 @@ export const isEmbedded: boolean = (() => {
   return flag === '1' || flag === 'true'
 })()
 
-/** The role the host asked us to adopt, if it named a valid one. */
-export function requestedRole(): Role | null {
-  const value = params().get('as')
-  return value && isRole(value) ? value : null
-}
+

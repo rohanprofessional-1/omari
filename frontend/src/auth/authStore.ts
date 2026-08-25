@@ -99,23 +99,11 @@ export function signOut(): void {
   commit(null)
 }
 
-/**
- * DEMO affordance — jump to the seeded account for another role without
- * signing out. Deliberately distinct from signIn so it is easy to delete
- * alongside demoUsers.ts.
- */
-export function switchDemoRole(role: Role): User {
-  const user = demoUserForRole(role)
-  commit(user)
-  return user
-}
-
 /** React binding. Re-renders on any auth change. */
 export function useAuth(): AuthSnapshot & {
   signIn: typeof signIn
   signOut: typeof signOut
-  switchDemoRole: typeof switchDemoRole
 } {
   const snap = useSyncExternalStore(subscribe, getSnapshot)
-  return { ...snap, signIn, signOut, switchDemoRole }
+  return { ...snap, signIn, signOut }
 }

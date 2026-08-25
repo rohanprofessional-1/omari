@@ -1,5 +1,4 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import AdminBar from '../components/AdminBar'
 import { useDashboardStore } from '../lib/reviewStore'
 import type { Role } from '../types'
 
@@ -74,9 +73,6 @@ export default function ReferralsLayout() {
           </nav>
         </div>
       </div>
-
-      {/* Demo administration — admin only */}
-      {role === 'admin' && <AdminBar />}
 
       {/* Body — owns its scroll; sticky group headers stick to it */}
       <div className="min-h-0 flex-1 overflow-y-auto">

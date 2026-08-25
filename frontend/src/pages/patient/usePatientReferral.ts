@@ -3,7 +3,7 @@ import { useAuth } from '../../auth/authStore'
 import { useDashboardStore } from '../../dashboard/lib/reviewStore'
 import { listForUser } from '../../dashboard/lib/scope'
 import { buildWorkupEntries, type WorkupEntry } from '../../dashboard/lib/workupMerge'
-import type { ReviewStatus, ReviewableReferral } from '../../dashboard/types'
+import type { ReviewState, ReviewStatus, ReviewableReferral } from '../../dashboard/types'
 import type { StatusStage } from '../../components/StatusStepper'
 import { useBookings, useTestBookings, type Booking } from './appointmentStore'
 import { buildCarePlan, type CarePlan } from './carePlan'
@@ -25,6 +25,7 @@ export interface PatientReferral {
   loading: boolean
   referral: ReviewableReferral | null
   status: ReviewStatus
+  review: ReviewState | null
   stage: StatusStage
   /** Redirected out of this clinic — never phrased to the patient as "rejected". */
   redirected: boolean
@@ -104,6 +105,7 @@ export function usePatientReferral(): PatientReferral {
       loading: fetched === null,
       referral,
       status,
+      review: id ? reviews[id] ?? null : null,
       stage,
       redirected,
       careTeam,
