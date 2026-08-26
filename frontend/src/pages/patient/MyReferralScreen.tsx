@@ -6,6 +6,7 @@ import { formatDate, formatDateShort } from '../../dashboard/lib/demoClock'
 import { humanWait, type PlanTest } from './carePlan'
 import { isBehindUs, type JourneyEvent } from './journey'
 import { usePatientReferral } from './usePatientReferral'
+import type { MissingVariableInfo } from '../../dashboard/types'
 
 /**
  * "My referral" — one column, read top to bottom, in order of urgency:
@@ -86,25 +87,38 @@ function CalmPanel({ title, body }: { title: string; body: string }) {
 function MissingInfoPanel({
   referralId,
   reason,
+  missingVariables,
 }: {
   referralId: string
   reason: string
+  missingVariables: MissingVariableInfo[]
 }) {
   const { user } = useAuth()
-  const [info, setInfo] = useState('')
+  const [generalInfo, setGeneralInfo] = useState('')
+  const [answers, setAnswers] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
 
+  const patientVars = missingVariables.filter(m => m.whoCanSupply === 'patient')
+
   const handleSubmit = () => {
-    if (!info.trim() || !user) return
+    if ((!generalInfo.trim() && Object.keys(answers).length === 0) || !user) return
     setSubmitting(true)
-    // Send it back to pending with the provided info as a note
+    
+    const answersText = patientVars
+      .filter(v => answers[v.variableKey]?.trim())
+      .map(v => `${v.question}:\n${answers[v.variableKey].trim()}`)
+      .join('\n\n')
+      
+    const finalNote = [answersText, generalInfo.trim()].filter(Boolean).join('\n\n---\n\n')
+
     applyAction(referralId, 'pending', {
       actor: user.name,
       role: user.role,
-      note: info,
+      note: finalNote,
     })
-    // UI will optimistically update based on usePatientReferral
   }
+
+  const valid = generalInfo.trim() || Object.values(answers).some(a => a.trim())
 
   return (
     <section className="rounded-xl border border-danger/30 bg-[#fdf5f5] p-5 shadow-sm">
@@ -119,19 +133,60 @@ function MissingInfoPanel({
           "{reason}"
         </p>
       )}
-      <div className="mt-4">
-        <textarea
-          value={info}
-          onChange={(e) => setInfo(e.target.value)}
-          placeholder="Type your answer here..."
-          className="w-full resize-y rounded-md border border-line bg-white p-3 text-[14px] text-ink shadow-sm placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-          rows={3}
-          disabled={submitting}
-        />
+      <div className="mt-4 space-y-4">
+        {patientVars.map((v) => (
+          <div key={v.variableKey}>
+            <label className="block text-[14px] font-medium text-ink mb-2">
+              {v.question}
+            </label>
+            {v.gates && v.gates.length > 0 ? (
+              <div className="space-y-2 mb-3 bg-white p-3 rounded-md border border-line shadow-sm">
+                {v.gates.map((g) => (
+                  <label key={g.answerLabel} className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={v.variableKey}
+                      value={g.answerLabel}
+                      checked={answers[v.variableKey] === g.answerLabel}
+                      onChange={(e) => setAnswers(prev => ({ ...prev, [v.variableKey]: e.target.value }))}
+                      disabled={submitting}
+                      className="mt-1"
+                    />
+                    <span className="text-[14px] text-ink leading-snug">{g.answerLabel}</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <textarea
+                value={answers[v.variableKey] || ''}
+                onChange={(e) => setAnswers(prev => ({ ...prev, [v.variableKey]: e.target.value }))}
+                placeholder="Your answer..."
+                className="w-full resize-y rounded-md border border-line bg-white p-3 text-[14px] text-ink shadow-sm placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                rows={2}
+                disabled={submitting}
+              />
+            )}
+          </div>
+        ))}
+        
+        <div>
+          <label className="block text-[14px] font-medium text-ink mb-1">
+            {patientVars.length > 0 ? "Anything else to add?" : "Your answer"}
+          </label>
+          <textarea
+            value={generalInfo}
+            onChange={(e) => setGeneralInfo(e.target.value)}
+            placeholder="Type your answer here..."
+            className="w-full resize-y rounded-md border border-line bg-white p-3 text-[14px] text-ink shadow-sm placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            rows={3}
+            disabled={submitting}
+          />
+        </div>
+        
         <div className="mt-3 flex justify-end">
           <button
             onClick={handleSubmit}
-            disabled={!info.trim() || submitting}
+            disabled={!valid || submitting}
             className="rounded-md bg-accent-strong px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-accent-strong/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {submitting ? 'Sending...' : 'Send details'}
@@ -235,7 +290,7 @@ function TaskRow({ test }: { test: PlanTest }) {
 /* ── Screen ──────────────────────────────────────────────────────────────── */
 
 export default function MyReferralScreen() {
-  const { loading, referral, redirected, careTeam, plan, journey, status, review } = usePatientReferral()
+  const { loading, referral, redirected, careTeam, plan, journey, status, review, infoRequestNote } = usePatientReferral()
 
   if (loading) {
     return (
@@ -321,7 +376,8 @@ export default function MyReferralScreen() {
         {status === 'info_requested' ? (
           <MissingInfoPanel
             referralId={referral.payload.referralId}
-            reason={review?.correction?.reason || 'Please provide additional details regarding your referral.'}
+            reason={infoRequestNote || review?.correction?.reason || 'Please provide additional details regarding your referral.'}
+            missingVariables={referral.result.missingVariables}
           />
         ) : actions.length > 0 ? (
           <ActionPanel actions={actions.slice(0, 3)} />

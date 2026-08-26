@@ -74,6 +74,30 @@ export const DEMO_USERS: User[] = [
     role: 'patient',
     mrn: 'MRN-8472910', // From seed.py REF-2026-3392
   },
+  {
+    id: 'u-patient-sarah',
+    clinicId: CLINIC_ID,
+    email: 'sarah.blankslate@example.com',
+    name: 'Sarah Blankslate',
+    role: 'patient',
+    mrn: 'MRN-1111111', 
+  },
+  {
+    id: 'u-patient-john',
+    clinicId: CLINIC_ID,
+    email: 'john.pending@example.com',
+    name: 'John Pending',
+    role: 'patient',
+    mrn: 'MRN-2222222', 
+  },
+  {
+    id: 'u-patient-emily',
+    clinicId: CLINIC_ID,
+    email: 'emily.missinginfo@example.com',
+    name: 'Emily MissingInfo',
+    role: 'patient',
+    mrn: 'MRN-3333333', 
+  },
 ]
 
 /** Case-insensitive lookup by email. Password is not checked (demo). */

@@ -38,6 +38,7 @@ export interface PatientReferral {
   plan: CarePlan
   /** Everything that has happened and is still to come, in order. */
   journey: JourneyEvent[]
+  infoRequestNote: string | null
 }
 
 /* `patientItems` / `outstandingPatientItems` used to live here, filtering the
@@ -101,6 +102,10 @@ export function usePatientReferral(): PatientReferral {
 
     const journey = referral ? buildJourney({ referral, audit, plan, careTeam }) : []
 
+    const infoRequestNote = id
+      ? [...audit].reverse().find((e) => e.referralId === id && e.action === 'info_requested')?.note || null
+      : null
+
     return {
       loading: fetched === null,
       referral,
@@ -113,6 +118,7 @@ export function usePatientReferral(): PatientReferral {
       booking,
       plan,
       journey,
+      infoRequestNote,
     }
   }, [fetched, reviews, workupOverrides, bookings, testBookings, audit])
 }

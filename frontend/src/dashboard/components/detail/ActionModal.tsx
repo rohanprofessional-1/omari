@@ -314,10 +314,10 @@ function RequestInfoModal({
 
   const submit = () => {
     if (!valid) return
-    const parts = selected.map((m) => m.clinicalPrompt)
-    const note =
-      `Requested from ${recipient}: ` +
-      [...parts, freeText.trim()].filter(Boolean).join(' · ')
+    const text = freeText.trim()
+    const note = text
+      ? `Requested from ${recipient}: ${text}`
+      : `Information requested from ${recipient}.`
     applyAction(referral.payload.referralId, 'info_requested', { actor, role, note })
     onClose()
   }

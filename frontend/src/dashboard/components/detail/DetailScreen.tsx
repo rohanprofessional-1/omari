@@ -192,7 +192,7 @@ export default function DetailScreen() {
           <p className="text-dash-micro font-semibold uppercase tracking-wide text-red-800">
             Missing Information Provided by Patient
           </p>
-          <p className="mt-2 text-dash-body font-medium text-red-950">"{patientNoteEvent.note}"</p>
+          <p className="mt-2 whitespace-pre-wrap text-dash-body font-medium text-red-950">"{patientNoteEvent.note}"</p>
           <p className="mt-2 text-dash-micro text-red-800/80">
             Received {formatDate(patientNoteEvent.at)}
           </p>

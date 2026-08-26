@@ -15,7 +15,7 @@ from app.models.branch import Branch
 from app.models.clinic import Clinic
 from app.models.condition import Condition, ConditionType
 from app.models.node import DataSource, Node, NodeType, Urgency
-from app.models.referral import Referral
+from app.models.referral import Referral, ReferralReview, ReferralAuditEvent
 from app.models.specialist import Specialist
 from app.models.tree import Tree
 from app.models.variable import AnswerType, Variable
@@ -256,7 +256,90 @@ async def seed() -> None:
                 }
             )
             
-            db.add_all([r1, r2])
+            r3 = Referral(
+                id=str(uuid.uuid4()),
+                referral_id="REF-2026-8888",
+                clinic_id=clinic.id,
+                received_at=datetime.now(),
+                channel="epic",
+                patient_name="John Pending",
+                patient_mrn="MRN-2222222",
+                patient_dob="1990-01-01",
+                patient_sex="M",
+                patient_phone="555-2222",
+                referred_by_provider="Dr. Test",
+                referred_by_npi="1234567890",
+                referred_by_practice="Test Practice",
+                referred_by_phone="555-1234",
+                referred_to_department="Hand Surgery",
+                priority="routine",
+                reason_for_referral="Test pending referral",
+                clinical_note="",
+                diagnoses=[],
+                attachments=[],
+                structured={},
+                extraction_variables={
+                    "chiefComplaint": {"value": "carpal_tunnel_symptoms", "confidence": 0.95},
+                    "duration": {"value": "months", "confidence": 0.9},
+                },
+                extraction_sources={
+                    "chiefComplaint": "patient-stated",
+                    "duration": "patient-stated"
+                }
+            )
+
+            r4 = Referral(
+                id=str(uuid.uuid4()),
+                referral_id="REF-2026-9999",
+                clinic_id=clinic.id,
+                received_at=datetime.now(),
+                channel="epic",
+                patient_name="Emily MissingInfo",
+                patient_mrn="MRN-3333333",
+                patient_dob="1992-05-05",
+                patient_sex="F",
+                patient_phone="555-3333",
+                referred_by_provider="Dr. Test",
+                referred_by_npi="1234567890",
+                referred_by_practice="Test Practice",
+                referred_by_phone="555-1234",
+                referred_to_department="Hand Surgery",
+                priority="routine",
+                reason_for_referral="Test missing info referral",
+                clinical_note="",
+                diagnoses=[],
+                attachments=[],
+                structured={},
+                extraction_variables={
+                    "chiefComplaint": {"value": "carpal_tunnel_symptoms", "confidence": 0.95}
+                },
+                extraction_sources={
+                    "chiefComplaint": "patient-stated"
+                }
+            )
+            
+            db.add_all([r1, r2, r3, r4])
+            await db.commit()
+            
+            # Add review state for Emily MissingInfo
+            now = datetime.now()
+            rev = ReferralReview(
+                referral_id=r4.id,
+                status="info_requested",
+                reviewer="Dr. Neill Li",
+                reviewed_at=now,
+                correction=None
+            )
+            audit = ReferralAuditEvent(
+                referral_id=r4.id,
+                at=now,
+                actor="Dr. Neill Li",
+                role="surgeon",
+                action="info_requested",
+                correction=None,
+                note="Need to know how long the symptoms have been present."
+            )
+            db.add_all([rev, audit])
             await db.commit()
             print("Imported seed referrals.")
                 
