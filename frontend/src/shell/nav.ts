@@ -26,9 +26,10 @@ export const SECTIONS: Record<Role, NavItem[]> = {
   admin: [
     { to: '/admin/referrals', label: 'Referrals' },
     { to: '/admin/clinic', label: 'Clinic' },
-    // Drafting a tree and setting it up are two steps of one job, so they are
-    // one section with its own step nav (see pages/GenerateLayout.tsx).
-    { to: '/admin/generate', label: 'Generate' },
+    // No Generate section: building a tree from guidelines is now something you
+    // ask Sprout to do inside the Builder (attach a document → review → open),
+    // so tree generation and maintenance share one home. Old /admin/generate
+    // links redirect into the Builder (see routes.tsx).
     { to: '/admin/builder', label: 'Builder' },
     { to: '/admin/knowledge', label: 'Knowledge' },
     { to: '/admin/runner', label: 'Runner' },

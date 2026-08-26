@@ -10,6 +10,7 @@ const TEST_FILES = [
   'src/lib/orchestrator.test.ts',
   'src/lib/assistant/ops.test.ts',
   'src/lib/assistant/impact.test.ts',
+  'src/lib/assistant/genFromDocs.test.ts',
   'src/lib/deltas/deltas.test.ts',
   'src/lib/reconcile/plainLabel.test.ts',
   'src/lib/reconcile/questions/scope.test.ts',

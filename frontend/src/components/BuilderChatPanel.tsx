@@ -7,6 +7,11 @@ import { applyOps, describeMoves, TreeOpsSchema, type ApplyResult, type NodeMove
 import { diffTrees, type DiffEntry } from '../lib/assistant/diff'
 import { diffRouting, type RoutingImpact } from '../lib/assistant/impact'
 import { detectBuilderGaps, type BuilderGap } from '../lib/assistant/gaps'
+import {
+  generateTreeFromDocuments,
+  type GenProgress,
+  type GenerateFromDocsResult,
+} from '../lib/assistant/genFromDocs'
 
 /**
  * Blume — Builder assistant panel: a chat dock for editing the open tree
@@ -42,23 +47,40 @@ interface Proposal {
   sourceText: string
 }
 
+/**
+ * A document-to-tree generation, awaiting the clinician's review. Sprout
+ * extracts the guideline into a draft and SAVES it to the library, but nothing
+ * opens on the canvas until the clinician confirms — the same "you approve
+ * every change" contract the edit proposals honour, applied to generation.
+ */
+interface Generation {
+  /** The saved library tree id — opened on the canvas only on confirm. */
+  treeId: string
+  treeName: string
+  fileNames: string[]
+  placeholderCount: number
+  issueCount: number
+  status: 'ready' | 'opened' | 'dismissed'
+}
+
 interface PanelMsg {
   id: number
   role: 'user' | 'assistant'
   text: string
   proposal?: Proposal
+  generation?: Generation
   /** Set on error bubbles: the instruction that failed — powers Retry. */
   failedText?: string
 }
 
 const INTRO =
-  'I can explain any part of this tree, or make edits you approve before they go live. You decide the medicine; I handle the busywork.'
+  'I can build a new tree from your clinical guidelines, explain any part of the tree you have, or make edits you approve before they go live. You decide the medicine; I handle the busywork.'
 
 /** Starter prompts — tapping one drops it into the composer to finish. */
 const SUGGESTIONS = [
+  'Build a tree from a guideline document',
   'Which buckets are unwired?',
   'Reroute … patients to Dr. …',
-  'Add an EMG to Dr. …’s workup',
 ]
 
 let nextMsgId = 1
@@ -128,6 +150,7 @@ export default function BuilderChatPanel({
   onPreview,
   onEndPreview,
   onFocusNodes,
+  onGenerateComplete,
   onClose,
 }: {
   /** The canvas as a Tree, read fresh (positions don't matter, wiring does). */
@@ -144,6 +167,8 @@ export default function BuilderChatPanel({
   onEndPreview: () => void
   /** Highlight the nodes a reply refers to on the canvas ([] clears). */
   onFocusNodes: (ids: string[]) => void
+  /** Open a freshly generated library tree on the canvas (confirm-gated). */
+  onGenerateComplete: (treeId: string) => void
   onClose: () => void
 }) {
   // Restored from localStorage per tree; the welcome hero fills an empty
@@ -164,6 +189,13 @@ export default function BuilderChatPanel({
   const currentGapRef = useRef<BuilderGap | null>(null)
   const threadRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  /* --------------------- Document-to-tree generation --------------------- */
+  // Guideline docs the clinician has attached but not yet generated from.
+  const [genFiles, setGenFiles] = useState<File[]>([])
+  // Non-null while extraction is running — its text is the live progress line.
+  const [genProgress, setGenProgress] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Cheap on a Builder-sized tree; recomputed per render so it tracks edits.
   const gapCount = detectBuilderGaps(getTree()).length
@@ -486,6 +518,115 @@ export default function BuilderChatPanel({
     push({ role: 'assistant', text: 'Reverted — the tree is back to how it was before that change.' })
   }
 
+  /* --------------------- Document-to-tree generation --------------------- */
+
+  const addGenFiles = (list: FileList | File[]) => {
+    const incoming = Array.from(list)
+    if (incoming.length === 0) return
+    setGenFiles((cur) => {
+      // De-dupe by name+size so a double-pick doesn't extract the same doc twice.
+      const seen = new Set(cur.map((f) => `${f.name}:${f.size}`))
+      const next = [...cur]
+      for (const f of incoming) {
+        const key = `${f.name}:${f.size}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          next.push(f)
+        }
+      }
+      return next
+    })
+  }
+
+  const removeGenFile = (idx: number) => setGenFiles((cur) => cur.filter((_, i) => i !== idx))
+
+  /**
+   * Build a tree from the attached guideline docs. Extraction runs on the
+   * backend (same pipeline as the old Generate wizard); the result is SAVED to
+   * the library but NOT opened — a generation card lets the clinician review
+   * what came back and confirm before it lands on the canvas.
+   */
+  const runGeneration = useCallback(async () => {
+    if (busy || genProgress !== null || genFiles.length === 0) return
+    const files = genFiles
+    const names = files.map((f) => f.name)
+    setGenFiles([])
+    push({
+      role: 'user',
+      text: `Build a tree from ${names.length === 1 ? names[0] : `${names.length} guideline documents`}.`,
+    })
+    setGenProgress('Reading your documents…')
+    const label = (p: GenProgress): string => {
+      if (p.phase === 'session') return 'Setting up the generation session…'
+      if (p.phase === 'save') return 'Saving the draft to your library…'
+      return `Extracting logic from ${p.fileName} (${p.index + 1} of ${p.total})… this takes about 30 seconds.`
+    }
+    try {
+      const result: GenerateFromDocsResult = await generateTreeFromDocuments(
+        {
+          files,
+          // A generated draft carries the clinic's default subspecialty; the
+          // clinician renames/retargets in the Builder. Kept simple on purpose
+          // — the old wizard's form fields become Builder edits post-open.
+          subspecialty: 'General',
+        },
+        (p) => setGenProgress(label(p)),
+      )
+      const issueCount = result.validationIssues.length
+      push({
+        role: 'assistant',
+        text:
+          `I drafted a tree from ${names.length === 1 ? names[0] : `${names.length} documents`} and saved it to your library. ` +
+          'Review the summary below, then open it to work on the canvas — nothing changes here until you do.',
+        generation: {
+          treeId: result.summary.id,
+          treeName: result.summary.name,
+          fileNames: result.fileNames,
+          placeholderCount: result.placeholderCount,
+          issueCount,
+          status: 'ready',
+        },
+      })
+    } catch (err) {
+      push({
+        role: 'assistant',
+        text:
+          err instanceof Error
+            ? `I couldn't build a tree from those documents: ${err.message}`
+            : 'I couldn\'t build a tree from those documents.',
+      })
+    } finally {
+      setGenProgress(null)
+    }
+  }, [busy, genProgress, genFiles])
+
+  const openGeneratedTree = (msg: PanelMsg) => {
+    const g = msg.generation
+    if (!g || g.status !== 'ready') return
+    onGenerateComplete(g.treeId)
+    setMessages((cur) =>
+      cur.map((m) => (m.id === msg.id && m.generation ? { ...m, generation: { ...m.generation, status: 'opened' } } : m)),
+    )
+    push({
+      role: 'assistant',
+      text:
+        'Opened it on the canvas. ' +
+        (g.placeholderCount > 0
+          ? `Assign the ${g.placeholderCount} placeholder specialist${g.placeholderCount === 1 ? '' : 's'} and I'll help wire up the rest — just ask.`
+          : 'Ask me to explain any part, or to make edits.'),
+    })
+  }
+
+  const dismissGeneration = (msg: PanelMsg) => {
+    setMessages((cur) =>
+      cur.map((m) =>
+        m.id === msg.id && m.generation && m.generation.status === 'ready'
+          ? { ...m, generation: { ...m.generation, status: 'dismissed' } }
+          : m,
+      ),
+    )
+  }
+
   /* ------------------------- Guided gap fixing --------------------------- */
 
   const presentNextGap = () => {
@@ -665,6 +806,13 @@ export default function BuilderChatPanel({
                   {s}
                 </button>
               ))}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-accent/40 bg-sky px-3 py-2 text-[12px] font-medium text-accent-strong transition-all duration-150 hover:-translate-y-px hover:border-accent hover:shadow-sm"
+              >
+                <PaperclipIcon />
+                Attach a guideline to build a tree
+              </button>
               {gapCount > 0 && (
                 <button
                   onClick={startGapFix}
@@ -695,6 +843,13 @@ export default function BuilderChatPanel({
                 >
                   ↻ Retry
                 </button>
+              )}
+              {m.generation && (
+                <GenerationCard
+                  generation={m.generation}
+                  onOpen={() => openGeneratedTree(m)}
+                  onDismiss={() => dismissGeneration(m)}
+                />
               )}
               {m.proposal && (
                 <ProposalCard
@@ -729,6 +884,17 @@ export default function BuilderChatPanel({
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent/60 [animation-delay:-0.3s]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent/60 [animation-delay:-0.15s]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent/60" />
+            </div>
+          </div>
+        )}
+
+        {/* Generation is long (LLM extraction per section) — a labelled
+            progress line, not silent dots, so the wait reads as work. */}
+        {genProgress && (
+          <div className="omari-msg flex justify-start">
+            <div className="flex max-w-[94%] items-center gap-2 rounded-2xl rounded-tl-sm border border-accent/40 bg-sky px-3.5 py-2.5">
+              <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-accent" aria-hidden />
+              <span className="text-[12px] font-medium leading-snug text-accent-strong">{genProgress}</span>
             </div>
           </div>
         )}
@@ -808,6 +974,63 @@ export default function BuilderChatPanel({
           </div>
         )}
 
+        {/* Attached guideline docs, awaiting a Generate click. This is the old
+            Generate wizard's upload list, now a staging tray in the composer. */}
+        {genFiles.length > 0 && (
+          <div className="omari-msg mb-1.5 rounded-lg border border-accent/40 bg-sky px-2 py-1.5">
+            <div className="flex items-center justify-between">
+              <span className="font-display text-[9.5px] font-semibold uppercase tracking-[0.07em] text-accent">
+                {genFiles.length} document{genFiles.length === 1 ? '' : 's'} to build from
+              </span>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-[10.5px] font-medium text-accent underline-offset-2 hover:underline"
+              >
+                Add more
+              </button>
+            </div>
+            <ul className="mt-1 space-y-0.5">
+              {genFiles.map((f, i) => (
+                <li key={`${f.name}:${i}`} className="flex items-center gap-1.5 text-[11px] text-ink">
+                  <PaperclipIcon />
+                  <span className="min-w-0 flex-1 truncate" title={f.name}>
+                    {f.name}
+                  </span>
+                  <button
+                    onClick={() => removeGenFile(i)}
+                    aria-label={`Remove ${f.name}`}
+                    className="grid h-4 w-4 shrink-0 place-items-center rounded text-accent transition-colors hover:bg-accent hover:text-white"
+                  >
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden>
+                      <path d="M18 6 6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              onClick={() => void runGeneration()}
+              disabled={busy || genProgress !== null}
+              className="omari-grad omari-grad-hover mt-1.5 w-full rounded-md px-3 py-1.5 text-[12px] font-semibold text-white shadow-subtle transition-all hover:shadow-subtle active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+            >
+              {genProgress ? 'Building…' : `Build a tree from ${genFiles.length === 1 ? 'this document' : 'these documents'}`}
+            </button>
+          </div>
+        )}
+
+        {/* Hidden file picker shared by every "attach" affordance. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.txt,.epub,application/pdf,text/plain,application/epub+zip"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files) addGenFiles(e.target.files)
+            e.target.value = '' // let the same file be re-picked after removal
+          }}
+        />
+
         <textarea
           ref={inputRef}
           value={draft}
@@ -818,8 +1041,13 @@ export default function BuilderChatPanel({
               void send()
             }
           }}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault()
+            if (e.dataTransfer.files?.length) addGenFiles(e.dataTransfer.files)
+          }}
           rows={2}
-          placeholder="Ask Sprout to edit, or ask about the tree…"
+          placeholder="Ask Sprout to edit, ask about the tree, or attach a guideline to build one…"
           className="w-full resize-none rounded-lg border border-line bg-canvas px-3 py-2 text-[12.5px] text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
         />
         <div className="mt-1.5 flex items-center justify-between">
@@ -827,6 +1055,14 @@ export default function BuilderChatPanel({
             {listening ? 'Listening — talk through the edit, then review and send' : 'Shift+Enter for a new line'}
           </p>
           <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach a guideline document (PDF, TXT, EPUB) to build a tree"
+              aria-label="Attach a guideline document"
+              className="grid h-8 w-8 place-items-center rounded-md border border-line text-muted transition-all hover:border-accent hover:bg-sky hover:text-accent"
+            >
+              <PaperclipIcon />
+            </button>
             {speechSupported && (
               <button
                 onClick={toggleListening}
@@ -1130,5 +1366,100 @@ function ProposalCard({
         </div>
       )}
     </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/* Generation card — a saved draft awaiting the clinician's open-on-canvas    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A document-to-tree generation, reviewed like every other Sprout proposal:
+ * the draft is already saved to the library, but opening it on the canvas is
+ * the clinician's explicit confirm. Placeholders and structural issues are
+ * surfaced up front so "open it" is an informed decision, not a surprise.
+ */
+function GenerationCard({
+  generation,
+  onOpen,
+  onDismiss,
+}: {
+  generation: Generation
+  onOpen: () => void
+  onDismiss: () => void
+}) {
+  return (
+    <div className="omari-reveal mt-2 rounded-lg border border-accent/40 bg-canvas p-2.5">
+      <p className="font-display text-[10px] font-semibold uppercase tracking-[0.08em] text-accent-strong">
+        Draft tree ready
+      </p>
+      <p className="mt-1 text-[12.5px] font-medium leading-snug text-ink">{generation.treeName}</p>
+      <ul className="mt-1.5 space-y-0.5 text-[11px] text-muted">
+        <li className="flex gap-1.5">
+          <span className="shrink-0 opacity-60">•</span>
+          <span>
+            From {generation.fileNames.length === 1 ? generation.fileNames[0] : `${generation.fileNames.length} documents`}
+          </span>
+        </li>
+        {generation.placeholderCount > 0 && (
+          <li className="flex gap-1.5">
+            <span className="shrink-0 opacity-60">•</span>
+            <span>
+              {generation.placeholderCount} specialist endpoint{generation.placeholderCount === 1 ? '' : 's'} to assign
+            </span>
+          </li>
+        )}
+        {generation.issueCount > 0 && (
+          <li className="flex gap-1.5 text-amber-600">
+            <span className="shrink-0 opacity-60">•</span>
+            <span>
+              {generation.issueCount} structural issue{generation.issueCount === 1 ? '' : 's'} to review
+            </span>
+          </li>
+        )}
+      </ul>
+      {generation.status === 'ready' ? (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <button
+            onClick={onOpen}
+            className="rounded-md bg-accent-strong px-3 py-1.5 text-[12px] font-semibold text-white transition-opacity hover:opacity-90"
+          >
+            Open in Builder
+          </button>
+          <button
+            onClick={onDismiss}
+            title="Leave it in the library without opening it"
+            className="rounded-md border border-line px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:bg-bg hover:text-ink"
+          >
+            Not now
+          </button>
+        </div>
+      ) : (
+        <p className="mt-2 text-[11px] font-medium text-muted">
+          {generation.status === 'opened' && '✓ Opened on the canvas'}
+          {generation.status === 'dismissed' && 'Saved to your library — open it any time from the tree list'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/* ── Composer icon ───────────────────────────────────────────────────────── */
+
+function PaperclipIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+    </svg>
   )
 }

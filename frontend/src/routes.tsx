@@ -11,8 +11,6 @@ import QueueScreen from './dashboard/components/queue/QueueScreen'
 import SurgeonScreen from './dashboard/components/surgeon/SurgeonScreen'
 import WorkupScreen from './dashboard/components/workup/WorkupScreen'
 import Builder from './pages/Builder'
-import Generate from './pages/Generate'
-import GenerateLayout from './pages/GenerateLayout'
 import KnowledgeBase from './pages/KnowledgeBase'
 import Reconcile from './pages/Reconcile'
 import Runner from './pages/Runner'
@@ -62,12 +60,13 @@ export default function AppRoutes() {
           <Route path="/admin/clinic" element={<ClinicDirectoryScreen />} />
           {/* Trees was folded into the Clinic directory's tree panel. */}
           <Route path="/admin/trees" element={<Navigate to="/admin/clinic" replace />} />
-          {/* Draft a tree from guidelines, then set it up — one section, two
-              steps. `/admin/setup` was the old second tab; it still resolves. */}
-          <Route path="/admin/generate" element={<GenerateLayout />}>
-            <Route index element={<GenerateRoute />} />
-            <Route path="setup" element={<ReconcileRoute />} />
-          </Route>
+          {/* Generating a tree from guidelines folded into Sprout, inside the
+              Builder: attach a document, review the draft, open it. The old
+              "Draft" step is gone as a place — `/admin/generate` lands you in
+              the Builder where you now do it. "Set up" (Reconcile, the delta
+              interview) is still its own screen, reachable directly. */}
+          <Route path="/admin/generate" element={<Navigate to="/admin/builder" replace />} />
+          <Route path="/admin/generate/setup" element={<ReconcileRoute />} />
           <Route path="/admin/setup" element={<Navigate to="/admin/generate/setup" replace />} />
           <Route path="/admin/builder" element={<Builder />} />
           <Route path="/admin/knowledge" element={<KnowledgeBase />} />
@@ -115,13 +114,8 @@ export default function AppRoutes() {
 /* -------------------------------------------------------------------------- */
 /* Pages that hand off to another page                                        */
 /* -------------------------------------------------------------------------- */
-/* Both still pass the tree id through localStorage — Builder and Reconcile   */
+/* Reconcile passes the tree id through localStorage — Builder and Reconcile  */
 /* read those keys on mount — but the navigation itself is now the router's.  */
-
-function GenerateRoute() {
-  const navigate = useNavigate()
-  return <Generate onOpenReconcile={() => navigate('/admin/generate/setup')} />
-}
 
 function ReconcileRoute() {
   const navigate = useNavigate()

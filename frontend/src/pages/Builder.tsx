@@ -1476,6 +1476,10 @@ function BuilderCanvas() {
             onPreview={previewAssistantTree}
             onEndPreview={endAssistantPreview}
             onFocusNodes={focusAssistantNodes}
+            onGenerateComplete={(treeId) => {
+              void loadTreeFromDb(treeId)
+              void refreshDbTrees()
+            }}
             onClose={() => {
               setAssistantOpen(false)
               endAssistantPreview()

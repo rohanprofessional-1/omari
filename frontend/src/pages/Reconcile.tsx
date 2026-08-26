@@ -300,8 +300,8 @@ export default function Reconcile({ onOpenBuilder }: { onOpenBuilder: () => void
 
   if (!loaded) {
     return (
-      /* The step nav (GenerateLayout) already says which step this is, so the
-         picker opens with the choice rather than another title. */
+      /* Reached directly at /admin/generate/setup — open with the draft picker
+         rather than a title, since there's no longer a step nav above it. */
       <div className="h-full overflow-y-auto">
         <div className="mx-auto max-w-2xl px-6 py-8">
         <h2 className="font-display text-[14px] font-semibold text-ink">
