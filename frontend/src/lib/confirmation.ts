@@ -48,7 +48,7 @@ const CONFIRM_CLAUSES: Record<string, string> = {
   'urgentRedFlag:acute_trauma': 'this involves a recent, serious injury to the area',
   'urgentRedFlag:mass_lump': "there's a lump that's been growing quickly",
   'urgentRedFlag:acute': 'the weakness has been getting worse quickly',
-  'urgentRedFlag:none': 'none of those urgent warning signs are happening',
+  'urgentRedFlag:none': "there's no recent serious injury, no rapidly growing lump, and no sudden worsening weakness",
 
   'presentationCategory:compression': 'this feels like a pinched or compressed nerve',
   'presentationCategory:traumatic_chronic': 'this follows an older injury or a previous surgery',

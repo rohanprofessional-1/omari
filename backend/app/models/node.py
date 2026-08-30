@@ -37,6 +37,11 @@ class Node(Base, TimestampMixin):
 
     # Specialist fields
     specialist_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # FK to the specialists table — populated at tree-save time by matching specialist_name.
+    # Nullable so trees can still be used when the specialists table is empty.
+    specialist_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("specialists.id", ondelete="SET NULL"), nullable=True
+    )
     specialty: Mapped[str | None] = mapped_column(String(255), nullable=True)
     urgency: Mapped[Urgency | None] = mapped_column(Enum(Urgency, name="urgency_enum"), nullable=True)
     reasoning_template: Mapped[str | None] = mapped_column(Text, nullable=True)

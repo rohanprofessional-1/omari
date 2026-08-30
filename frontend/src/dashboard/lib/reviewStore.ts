@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import type { AuditEvent, Correction, ReviewState, ReviewStatus, Role, WorkupStatus } from '../types'
 import { isRole } from '../../types/roles'
 import { localStorageWorks } from '../../lib/canStore'
+import { updateReferral } from '../../lib/api'
 
 /**
  * Dashboard — review store. localStorage-backed, module-level state with a
@@ -108,17 +109,41 @@ function newEventId(): string {
   return `evt-${Date.now()}-${eventCounter}`
 }
 
+/* ── Backend status mapping ───────────────────────────────────────────────── */
+
+/**
+ * Map the frontend's ReviewStatus to the backend's status enum.
+ *
+ * The backend accepts: 'reviewed' | 'scheduled' | 'dismissed'.
+ * 'pending' and 'info_requested' don't have a direct backend equivalent;
+ * we don't send a PATCH for those (they're coordinator workflow states).
+ */
+function toBackendStatus(action: ReviewStatus): string | null {
+  switch (action) {
+    case 'approved':
+    case 'corrected':
+    case 'escalated':
+      return 'reviewed'
+    case 'rejected':
+      return 'dismissed'
+    case 'pending':
+    case 'info_requested':
+      return null  // no backend write needed for these transient states
+  }
+}
+
 /* ── Actions (module-level → referentially stable) ────────────────────────── */
 
 /**
  * Record a review decision AND its audit event atomically.
  *
- * TODO(epic): every decision in the product funnels through this one function.
- * The referral queue ultimately belongs to Epic, so an approve / correct /
- * reject has to round-trip: once `ReferralSource.submitDecision` exists (see
- * data/adapter.ts), this is where the outbound write is enqueued and where the
- * optimistic local state reconciles with the server's echo. Do NOT scatter
- * Epic calls into the screens — keep this the single seam.
+ * Optimistic: local state updates immediately (instant UI feedback), then the
+ * decision is persisted to the backend fire-and-forget. Failures are logged but
+ * do not revert the local state — the backend is the durable record, but the
+ * demo keeps moving either way.
+ *
+ * This is the single seam for all approve/reject/correct/escalate decisions.
+ * Do NOT scatter backend calls into screens — keep them here.
  */
 export function applyAction(
   referralId: string,
@@ -150,6 +175,28 @@ export function applyAction(
   }
   persist()
   notify()
+
+  // Persist the decision to the backend. Fire-and-forget: the local state is
+  // already updated optimistically, so a backend failure only means the decision
+  // won't survive a hard refresh or show on another device.
+  const backendStatus = toBackendStatus(action)
+  if (backendStatus) {
+    const patch: Parameters<typeof updateReferral>[1] = { status: backendStatus }
+
+    // Specialist correction: pass the new destination
+    if (opts.correction?.field === 'destination') {
+      patch.routed_specialist_name = opts.correction.to
+    }
+
+    // Carry the review note into annotations so it's visible in the DB
+    if (opts.note) {
+      patch.annotations = { review_note: opts.note, reviewed_by: opts.actor, reviewed_at: at }
+    }
+
+    updateReferral(referralId, patch).catch((err) =>
+      console.error('[reviewStore] Failed to persist decision to backend:', err),
+    )
+  }
 }
 
 /** Return a reviewed referral to the pending queue; audited. */

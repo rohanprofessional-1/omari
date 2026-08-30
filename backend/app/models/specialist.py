@@ -19,3 +19,6 @@ class Specialist(Base, TimestampMixin):
 
     # Relationships
     clinic: Mapped["Clinic | None"] = relationship(back_populates="specialists")
+    tree_specialists: Mapped[list["TreeSpecialist"]] = relationship(
+        back_populates="specialist", cascade="all, delete-orphan", lazy="noload"
+    )

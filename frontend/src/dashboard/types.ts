@@ -11,7 +11,7 @@ import type { Role } from '../types/roles'
  * deterministic engine, and the UI that will sit on top. No UI in this layer.
  */
 
-export type SourceChannel = 'epic' | 'fax' | 'phone'
+export type SourceChannel = 'epic' | 'fax' | 'phone' | 'other'
 
 export interface EpicReferralPayload {
   referralId: string
@@ -143,6 +143,12 @@ export interface ReviewableReferral {
   payload: EpicReferralPayload
   extraction: ReferralExtraction
   result: TreeResult
+  /**
+   * The backend's persisted status ('new' | 'needs_review' | 'reviewed' | 'scheduled' | 'dismissed').
+   * Populated by LiveEpicSource from the DB; undefined when using MockEpicSource.
+   * Used as a fallback when no localStorage review state exists (multi-user / cross-device).
+   */
+  backendStatus?: string
 }
 
 /**

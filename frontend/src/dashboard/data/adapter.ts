@@ -1,6 +1,7 @@
 import { deriveTreeResult } from '../lib/deriveTreeResult'
 import type { ReferralScope, ReferralSource, ReviewableReferral } from '../types'
 import { REFERRAL_FIXTURES } from './fixtures/referrals'
+import { fetchReferrals as apiFetchReferrals } from '../../lib/api'
 
 /**
  * Dashboard — referral source adapter. THIS IS THE EPIC SWAP SEAM.
@@ -81,9 +82,106 @@ class MockEpicSource implements ReferralSource {
   }
 }
 
+class LiveEpicSource implements ReferralSource {
+  cache: ReviewableReferral[] | null = null
+  lastFetch = 0
+
+  private async fetchAndMaterialize(): Promise<ReviewableReferral[]> {
+    // Short cache (1 second) to avoid duplicate calls within the same render cycle
+    if (this.cache && Date.now() - this.lastFetch < 1000) {
+      return this.cache
+    }
+
+    const backendReferrals = await apiFetchReferrals()
+    
+    this.cache = backendReferrals.map((r: any) => {
+      // Map backend model back to the EpicReferralPayload fixture shape the frontend expects
+      const structured = r.structured_data || {}
+      const payload: any = {
+        referralId: r.display_id, // Map display ID to referralId for URL routing
+        receivedAt: r.received_at,
+        channel: r.channel,
+        patient: {
+          name: r.patient?.name || 'Unknown Patient',
+          mrn: r.patient?.mrn || 'Unknown MRN',
+          dob: r.patient?.dob || 'Unknown DOB',
+          sex: r.patient?.sex || 'Unknown',
+          phone: r.patient?.phone || ''
+        },
+        referredBy: r.referred_by
+          ? {
+              provider: r.referred_by.provider || 'Unknown Provider',
+              npi: r.referred_by.npi || '',
+              practice: r.referred_by.practice || '',
+              phone: r.referred_by.phone || '',
+              fax: r.referred_by.fax || ''
+            }
+          : {
+              provider: 'Patient Self-Referral',
+              npi: '',
+              practice: 'Clinic Portal',
+              phone: '',
+              fax: ''
+            },
+        referredToDepartment: 'Duke Nerve Center',
+        priority: r.priority || 'routine',
+        reasonForReferral: r.reason_for_referral || '',
+        clinicalNote: r.clinical_note || '',
+        diagnoses: structured.diagnoses || [],
+        attachments: structured.attachments || [],
+        structured,
+      }
+      
+      // Extraction: unwrap the nested { variables: { key: { value, confidence } } } shape
+      const rawExtraction = r.extraction || {}
+      const variables = rawExtraction.variables || rawExtraction
+      const sources = rawExtraction.sources || {}
+      const extraction = { variables, sources }
+
+      const fixture = { payload, extraction, annotations: r.annotations || {} }
+      
+      return {
+        payload,
+        extraction,
+        result: deriveTreeResult(fixture),
+        // Surface the backend's persisted status so the UI can reflect
+        // review decisions made by other users (multi-device / cross-session).
+        backendStatus: r.status || undefined,
+      } as ReviewableReferral
+    })
+    
+    this.lastFetch = Date.now()
+    return this.cache
+  }
+
+  async listReferrals(scope?: ReferralScope): Promise<ReviewableReferral[]> {
+    const materialized = await this.fetchAndMaterialize()
+    return applyScope(materialized, scope)
+  }
+
+  async getReferral(id: string, scope?: ReferralScope): Promise<ReviewableReferral | null> {
+    const materialized = await this.fetchAndMaterialize()
+    const match = materialized.find((r) => r.payload.referralId === id)
+    if (!match) return null
+    return applyScope([match], scope)[0] ?? null
+  }
+}
+
 let singleton: ReferralSource | null = null
 
 export function getReferralSource(): ReferralSource {
-  if (!singleton) singleton = new MockEpicSource()
+  if (!singleton) singleton = new LiveEpicSource()
   return singleton
 }
+
+/**
+ * Invalidate the referral source cache. Call this after creating or updating
+ * a referral so the next fetch returns fresh data immediately.
+ */
+export function invalidateReferralCache(): void {
+  if (singleton && singleton instanceof LiveEpicSource) {
+    singleton.cache = null
+    singleton.lastFetch = 0
+  }
+}
+

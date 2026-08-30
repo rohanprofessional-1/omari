@@ -4,6 +4,7 @@ import '@fontsource-variable/inter' // self-hosted Inter (all weights via variab
 import '@fontsource-variable/source-serif-4' // self-hosted editorial serif (display headlines)
 import './index.css'
 import './dashboard/dashboard.css' // dashboard-only `dash-` tokens — MUST load after index.css
+import './epic/epic-tokens.css' // Epic EHR demo tokens — scoped to .epic-shell
 import App from './App.tsx'
 import { switchDemoRole } from './auth/authStore'
 import { requestedRole } from './shell/embed'

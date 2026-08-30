@@ -1,1 +1,1 @@
-# Services package
+"""Omari backend services — business logic layer."""

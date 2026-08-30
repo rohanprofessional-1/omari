@@ -8,9 +8,14 @@ from app.models.branch import Branch
 from app.models.condition import Condition
 from app.models.variable import Variable
 from app.models.specialist import Specialist
+from app.models.tree_specialist import TreeSpecialist
 from app.models.workup_item import WorkupItem
 from app.models.patient import Patient, PatientClinic
 from app.models.conversation import Conversation, ConversationTurn, PatientVariable, Action
+from app.models.user import User
+from app.models.referring_provider import ReferringProvider
+from app.models.referral import Referral
+from app.models.attachment import Attachment
 from app.models.generator import (
     GenerationSession,
     SyntheticCase,
@@ -34,6 +39,7 @@ __all__ = [
     "Condition",
     "Variable",
     "Specialist",
+    "TreeSpecialist",
     "WorkupItem",
     "Patient",
     "PatientClinic",
@@ -41,6 +47,10 @@ __all__ = [
     "ConversationTurn",
     "PatientVariable",
     "Action",
+    "User",
+    "ReferringProvider",
+    "Referral",
+    "Attachment",
     "GenerationSession",
     "SyntheticCase",
     "CaseHighlight",
