@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/authStore'
 import { isEmbedded } from './embed'
 import { SECTIONS } from './nav'
@@ -19,6 +19,7 @@ import { SECTIONS } from './nav'
  */
 export default function TopBar() {
   const { user } = useAuth()
+  const location = useLocation()
   const sections = user ? SECTIONS[user.role] : []
 
   return (
@@ -40,20 +41,23 @@ export default function TopBar() {
       {/* Segmented section nav — driven entirely by role */}
       {sections.length > 0 && (
         <nav className="inline-flex rounded-lg border border-line bg-bg p-0.5">
-          {sections.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                'rounded-md px-3 py-1 text-sm font-medium transition-colors ' +
-                (isActive
-                  ? 'bg-accent-strong text-white shadow-subtle'
-                  : 'text-muted hover:text-ink')
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
+          {sections.map((item) => {
+            const isAliasMatch = item.aliases?.some(alias => location.pathname.startsWith(alias))
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  'rounded-md px-3 py-1 text-sm font-medium transition-colors ' +
+                  (isActive || isAliasMatch
+                    ? 'bg-accent-strong text-white shadow-subtle'
+                    : 'text-muted hover:text-ink')
+                }
+              >
+                {item.label}
+              </NavLink>
+            )
+          })}
         </nav>
       )}
 

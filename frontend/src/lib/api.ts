@@ -1,5 +1,6 @@
 import type { Tree, Condition } from '../types/tree'
 import { TreeSchema } from '../types/tree'
+import { reloadActiveTree } from '../dashboard/lib/activeTreeStore'
 
 // Relative — Vite proxies /api/v1 → FastAPI (Postgres). See vite.config.ts.
 const API_BASE = '/api/v1'
@@ -110,13 +111,13 @@ export async function fetchTrees(opts: { is_active?: boolean } = {}): Promise<Tr
   const url = opts.is_active !== undefined 
     ? `${API_BASE}/trees?is_active=${opts.is_active}` 
     : `${API_BASE}/trees`
-  const res = await fetch(url)
+  const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) throw new Error('Failed to fetch trees')
   return res.json()
 }
 
 export async function fetchTree(id: string): Promise<Tree> {
-  const res = await fetch(`${API_BASE}/trees/${id}`)
+  const res = await fetch(`${API_BASE}/trees/${id}`, { cache: 'no-store' })
   if (!res.ok) throw new Error('Failed to fetch tree')
   const data = await res.json()
 
@@ -292,6 +293,12 @@ export async function activateTree(id: string): Promise<TreeSummary> {
     body: JSON.stringify({ is_active: true }),
   })
   if (!res.ok) throw new Error('Failed to activate tree')
+  try {
+    localStorage.setItem('omari:activeTreeId', id)
+  } catch {
+    /* storage full / unavailable */
+  }
+  void reloadActiveTree()
   return res.json()
 }
 

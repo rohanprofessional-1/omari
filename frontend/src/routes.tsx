@@ -17,6 +17,7 @@ import KnowledgeBase from './pages/KnowledgeBase'
 import Reconcile from './pages/Reconcile'
 import Runner from './pages/Runner'
 import MyReferralScreen from './pages/patient/MyReferralScreen'
+import AppointmentsScreen from './pages/patient/AppointmentsScreen'
 
 /**
  * Omari — the route table.
@@ -103,6 +104,7 @@ export default function AppRoutes() {
           <Route path="/patient" element={<Navigate to="/patient/intake" replace />} />
           <Route path="/patient/intake" element={<Runner audience="patient" />} />
           <Route path="/patient/status" element={<MyReferralScreen />} />
+          <Route path="/patient/appointments" element={<AppointmentsScreen />} />
         </Route>
 
         <Route path="*" element={<HomeRedirect />} />

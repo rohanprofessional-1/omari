@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { formatDate } from '../../dashboard/lib/demoClock'
 import { book, bookTest, cancelBooking, cancelTest } from './appointmentStore'
 import { humanWait, type PlanTest, type Slot } from './carePlan'
 import { usePatientReferral } from './usePatientReferral'
+import CalendarModal from './components/CalendarModal'
 
 /**
  * Appointments — the consultation, and every test that should happen before it.
@@ -39,44 +40,18 @@ function Frame({ children }: { children: React.ReactNode }) {
   )
 }
 
-/** A row of offered openings — the same control for a consult or a scan. */
-function SlotList({ slots, onPick }: { slots: Slot[]; onPick: (slot: Slot) => void }) {
-  if (slots.length === 0) {
-    return (
-      <p className="mt-3 text-[13px] text-muted">
-        Nothing bookable online right now — call the clinic and we’ll find you a time.
-      </p>
-    )
-  }
-  return (
-    <ul className="mt-3 space-y-2">
-      {slots.map((slot) => (
-        <li key={slot.at}>
-          <button
-            onClick={() => onPick(slot)}
-            className="flex w-full items-center gap-3 rounded-md border border-line bg-bg px-3 py-2.5 text-left transition-colors hover:border-accent-strong/50 hover:bg-sky"
-          >
-            <span className="text-[13px] font-medium text-ink">{formatDate(slot.at)}</span>
-            <span className="text-[13px] text-muted">{slot.time}</span>
-            <span className="ml-auto text-[12px] font-medium text-accent">Book</span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-/** One test: what it is, where it stands, and how to get it booked. */
+// Removed SlotList component
 function TestCard({
   test,
   referralId,
   consultationAt,
+  onOpenCalendar,
 }: {
   test: PlanTest
   referralId: string
   consultationAt: string | null
+  onOpenCalendar: () => void
 }) {
-  const [picking, setPicking] = useState(false)
 
   const state = test.done ? 'done' : test.booking ? 'booked' : 'to-book'
   const dot =
@@ -134,35 +109,19 @@ function TestCard({
                 {test.booking.label}
               </p>
               <button
-                onClick={() => cancelTest(referralId, test.name)}
+                onClick={() => {
+                  cancelTest(referralId, test.name)
+                  onOpenCalendar()
+                }}
                 className="ml-auto rounded-md border border-line bg-canvas px-3 py-1.5 text-[12px] font-medium text-muted transition-colors hover:bg-bg hover:text-ink"
               >
                 Change time
               </button>
             </div>
-          ) : picking ? (
-            <div className="mt-4 border-t border-line pt-4">
-              <p className="text-[13px] font-medium text-ink">
-                Openings before your consultation
-              </p>
-              <SlotList
-                slots={test.slots}
-                onPick={(slot) => {
-                  bookTest(referralId, test.name, { at: slot.at, label: slot.time })
-                  setPicking(false)
-                }}
-              />
-              <button
-                onClick={() => setPicking(false)}
-                className="mt-2 text-[12px] font-medium text-muted hover:text-ink"
-              >
-                Not now
-              </button>
-            </div>
           ) : (
             <div className="mt-4 border-t border-line pt-4">
               <button
-                onClick={() => setPicking(true)}
+                onClick={onOpenCalendar}
                 className="rounded-md bg-accent-strong px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#27508f]"
               >
                 Find a time
@@ -182,6 +141,37 @@ function TestCard({
 
 export default function AppointmentsScreen() {
   const { loading, referral, redirected, careTeam, plan } = usePatientReferral()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [calendarTarget, setCalendarTarget] = useState<{
+    type: 'consult' | 'test'
+    name?: string
+    title: string
+    slots: Slot[]
+  } | null>(null)
+
+  const { approved, consultation, offers, tests } = plan
+
+  useEffect(() => {
+    if (loading || !approved || !location.state?.autoOpen) return
+    const autoOpen = location.state.autoOpen
+
+    if (autoOpen.type === 'consult' && !consultation) {
+      setCalendarTarget({ type: 'consult', title: 'Schedule Consultation', slots: offers })
+      navigate('.', { replace: true, state: {} })
+    } else if (autoOpen.type === 'test') {
+      const test = tests.find((t) => t.name === autoOpen.name)
+      if (test && test.bookable && !test.booking) {
+        setCalendarTarget({
+          type: 'test',
+          name: test.name,
+          title: `Schedule ${test.modality.kind}`,
+          slots: test.slots
+        })
+        navigate('.', { replace: true, state: {} })
+      }
+    }
+  }, [loading, approved, consultation, offers, tests, location.state, navigate])
 
   if (loading) {
     return (
@@ -207,7 +197,7 @@ export default function AppointmentsScreen() {
   }
 
   const id = referral.payload.referralId
-  const { approved, consultation, offers, daysToConsultation, tests, doneCount, total } = plan
+  const { daysToConsultation, doneCount, total } = plan
 
   // Approval is the gate. Before it there is no date and no test list — saying
   // so plainly beats an empty scheduler.
@@ -249,7 +239,10 @@ export default function AppointmentsScreen() {
               <span className="font-medium text-ink">{humanWait(daysToConsultation ?? 0)}</span>
             </p>
             <button
-              onClick={() => cancelBooking(id)}
+              onClick={() => {
+                cancelBooking(id)
+                setCalendarTarget({ type: 'consult', title: 'Schedule Consultation', slots: offers })
+              }}
               className="mt-4 rounded-md border border-line bg-canvas px-3 py-1.5 text-[13px] font-medium text-muted transition-colors hover:bg-bg hover:text-ink"
             >
               Choose a different date
@@ -263,10 +256,12 @@ export default function AppointmentsScreen() {
               and we’ll confirm by text. The wait is real — but it’s also when we get your tests
               done, so you arrive ready.
             </p>
-            <SlotList
-              slots={offers}
-              onPick={(slot) => book(id, { at: slot.at, label: slot.time })}
-            />
+            <button
+              onClick={() => setCalendarTarget({ type: 'consult', title: 'Schedule Consultation', slots: offers })}
+              className="mt-3 rounded-md bg-accent-strong px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#27508f]"
+            >
+              Pick your date
+            </button>
           </>
         )}
       </div>
@@ -293,6 +288,12 @@ export default function AppointmentsScreen() {
                 test={test}
                 referralId={id}
                 consultationAt={consultation?.at ?? null}
+                onOpenCalendar={() => setCalendarTarget({
+                  type: 'test',
+                  name: test.name,
+                  title: `Schedule ${test.modality.kind}`,
+                  slots: test.slots
+                })}
               />
             ))}
           </div>
@@ -322,6 +323,21 @@ export default function AppointmentsScreen() {
       <p className="mt-6 text-[11px] leading-relaxed text-muted">
         Need a different day, or somewhere closer to home? Call the clinic and we’ll sort it out.
       </p>
+      
+      <CalendarModal
+        isOpen={calendarTarget !== null}
+        onClose={() => setCalendarTarget(null)}
+        title={calendarTarget?.title || ''}
+        slots={calendarTarget?.slots || []}
+        onPick={(slot) => {
+          if (calendarTarget?.type === 'consult') {
+            book(id, { at: slot.at, label: slot.time })
+          } else if (calendarTarget?.type === 'test' && calendarTarget.name) {
+            bookTest(id, calendarTarget.name, { at: slot.at, label: slot.time })
+          }
+          setCalendarTarget(null)
+        }}
+      />
     </Frame>
   )
 }

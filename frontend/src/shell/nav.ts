@@ -16,6 +16,7 @@ export interface NavItem {
   /** Absolute route path. */
   to: string
   label: string
+  aliases?: string[]
 }
 
 export const SECTIONS: Record<Role, NavItem[]> = {
@@ -44,7 +45,7 @@ export const SECTIONS: Record<Role, NavItem[]> = {
   // Intake, then their own referral status. Nothing clinical, nothing about anyone else.
   patient: [
     { to: '/patient/intake', label: 'Intake' },
-    { to: '/patient/status', label: 'My referral' },
+    { to: '/patient/status', label: 'My referral', aliases: ['/patient/appointments'] },
   ],
 }
 

@@ -79,6 +79,8 @@ export default function ClinicTreePanel({
     }
   }
 
+  const activeTreeSummary = trees?.find((t) => t.is_active)
+
   return (
     <section className={`mt-3 ${TABLE_CARD}`}>
       {/* Band header — the one fact worth a tab, readable while collapsed */}
@@ -109,7 +111,7 @@ export default function ClinicTreePanel({
         <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-dash-green" />
         <h2 className="shrink-0 text-dash-col uppercase text-dash-ink">Decision tree</h2>
         <span className="truncate text-dash-micro font-medium text-dash-ink">
-          {DEPLOYED_TREE_LABEL}
+          {activeTreeSummary ? activeTreeSummary.name : DEPLOYED_TREE_LABEL}
         </span>
         <Badge tone="green" className="shrink-0 font-semibold uppercase tracking-wide">
           In force

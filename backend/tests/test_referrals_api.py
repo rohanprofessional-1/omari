@@ -108,28 +108,32 @@ async def test_referral_lifecycle(client: AsyncClient):
     # 4. Admin/Surgeon approves
     review_approve = {
         "status": "approved",
-        "actor": "Admin",
-        "role": "admin",
-        "note": ""
+        "actor": "Dr. Surgeon",
+        "role": "surgeon",
+        "note": "Looks good — approved."
     }
     res = await client.post(f"/api/v1/referrals/{ref_id}/review", json=review_approve)
     assert res.status_code == 201
     review = res.json()
     assert review["status"] == "approved"
+    assert review["reviewer"] == "Dr. Surgeon"
+    assert review["reviewed_at"] is not None
 
     # 5. Check the audit trail for this referral
     res = await client.get(f"/api/v1/referrals/{ref_id}/audit")
     assert res.status_code == 200
     audit_events = res.json()
-    
+
     assert len(audit_events) == 3
     assert audit_events[0]["action"] == "info_requested"
     assert audit_events[0]["actor"] == "Dr. Surgeon"
     assert audit_events[0]["note"] == "Need more details on duration."
-    
+
     assert audit_events[1]["action"] == "pending"
     assert audit_events[1]["actor"] == "Sarah Blankslate"
     assert audit_events[1]["note"] == "It has been 3 weeks."
-    
+
     assert audit_events[2]["action"] == "approved"
-    assert audit_events[2]["actor"] == "Admin"
+    assert audit_events[2]["actor"] == "Dr. Surgeon"
+    assert audit_events[2]["note"] == "Looks good — approved."
+    assert audit_events[2]["at"] is not None

@@ -41,6 +41,11 @@ function emit() {
  */
 let fetchPromise: Promise<void> | null = null
 
+export function reloadActiveTree(): Promise<void> {
+  fetchPromise = null
+  return loadActiveTree()
+}
+
 export function loadActiveTree(): Promise<void> {
   if (fetchPromise) return fetchPromise
 

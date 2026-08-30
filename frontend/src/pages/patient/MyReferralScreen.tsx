@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../../auth/authStore'
 import { applyAction } from '../../dashboard/lib/reviewStore'
 import { formatDate, formatDateShort } from '../../dashboard/lib/demoClock'
-import { humanWait, type PlanTest } from './carePlan'
+import { book, bookTest } from './appointmentStore'
+import { humanWait, type PlanTest, type Slot } from './carePlan'
+import CalendarModal from './components/CalendarModal'
 import { isBehindUs, type JourneyEvent } from './journey'
 import { usePatientReferral } from './usePatientReferral'
 import type { MissingVariableInfo } from '../../dashboard/types'
@@ -39,6 +41,7 @@ interface Action {
   title: string
   why: string
   cta: string
+  onClick?: () => void
 }
 
 /* ── 1 · Do this next ────────────────────────────────────────────────────── */
@@ -61,7 +64,7 @@ function ActionPanel({ actions }: { actions: Action[] }) {
               <span className="block text-[13px] leading-snug text-muted">{action.why}</span>
             </span>
             <button
-              onClick={() => alert('Appointment scheduling coming soon')}
+              onClick={action.onClick}
               className="shrink-0 rounded-md bg-accent-strong px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[#27508f]"
             >
               {action.cta}
@@ -252,7 +255,7 @@ function Tick({ done }: { done: boolean }) {
   )
 }
 
-function TaskRow({ test }: { test: PlanTest }) {
+function TaskRow({ test, onOpenCalendar }: { test: PlanTest, onOpenCalendar?: () => void }) {
   const trailing = test.done
     ? 'Result in'
     : !test.bookable
@@ -276,12 +279,12 @@ function TaskRow({ test }: { test: PlanTest }) {
       {trailing ? (
         <span className="shrink-0 pt-0.5 text-[12px] text-muted">{trailing}</span>
       ) : (
-        <Link
-          to="/patient/appointments"
+        <button
+          onClick={onOpenCalendar}
           className="shrink-0 pt-0.5 text-[12px] font-medium text-accent hover:underline"
         >
           Book a time →
-        </Link>
+        </button>
       )}
     </li>
   )
@@ -291,6 +294,12 @@ function TaskRow({ test }: { test: PlanTest }) {
 
 export default function MyReferralScreen() {
   const { loading, referral, redirected, careTeam, plan, journey, status, review, infoRequestNote } = usePatientReferral()
+  const [calendarTarget, setCalendarTarget] = useState<{
+    type: 'consult' | 'test'
+    name?: string
+    title: string
+    slots: Slot[]
+  } | null>(null)
 
   if (loading) {
     return (
@@ -345,6 +354,7 @@ export default function MyReferralScreen() {
       title: 'Pick your consultation date',
       why: `We texted you the next openings with ${careTeam} — choose one and we’ll confirm it.`,
       cta: 'Choose a date',
+      onClick: () => setCalendarTarget({ type: 'consult', title: 'Schedule Consultation', slots: plan.offers }),
     })
   }
   for (const test of [...toBook].sort((a, b) => a.dueBy.localeCompare(b.dueBy))) {
@@ -352,6 +362,7 @@ export default function MyReferralScreen() {
       title: `Book your ${test.modality.kind.toLowerCase()}`,
       why: `These book up about ${test.modality.leadDays} days ahead, and the result is needed by ${formatDate(test.dueBy)}.`,
       cta: 'Find a time',
+      onClick: () => setCalendarTarget({ type: 'test', name: test.name, title: `Schedule ${test.modality.kind}`, slots: test.slots }),
     })
   }
 
@@ -439,7 +450,11 @@ export default function MyReferralScreen() {
                 <p className="mt-4 text-caption uppercase text-muted">Still to do</p>
                 <ul className="divide-y divide-line">
                   {left.map((test) => (
-                    <TaskRow key={test.name} test={test} />
+                    <TaskRow 
+                      key={test.name} 
+                      test={test} 
+                      onOpenCalendar={() => setCalendarTarget({ type: 'test', name: test.name, title: `Schedule ${test.modality.kind}`, slots: test.slots })}
+                    />
                   ))}
                 </ul>
               </>
@@ -462,6 +477,21 @@ export default function MyReferralScreen() {
       <p className="mt-6 text-[11px] leading-relaxed text-muted">
         Questions about any of this? Call the clinic — we’d rather you ask than wonder.
       </p>
+      
+      <CalendarModal
+        isOpen={calendarTarget !== null}
+        onClose={() => setCalendarTarget(null)}
+        title={calendarTarget?.title || ''}
+        slots={calendarTarget?.slots || []}
+        onPick={(slot) => {
+          if (calendarTarget?.type === 'consult') {
+            book(referral.payload.referralId, { at: slot.at, label: slot.time })
+          } else if (calendarTarget?.type === 'test' && calendarTarget.name) {
+            bookTest(referral.payload.referralId, calendarTarget.name, { at: slot.at, label: slot.time })
+          }
+          setCalendarTarget(null)
+        }}
+      />
     </div>
   )
 }

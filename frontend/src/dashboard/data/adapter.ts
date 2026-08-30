@@ -75,54 +75,51 @@ function applyScope(all: ReviewableReferral[], scope?: ReferralScope): Reviewabl
 }
 
 class LiveApiSource implements ReferralSource {
-  private cache: ReviewableReferral[] | null = null
-
-  /** Fetch from API and derive tree results. Cached after first fetch. */
+  /** Fetch from API and derive tree results. */
   private async materialize(scope?: ReferralScope): Promise<ReviewableReferral[]> {
-    if (!this.cache) {
+    try {
+      await loadActiveTree()
+      const opts: { mrn?: string; clinicId?: string } = {}
+      // MRN filtering can be done server-side for efficiency
+      if (scope?.mrn) opts.mrn = scope.mrn
+      if (scope?.clinicId) opts.clinicId = scope.clinicId
+
+      const apiReferrals = await fetchReferrals(opts)
+      const reviewables = apiReferrals.map(apiReferralToReviewable)
+
       try {
-        await loadActiveTree()
-        const opts: { mrn?: string; clinicId?: string } = {}
-        // MRN filtering can be done server-side for efficiency
-        if (scope?.mrn) opts.mrn = scope.mrn
-        if (scope?.clinicId) opts.clinicId = scope.clinicId
+        const apiReviews = await fetchAllReviews()
+        const reviewStates = apiReviews.map(r => ({
+          referralId: r.referral_id,
+          status: r.status as ReviewStatus,
+          reviewer: r.reviewer ?? undefined,
+          reviewedAt: r.reviewed_at ?? undefined,
+          correction: r.correction ? (r.correction as any) : undefined,
+          surgeonSeen: r.surgeon_seen,
+        }))
+        hydrateReviews(reviewStates)
 
-        const apiReferrals = await fetchReferrals(opts)
-        this.cache = apiReferrals.map(apiReferralToReviewable)
-
-        try {
-          const apiReviews = await fetchAllReviews()
-          const reviewStates = apiReviews.map(r => ({
-            referralId: r.referral_id,
-            status: r.status as ReviewStatus,
-            reviewer: r.reviewer ?? undefined,
-            reviewedAt: r.reviewed_at ?? undefined,
-            correction: r.correction ? (r.correction as any) : undefined,
-            surgeonSeen: r.surgeon_seen,
-          }))
-          hydrateReviews(reviewStates)
-
-          const apiAudits = await fetchAllAuditEvents()
-          const auditEvents = apiAudits.map((a) => ({
-            id: a.id,
-            referralId: a.referral_id,
-            at: a.at,
-            actor: a.actor,
-            role: a.role as any,
-            action: a.action as any,
-            correction: a.correction as any,
-            note: a.note || undefined,
-          }))
-          hydrateAudit(auditEvents)
-        } catch (err) {
-          console.warn('[LiveApiSource] Failed to fetch reviews for hydration:', err)
-        }
+        const apiAudits = await fetchAllAuditEvents()
+        const auditEvents = apiAudits.map((a) => ({
+          id: a.id,
+          referralId: a.referral_id,
+          at: a.at,
+          actor: a.actor,
+          role: a.role as any,
+          action: a.action as any,
+          correction: a.correction as any,
+          note: a.note || undefined,
+        }))
+        hydrateAudit(auditEvents)
       } catch (err) {
-        console.warn('[LiveApiSource] Failed to fetch referrals from API, returning empty list:', err)
-        this.cache = []
+        console.warn('[LiveApiSource] Failed to fetch reviews for hydration:', err)
       }
+      
+      return reviewables
+    } catch (err) {
+      console.warn('[LiveApiSource] Failed to fetch referrals from API, returning empty list:', err)
+      return []
     }
-    return this.cache
   }
 
   async listReferrals(scope?: ReferralScope): Promise<ReviewableReferral[]> {

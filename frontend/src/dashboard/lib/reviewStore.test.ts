@@ -56,9 +56,41 @@ function testApplyActionUpdatesState() {
   if (event.actor !== 'Dr. Test') fail('Audit event actor mismatch')
 }
 
+function testApprovalActionAddsReviewTimestamp() {
+  hydrateReviews([])
+  hydrateAudit([])
+
+  applyAction('REF-APPROVED', 'approved', {
+    actor: 'Dr. Neill Li',
+    role: 'surgeon',
+    note: 'Approved for consultation',
+  })
+
+  const snapshot = getSnapshot()
+  const review = snapshot.reviews['REF-APPROVED']
+  if (review?.status !== 'approved') {
+    fail(`Expected approved status, got ${review?.status}`)
+  }
+  if (!review?.reviewedAt) {
+    fail('Expected approved review to include a reviewedAt timestamp')
+  }
+
+  const latestEvent = snapshot.audit.at(-1)
+  if (!latestEvent) {
+    fail('Expected an audit event after approval')
+  }
+  if (latestEvent.action !== 'approved') {
+    fail(`Expected latest audit action to be approved, got ${latestEvent.action}`)
+  }
+  if (latestEvent.note !== 'Approved for consultation') {
+    fail(`Expected approval note to be preserved, got ${latestEvent.note}`)
+  }
+}
+
 function runAll() {
   try {
     testApplyActionUpdatesState()
+    testApprovalActionAddsReviewTimestamp()
     console.log('[reviewStore.test.ts] PASS')
   } catch (err: any) {
     fail(err.message)

@@ -26,6 +26,7 @@ const TEST_FILES = [
   'src/dashboard/lib/workupMerge.test.ts',
   'src/dashboard/lib/scope.test.ts',
   'src/dashboard/lib/reviewStore.test.ts',
+  'src/pages/patient/journey.test.ts',
 ]
 
 for (const entry of TEST_FILES) {

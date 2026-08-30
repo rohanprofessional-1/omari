@@ -197,7 +197,7 @@ function RunnerSession({
               phone: '',
             },
             referredToDepartment: step.specialist.specialty,
-            priority: step.urgency === 'routine' ? 'routine' : 'urgent',
+            priority: step.specialist.urgency === 'routine' ? 'routine' : 'urgent',
             reasonForReferral: lastTextRef.current || 'Patient-reported symptoms via AI intake',
             clinicalNote: '', // The AI generates a summary instead
             diagnoses: [],
@@ -205,7 +205,12 @@ function RunnerSession({
             structured: {},
           },
           extraction: {
-            variables: filled,
+            variables: Object.fromEntries(
+              Object.entries(filled).map(([k, v]) => [
+                k,
+                { value: v.value ?? '', confidence: v.confidence },
+              ])
+            ),
             sources: Object.keys(filled).reduce(
               (acc, k) => ({ ...acc, [k]: 'patient-stated' }),
               {}

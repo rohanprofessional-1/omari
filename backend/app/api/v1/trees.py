@@ -315,6 +315,23 @@ async def delete_tree(
     await db.commit()
 
 
+@router.post("/{id}/activate", response_model=TreeRead)
+async def activate_tree(
+    id: str,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    tree = await db.get(Tree, id)
+    if not tree:
+        raise HTTPException(status_code=404, detail="Tree not found")
+
+    tree.is_active = True
+    await _deactivate_other_trees(db, tree.id, tree.clinic_id)
+    await db.commit()
+    await db.refresh(tree)
+    
+    return tree
+
+
 # ---------------------------------------------------------------------------
 # Versioning & sign-off — publish snapshots the mutable draft into an
 # IMMUTABLE tree_versions row (frontend camelCase shape, engine-native).

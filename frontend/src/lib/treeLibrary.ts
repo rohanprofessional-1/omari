@@ -97,7 +97,7 @@ export function useTreeLibrary(): TreeLibrary {
       const stored = readStored()
       const activeTree = list.find((t) => t.is_active)
       const storedTree = list.find((t) => t.id === stored)
-      const pick = storedTree ?? activeTree ?? list[0]
+      const pick = activeTree ?? storedTree ?? list[0]
       if (pick) {
         persistActive(pick.id)
         await loadTree(pick.id)
@@ -168,9 +168,10 @@ export function useTreeLibrary(): TreeLibrary {
   const activate = useCallback(
     async (id: string) => {
       await activateTree(id)
+      persistActive(id)
       await refresh()
     },
-    [refresh],
+    [persistActive, refresh],
   )
 
   return {

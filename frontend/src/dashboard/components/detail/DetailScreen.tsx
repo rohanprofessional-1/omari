@@ -5,6 +5,7 @@ import { getForUser } from '../../lib/scope'
 import { backLabelFor } from '../../lib/useOpenReferral'
 import { ageFromDob, waitingSince, formatDate } from '../../lib/demoClock'
 import { useDashboardStore } from '../../lib/reviewStore'
+import { useBookings, useTestBookings } from '../../../pages/patient/appointmentStore'
 import type { ReviewStatus, ReviewableReferral } from '../../types'
 import Badge, { type BadgeTone } from '../shared/Badge'
 import ChannelBadge from '../shared/ChannelBadge'
@@ -96,6 +97,8 @@ export default function DetailScreen() {
   const onBack = () => (origin ? navigate(-1) : navigate('..'))
 
   const { reviews, audit } = useDashboardStore()
+  const bookings = useBookings()
+  const testBookings = useTestBookings()
   const { user } = useAuth()
   const [referral, setReferral] = useState<ReviewableReferral | null>(null)
   const [loading, setLoading] = useState(true)
@@ -151,6 +154,10 @@ export default function DetailScreen() {
     .filter((e) => e.referralId === referralId && e.role === 'patient' && e.note)
     .pop()
 
+  const consultationBooking = bookings[referralId]
+  const testsForReferral = testBookings[referralId] || {}
+  const bookedTests = Object.entries(testsForReferral)
+
   return (
     <div className="mx-auto w-full max-w-dash-page px-6 pt-4">
       {/* Header row */}
@@ -186,6 +193,30 @@ export default function DetailScreen() {
       <div className="mt-3">
         <ReviewStepper decided={status !== 'pending'} />
       </div>
+
+      {(consultationBooking || bookedTests.length > 0) && (
+        <div className="mt-4 rounded-dash-card border border-dash-line bg-dash-surface p-4 shadow-sm">
+          <p className="text-dash-micro font-semibold uppercase tracking-wide text-dash-muted">
+            Patient Scheduled Appointments
+          </p>
+          <div className="mt-3 flex flex-wrap gap-4">
+            {consultationBooking && (
+              <div className="rounded-md bg-dash-bg p-3 min-w-[200px]">
+                <p className="text-[13px] font-medium text-dash-ink">Consultation</p>
+                <p className="mt-1 text-[15px] font-bold text-dash-ink">{formatDate(consultationBooking.at)}</p>
+                <p className="mt-0.5 text-dash-micro text-dash-muted">{consultationBooking.label}</p>
+              </div>
+            )}
+            {bookedTests.map(([testName, booking]) => (
+              <div key={testName} className="rounded-md bg-dash-bg p-3 min-w-[200px]">
+                <p className="text-[13px] font-medium text-dash-ink">{testName}</p>
+                <p className="mt-1 text-[15px] font-bold text-dash-ink">{formatDate(booking.at)}</p>
+                <p className="mt-0.5 text-dash-micro text-dash-muted">{booking.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {patientNoteEvent && (
         <div className="mt-4 rounded-dash-card border-2 border-red-200 bg-red-50 p-4 shadow-sm">
